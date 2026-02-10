@@ -10,7 +10,7 @@ This research investigates a hybrid computational workflow for the integration o
 
 ---
 
-## 🏗 The Computational Pipeline
+##The Computational Pipeline
 The workflow is divided into six primary stages:
 1. **Geometry Generation:** Deep generative models for initial shell structures.
 2. **Structural Evaluation:** Material-agnostic FEA.
@@ -21,7 +21,7 @@ The workflow is divided into six primary stages:
 
 ---
 
-## 📂 Repository Structure
+##Repository Structure
 ```text
 ├── notebooks/          # Google Colab / Jupyter Notebooks for experiments
 ├── scripts/            # Core Python modules (.py) for logic and math
