@@ -40,8 +40,11 @@ temp/
 *.gh.rhl
 
 # === VS Code Specifiek ===
-# Negeer je lokale VS Code instellingen (zoals geopende tabs)
-.vscode/
+# Negeer de algemene VS Code werkruimte bestanden
+.vscode/*
+
+# MAAR behoud de project-specifieke instellingen (zoals extraPaths)
+!.vscode/settings.json
 # Maar als je je workspace-bestand IN de repo hebt staan, haal deze dan weg:
 *.code-workspace
 
