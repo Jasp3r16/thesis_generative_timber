@@ -13,8 +13,8 @@ EXPORT_DIR = PROJECT_ROOT / "60_Research_Exports"
 SRC_DIR = REPO_ROOT / "src"  # Nieuwe toevoeging!
 
 # Submappen binnen de data-inventory
-GH_DATA_DIR = DATA_DIR / "02_grasshopper_data"
-RAW_DATA_DIR = DATA_DIR / "03_raw_data"
+GH_DATA_DIR = DATA_DIR / "01_grasshopper_data"
+RAW_DATA_DIR = DATA_DIR / "02_raw_data"
 
 # Handig: Maak de export-map automatisch aan als deze nog niet bestaat
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -23,3 +23,9 @@ if str(SRC_DIR) not in sys.path:
     sys.path.append(str(SRC_DIR))
 
 print(f"Systeem geladen. Project root: {PROJECT_ROOT.name}")
+
+'''
+print(f"Data directory: {DATA_DIR}")
+print(f"GH data directory: {GH_DATA_DIR}")
+print(f"Raw data directory: {RAW_DATA_DIR}")
+'''
