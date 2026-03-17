@@ -8,24 +8,24 @@ REPO_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = REPO_ROOT.parent
 
 # De specifieke mappen met jouw namen
-DATA_DIR = PROJECT_ROOT / "30_Data_Inventory"
-EXPORT_DIR = PROJECT_ROOT / "60_Research_Exports"
-SRC_DIR = REPO_ROOT / "src"  # Nieuwe toevoeging!
+DATA_PATH = PROJECT_ROOT / "30_Data_Inventory"
+EXPORT_PATH = PROJECT_ROOT / "60_Research_Exports"
+SRC_PATH = REPO_ROOT / "src"  # Nieuwe toevoeging!
 
 # Submappen binnen de data-inventory
-GH_DATA_DIR = DATA_DIR / "01_grasshopper_data"
-RAW_DATA_DIR = DATA_DIR / "02_raw_data"
+GH_DATA_PATH = DATA_PATH / "01_grasshopper_data"
+RAW_DATA_PATH = DATA_PATH / "02_raw_data"
 
 # Handig: Maak de export-map automatisch aan als deze nog niet bestaat
-EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 
-if str(SRC_DIR) not in sys.path:
-    sys.path.append(str(SRC_DIR))
+if str(SRC_PATH) not in sys.path:
+    sys.path.append(str(SRC_PATH))
 
 print(f"Systeem geladen. Project root: {PROJECT_ROOT.name}")
 
 '''
-print(f"Data directory: {DATA_DIR}")
-print(f"GH data directory: {GH_DATA_DIR}")
-print(f"Raw data directory: {RAW_DATA_DIR}")
+print(f"Data directory: {DATA_PATH}")
+print(f"GH data directory: {GH_DATA_PATH}")
+print(f"Raw data directory: {RAW_DATA_PATH}")
 '''
