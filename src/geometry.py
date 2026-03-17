@@ -1,6 +1,69 @@
 import pandas as pd
 
+def get_corner_indices(cells_x, cells_y):
+    """
+    Berekent de indices van de hoekpunten voor de Top Layer.
+    Werkt voor elke grid grootte (n x m).
+    """
+    # Aantal punten is altijd aantal cellen + 1
+    nodes_x = cells_x + 1
+    nodes_y = cells_y + 1
+    total_nodes = nodes_x * nodes_y
+
+    indices = {
+        "bottom_left": 0,
+        "bottom_right": nodes_x - 1,
+        "top_left": (nodes_y - 1) * nodes_x,
+        "top_right": total_nodes - 1
+    }
+
+    return indices
+
+def bilinear_interpolate(p00, p10, p01, p11, u, v):
+    """
+    Interpoleert een punt binnen een vierhoek.
+    p00: Bottom-Left, p10: Bottom-Right, p01: Top-Left, p11: Top-Right (in standaard cartesiaans)
+    Maar in matrix indexering (rij i, kol j):
+    (i, j) is vaak Top-Left in images, maar Bottom-Left in Grasshopper/Cartesiaans als y omhoog gaat.
+    Laten we aannemen: i=0 is y=0 (onder), i=max is y=max (boven).
+    Dan is rij i "onder" rij i+1.
+    p_bl = (i, j), p_br = (i, j+1)
+    p_tl = (i+1, j), p_tr = (i+1, j+1)
+    """
+    # X interpolatie
+    # Onderkant (row i)
+    x_bot = p00['x'] * (1 - u) + p10['x'] * u
+    # Bovenkant (row i+1)
+    x_top = p01['x'] * (1 - u) + p11['x'] * u
+
+    final_x = x_bot * (1 - v) + x_top * v
+
+    # Y interpolatie
+    y_bot = p00['y'] * (1 - u) + p10['y'] * u
+    y_top = p01['y'] * (1 - u) + p11['y'] * u
+
+    final_y = y_bot * (1 - v) + y_top * v
+
+    return final_x, final_y
+
 def generate_edges(num_samples, cells_x, cells_y):
+    """
+    Genereert een topologische verbindingslijst (edges) voor een dubbellaags ruimtelijk vakwerk.
+
+    De functie bouwt een grid op bestaande uit drie onderdelen:
+    1. Een Top Layer grid van (cells_x + 1) bij (cells_y + 1) punten.
+    2. Een Bottom Layer grid van (cells_x) bij (cells_y) punten, gecentreerd onder de top-cellen.
+    3. Diagonale verbindingen (piramide-structuur) tussen de bottom-punten en de vier bovenliggende top-punten.
+
+    Args:
+        num_samples (int): Het aantal unieke samples dat gegenereerd moet worden.
+        cells_x (int): Het aantal cellen in de X-richting.
+        cells_y (int): Het aantal cellen in de Y-richting.
+
+    Returns:
+        pd.DataFrame: Een DataFrame met de kolommen ['sample_id', 'edge_id', 'V1', 'V2'].
+            V1 en V2 zijn de indices van de verbonden hoekpunten (vertices).
+    """
     edges_data = []
 
     # Bereken hulpparameters
