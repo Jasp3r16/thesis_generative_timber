@@ -1,5 +1,22 @@
+# Data manipulatie
 numpy
 pandas
+openpyxl
+scipy
+
+# Deep Learning (Generative Design)
+torch
+torchvision
+scikit-learn
+
+# Visualisatie
+matplotlib
+seaborn
+tqdm
+
+# Web & Optimalisatie
 flask
 pulp
-json
+
+# Utilities
+python-dotenv

@@ -5,20 +5,29 @@ __pycache__/
 .env
 venv/
 env/
+*.log
 
 # === Jupyter / Colab ===
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 checkpoint_*.ipynb
 
-# === Data & Excel (Cruciaal voor jou) ===
-# We negeren de tijdelijke Excel bestanden die Word/Excel maken als ze open staan
+# === Deep Learning / Models (Cruciaal voor Generative Design) ===
+# Negeer grote model-gewichten die je lokaal traint
+*.pth
+*.h5
+*.ckpt
+*.onnx
+*.weights
+
+# === Data & Excel ===
 ~$*.xlsx
 ~$*.xls
-
-# Optioneel: negeer je hele data map als de bestanden >100MB zijn
-# GitHub houdt niet van hele grote bestanden.
-# data_thesis/
+*.csv
+*.json
+# Als je per ongeluk een data-map binnen je repo maakt:
+data/
+temp/
 
 # === Rhino & Grasshopper ===
 *.bak
@@ -26,7 +35,17 @@ checkpoint_*.ipynb
 *.gh~
 *.3dm.bak
 *.3dm.tmp
+# Rhino autosave bestanden
+*.3dm.rhl
+*.gh.rhl
+
+# === VS Code Specifiek ===
+# Negeer je lokale VS Code instellingen (zoals geopende tabs)
+.vscode/
+# Maar als je je workspace-bestand IN de repo hebt staan, haal deze dan weg:
+*.code-workspace
 
 # === OS Specific ===
 .DS_Store
 Thumbs.db
+desktop.ini
