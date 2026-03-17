@@ -1,4 +1,14 @@
 import pandas as pd
+import random
+import c11_params
+
+def get_valid_shifts(divisions, edge_length):
+    """Berekent de toegestane verschuivingen (verwijdert extremen)."""
+    half_div = divisions // 2
+    all_steps = list(range(-half_div, half_div + 1))
+    valid_steps = all_steps[1:-1] # Verwijder eerste en laatste
+    valid_shifts = [(step / divisions) * edge_length for step in valid_steps]
+    return valid_shifts
 
 def get_corner_indices(cells_x, cells_y):
     """
@@ -140,3 +150,109 @@ def generate_edges(num_samples, cells_x, cells_y):
                 add_edge(bottom_node, top_br)
 
     return pd.DataFrame(edges_data)
+
+# Zorg dat get_corner_indices, get_valid_shifts en bilinear_interpolate ook beschikbaar zijn
+
+def generate_sample_vertices(sample_id, params=None, valid_shifts=None):
+    """
+    Genereert de coördinaten voor een enkel ruimtelijk vakwerk.
+    
+    Modus 1 (Dataset Generatie): Als 'params' None is, worden willekeurige 
+    verschuivingen toegepast op basis van de valid_shifts.
+    Modus 2 (Reconstructie): Als 'params' een dictionary is, worden de 
+    specifieke optimum waarden ingeladen.
+    """
+    all_vertices = []
+    num_nodes_x_top = c11_params.GRID_CELLS_X + 1
+    num_nodes_y_top = c11_params.GRID_CELLS_Y + 1
+
+    corners = get_corner_indices(c11_params.GRID_CELLS_X, c11_params.GRID_CELLS_Y).values()
+    top_layer_coords = {}
+    vertex_idx = 0
+
+    # --- STAP 1: TOP LAYER ---
+    for i in range(num_nodes_y_top):
+        for j in range(num_nodes_x_top):
+            base_x = j * c11_params.EDGE_LENGTH
+            base_y = i * c11_params.EDGE_LENGTH
+            base_z = 0.0
+
+            attribute = "support" if vertex_idx in corners else "load"
+            v_name = f"v{vertex_idx}"
+
+            shift_x, shift_y = 0.0, 0.0
+
+            # BEPAAL DE WAARDEN OP BASIS VAN DE MODUS
+            if params is not None:
+                # Modus 2: Haal op uit Optuna optimum
+                shift_x = params.get(f"{v_name}_shift_x", 0.0)
+                shift_y = params.get(f"{v_name}_shift_y", 0.0)
+            else:
+                # Modus 1: Genereer random voor de dataset
+                is_x_edge = (j == 0) or (j == num_nodes_x_top - 1)
+                is_y_edge = (i == 0) or (i == num_nodes_y_top - 1)
+                is_corner = is_x_edge and is_y_edge
+
+                if not is_corner:
+                    if is_x_edge:
+                        shift_y = random.choice(valid_shifts)
+                    elif is_y_edge:
+                        shift_x = random.choice(valid_shifts)
+                    else:
+                        shift_x = random.choice(valid_shifts)
+                        shift_y = random.choice(valid_shifts)
+
+            final_x = base_x + shift_x
+            final_y = base_y + shift_y
+            final_z = base_z
+
+            top_layer_coords[(i, j)] = {'x': final_x, 'y': final_y, 'z': final_z}
+
+            all_vertices.append({
+                "sample_id": sample_id,
+                "vertex_index": v_name,
+                "layer": "top",
+                "attribute": attribute,
+                "x": round(final_x, 3),
+                "y": round(final_y, 3),
+                "z": round(final_z, 3)
+            })
+            vertex_idx += 1
+
+    # --- STAP 2: BOTTOM LAYER ---
+    for i in range(c11_params.GRID_CELLS_Y):
+        for j in range(c11_params.GRID_CELLS_X):
+            v_name = f"v{vertex_idx}"
+
+            p00 = top_layer_coords[(i, j)]      # Bottom-Left
+            p10 = top_layer_coords[(i, j+1)]    # Bottom-Right
+            p01 = top_layer_coords[(i+1, j)]    # Top-Left
+            p11 = top_layer_coords[(i+1, j+1)]  # Top-Right
+
+            # BEPAAL DE WAARDEN OP BASIS VAN DE MODUS
+            if params is not None:
+                # Modus 2: Haal op uit Optuna optimum
+                u = params.get(f"{v_name}_u", 0.5)
+                v = params.get(f"{v_name}_v", 0.5)
+                z_shift = params.get(f"{v_name}_shift_z", 0.0)
+            else:
+                # Modus 1: Genereer random voor de dataset
+                u = random.uniform(*c11_params.SCALE_UV)
+                v = random.uniform(*c11_params.SCALE_UV)
+                z_shift = random.choice(valid_shifts)
+
+            lx, ly = bilinear_interpolate(p00, p10, p01, p11, u, v)
+            final_z = -c11_params.LAYER_HEIGHT + z_shift
+
+            all_vertices.append({
+                "sample_id": sample_id,
+                "vertex_index": v_name,
+                "layer": "bottom",
+                "attribute": "hinges",
+                "x": round(lx, 3),
+                "y": round(ly, 3),
+                "z": round(final_z, 3)
+            })
+            vertex_idx += 1
+
+    return all_vertices
