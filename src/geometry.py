@@ -256,3 +256,44 @@ def generate_sample_vertices(sample_id, params=None, valid_shifts=None):
             vertex_idx += 1
 
     return all_vertices
+
+def generate_full_dataset(num_samples, round_decimals=2):
+    """
+    Genereert een dataset van ruimtelijke vakwerken en waarborgt geometrische diversiteit.
+    Maakt gebruik van ruimtelijke discretisatie om sterk op elkaar lijkende configuraties (near-duplicates) te verwerpen.
+    """
+    valid_shifts = get_valid_shifts(c11_params.DIVISIONS, c11_params.EDGE_LENGTH)
+    all_data = []
+    
+    seen_signatures = set()
+    samples_generated = 0
+    attempts = 0
+    max_attempts = num_samples * 10  # Veiligheidslimiet voor de while-loop
+    
+    while samples_generated < num_samples and attempts < max_attempts:
+        # 1. Genereer een kandidaat-configuratie
+        vertices = generate_sample_vertices(samples_generated, params=None, valid_shifts=valid_shifts)
+        
+        # 2. Creëer een topologische handtekening via afronding (discretisatie)
+        # We extraheren alleen de (x, y, z) coördinaten en ronden ze af om
+        # micromillimeter-variaties als duplicaten te identificeren.
+        signature = tuple(
+            (round(v['x'], round_decimals), 
+             round(v['y'], round_decimals), 
+             round(v['z'], round_decimals)) 
+            for v in vertices
+        )
+        
+        # 3. Valideer de uniciteit van de kandidaat
+        if signature not in seen_signatures:
+            seen_signatures.add(signature)
+            all_data.extend(vertices)
+            samples_generated += 1
+            
+        attempts += 1
+        
+    if attempts >= max_attempts:
+        print(f"Waarschuwing: Generatie voortijdig gestopt ter preventie van een oneindige loop. "
+              f"De design space is mogelijk te beperkt. Totaal gegenereerd: {samples_generated}")
+              
+    return pd.DataFrame(all_data)
