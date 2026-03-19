@@ -8,3 +8,11 @@ NUM_SAMPLES = 10       # Aantal samples
 SCALE_UV = 0.25, 0.75        # Random positie in de cel
 
 GRID = f"{GRID_CELLS_X}x{GRID_CELLS_Y}"
+
+# --- PARAMETERS VOOR HOUT EN LCA ---
+# GWP Waarden (kg CO2 eq / kg hout)
+GWP_VIRGIN = 0.50
+GWP_RECLAIMED = 0.08
+
+# LCA Parameters voor E_cost
+PROCESSING_PENALTY_CO2 = 5.0  # kg CO2 boete voor bewerkingen (bijv. ontspijkeren)
