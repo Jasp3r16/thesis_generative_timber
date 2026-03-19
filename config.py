@@ -43,4 +43,5 @@ print(f"☁️ Data gekoppeld aan OneDrive: {ONEDRIVE_ROOT.name}")
 print(f"Data directory: {DATA_PATH}")
 print(f"GH data directory: {GH_DATA_PATH}")
 print(f"Raw data directory: {RAW_DATA_PATH}")
+print(f"Export directory: {EXPORT_PATH}")
 '''
