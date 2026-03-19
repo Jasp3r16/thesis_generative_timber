@@ -1,3 +1,4 @@
+import config
 import c11_params
 import numpy as np
 import pandas as pd
