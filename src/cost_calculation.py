@@ -11,7 +11,6 @@ def calculate_pseudo_lca_stock(df_stock):
     met de timber stock.
     """
     # Maak een kopie om waarschuwingen (SettingWithCopyWarning) te voorkomen
-    # en de originele input dataset zuiver te houden.
     df_lca = df_stock.copy()
 
     print("Start in-memory pseudo-LCA berekeningen...")
@@ -19,14 +18,11 @@ def calculate_pseudo_lca_stock(df_stock):
     # Stap A: Bereken Volume in m3 (dimensies zijn in mm, dus delen door 1000)
     df_lca['Volume_m3'] = (df_lca['Length'] / 1000) * (df_lca['Width'] / 1000) * (df_lca['Depth'] / 1000)
 
-    # Stap B: Material Impact (A1-A3)
     df_lca['Impact_Material_kgCO2'] = df_lca['Volume_m3'] * df_lca['ECC']
 
-    # Stap C: Transport Impact (A4)
     # Dichtheid (Density) delen door 1000 om van kg/m3 naar ton/m3 te gaan
     df_lca['Impact_Transport_kgCO2'] = df_lca['Volume_m3'] * (df_lca['Density'] / 1000) * df_lca['Transport_Dist'] * df_lca['Emmisiefactor']
 
-    # Stap D: Processing Impact (C3 / A3 Re-processing)
     # Binaire bewerkingsfactor (0 of 1) maal de vaste penalty
     df_lca['Impact_Processing_kgCO2'] = df_lca['Bewerkingsfactor'] * c11_params.PROCESSING_PENALTY_CO2
 

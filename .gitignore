@@ -45,6 +45,7 @@ temp/
 
 # MAAR behoud de project-specifieke instellingen (zoals extraPaths)
 !.vscode/settings.json
+!search_space.json
 # Maar als je je workspace-bestand IN de repo hebt staan, haal deze dan weg:
 *.code-workspace
 
