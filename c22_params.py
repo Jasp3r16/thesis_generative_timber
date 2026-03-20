@@ -80,12 +80,10 @@ MECH_PROPS_RECLAIMED = {
 
 # LCA Aannames Reclaimed Hout
 LCA_RECLAIMED = {
-    'Embodied Carbon Coëfficiënt': 15.0,   # Fictief laag (enkel de-constructie impact)
+    'Embodied Carbon Coëfficiënt': 15.0,                # Fictief laag (enkel de-constructie impact)
+    "Transport_distance_range": (10, 240),              # Locatie Delft: (lokaal, Groningen)
     'Emmisiefactor_diesel_range': (0.08, 0.15),
     'Emmisiefactor_elektrisch_range': (0.02, 0.05),
-    'Kans_op_elektrisch': 0.30, # 30% kans dat het lokaal via een e-truck gaat
-    'Bewerkingsfactor': 1                  # 1 = Ontspijkeren en schaven nodig
+    'Kans_op_elektrisch': 0.30,                         # 30% kans dat het lokaal via een e-truck gaat
+    'Bewerkingsfactor': 1                               # 1 = Ontspijkeren en schaven nodig
 }
-# LCA: Willekeurige afstand vanaf donor site
-# Locatie Delft: (lokaal, Groningen)
-transport_dist = random.randint(10, 240)

@@ -180,8 +180,8 @@ def generate_reclaimed_stock() -> pd.DataFrame:
             grade = np.random.choice(['C24', 'C18'], p=[0.60, 0.40])
             grade_props = mech_reclaimed[grade]
             
-            # Transport and emissions
-            transport_dist = random.randint(20, 150)
+
+            transport_dist = random.randint(*lca_reclaimed['Transport_distance_range'])
             if random.random() < prob_electric:
                 emission_factor = random.uniform(*electric_range)
             else:
