@@ -61,8 +61,7 @@ MECH_PROPS_NEW = {
 # LCA Aannames Nieuw Hout
 LCA_NEW = {
     'Embodied Carbon Coëfficiënt': 150.0,  # Fictief hoog (productie + drogen)
-    'Transport_Dist': 1500,                 # Vaste grotere afstand (bijv. import)
-    'Emmisiefactor_diesel_range': (0.08, 0.15), # Alleen groot diesel transport voor nieuw hout
+    'Emmisiefactor_diesel_range': (0.17, 0.18), # Alleen groot diesel transport voor nieuw hout
     'Bewerkingsfactor': 0                  # 0 = Geen ontspijkering nodig
 }
 
@@ -81,8 +80,8 @@ MECH_PROPS_RECLAIMED = {
 # LCA Aannames Reclaimed Hout
 LCA_RECLAIMED = {
     'Embodied Carbon Coëfficiënt': 15.0,                # Fictief laag (enkel de-constructie impact)
-    "Transport_distance_range": (10, 240),              # Locatie Delft: (lokaal, Groningen)
-    'Emmisiefactor_diesel_range': (0.08, 0.15),
+    "Transport_distance_range": (5, 240),               # Locatie Delft: (lokaal, Groningen)
+    'Emmisiefactor_diesel_range': (0.17, 0.18),
     'Emmisiefactor_elektrisch_range': (0.02, 0.05),
     'Kans_op_elektrisch': 0.30,                         # 30% kans dat het lokaal via een e-truck gaat
     'Bewerkingsfactor': 1                               # 1 = Ontspijkeren en schaven nodig

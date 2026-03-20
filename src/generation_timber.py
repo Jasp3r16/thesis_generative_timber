@@ -92,6 +92,42 @@ def _get_lca_reclaimed() -> Dict[str, Any]:
     params = _get_params_module()
     return params.LCA_RECLAIMED
 
+def assign_transport_distance():
+    """
+    Kiest een willekeurige transportafstand op basis van de importpercentages 
+    voor bouwhout in Nederland (2021).
+    """
+    
+    # Definitie van de bronnen: (Land, Gewicht/Percentage, Gemiddelde afstand in km)
+    # De afstanden zijn schattingen tot centraal Nederland en kunnen voor 
+    # de uiteindelijke LCA-berekening in de thesis worden gefinetuned.
+    sources = {
+        "Duitsland": {"weight": 26, "base_distance": 300},
+        "Zweden": {"weight": 18, "base_distance": 1000},
+        "België": {"weight": 12, "base_distance": 150},
+        "Baltische Staten": {"weight": 9, "base_distance": 1500},
+        "Nederland": {"weight": 8, "base_distance": 50},
+        "Finland": {"weight": 8, "base_distance": 1800},
+        "Polen": {"weight": 5, "base_distance": 900},
+        "Frankrijk": {"weight": 4, "base_distance": 500},
+        "Spanje & Portugal": {"weight": 3, "base_distance": 1800},
+        "Overig": {"weight": 7, "base_distance": 4000} # Resterende 7%
+    }
+
+    # Splits de data op in lijsten voor de random.choices functie
+    country_names = list(sources.keys())
+    weights = [sources[country]["weight"] for country in country_names]
+
+    # 1. Kies een land op basis van de gewogen kansen
+    chosen_country = random.choices(country_names, weights=weights, k=1)[0]
+    base_dist = sources[chosen_country]["base_distance"]
+
+    # 2. Voeg variatie toe (+/- 15%) voor een realistischere spreiding
+    variation = base_dist * 0.15
+    final_distance = random.uniform(base_dist - variation, base_dist + variation)
+
+    return chosen_country, round(final_distance, 2)
+
 
 def generate_new_timber_catalog() -> pd.DataFrame:
     """
@@ -109,7 +145,6 @@ def generate_new_timber_catalog() -> pd.DataFrame:
     f_mk = int(mech_new['f_mk'])
     density = int(mech_new['Density'])
     embodied_carbon = float(lca_new['Embodied Carbon Coëfficiënt'])
-    transport_dist = int(lca_new['Transport_Dist'])
     emission_range = lca_new['Emmisiefactor_diesel_range']
     processing_factor = int(lca_new['Bewerkingsfactor'])
     
@@ -120,8 +155,12 @@ def generate_new_timber_catalog() -> pd.DataFrame:
     
     print(f"📊 Catalogus genereren... {len(combinations)} balk-typen")
     
-    data = [
-        {
+    data = []
+    for idx, (length, (depth, width)) in enumerate(combinations):
+        # Genereer unieke afstandsdata per element
+        origin_country, transport_dist = assign_transport_distance()
+        
+        data.append({
             'Member_ID': f"NS_{idx:05d}",
             'State': 0,
             'Length': float(length),
@@ -130,13 +169,12 @@ def generate_new_timber_catalog() -> pd.DataFrame:
             'E_modulus_eff': e_modulus,
             'f_mk': f_mk,
             'Density': density,
-            'Embodied Carbon Coëfficiënt': embodied_carbon,
+            'ECC': embodied_carbon,
+            'Origin_Country': origin_country,
             'Transport_Dist': transport_dist,
             'Emmisiefactor': round(random.uniform(*emission_range), 4),
             'Bewerkingsfactor': processing_factor
-        }
-        for idx, (length, (depth, width)) in enumerate(combinations)
-    ]
+        })
     
     df_new = pd.DataFrame(data)
     print(f"✅ New stock succesvol gegenereerd! ({len(df_new)} elementen)")
@@ -196,7 +234,8 @@ def generate_reclaimed_stock() -> pd.DataFrame:
                 'E_modulus_eff': float(grade_props['e_mod']),
                 'f_mk': int(grade_props['f_mk']),
                 'Density': int(grade_props['density']),
-                'Embodied Carbon Coëfficiënt': embodied_carbon,
+                'ECC': embodied_carbon,
+                'Origin_Country': "Netherlands",
                 'Transport_Dist': transport_dist,
                 'Emmisiefactor': round(emission_factor, 4),
                 'Bewerkingsfactor': processing_factor
