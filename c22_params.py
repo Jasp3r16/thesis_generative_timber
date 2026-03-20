@@ -1,7 +1,38 @@
 import random
+import json
+import config
+from generation_timber import generate_length_tuple_from_average
 
 # --- PARAMETERS NEW STOCK (CATALOGUS) - EFFICIËNTE DEFINITIE ---
-TUPLE_LENGTHS = (2400, 2700, 3000, 3300, 3600, 4000, 4400, 4800, 5200)
+DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM = 3600
+
+json_path = 'representative_beam_length.json'
+
+# Use the built-in open() function
+with open(json_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+value = float(data["representative_length_mm"])
+if value == 0:
+    print(f"⚠️ Waarschuwing: Nul waarde gevonden in {json_path}: {value}. Fallback naar default.")
+    value = DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM
+
+STRUCTURE_AVERAGE_LENGTH_MM = value
+LENGTH_INCREMENT_MM = 300
+LENGTH_LIBRARY_SIZE = 9
+LENGTH_ROUND_TO_MM = 50
+MIN_LENGTH_MM = 2400
+MAX_LENGTH_MM = 5200
+
+TUPLE_LENGTHS = generate_length_tuple_from_average(
+    mean_length_mm=STRUCTURE_AVERAGE_LENGTH_MM,
+    increment_mm=LENGTH_INCREMENT_MM,
+    n_lengths=LENGTH_LIBRARY_SIZE,
+    round_to_mm=LENGTH_ROUND_TO_MM,
+    min_length_mm=MIN_LENGTH_MM,
+    max_length_mm=MAX_LENGTH_MM
+)
+print("Gegenereerde lengte tuple (mm):", TUPLE_LENGTHS)
 
 # DEPTH_WIDTH_MAPPING: Voor elke depth, welke widths zijn geldig
 DEPTH_WIDTH_MAPPING = {

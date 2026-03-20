@@ -5,29 +5,91 @@ Generates new and reclaimed timber inventories from parameters.
 
 import itertools
 import random
-from typing import List, Dict, Any
+from typing import Dict, Any
 import numpy as np
 import pandas as pd
-import c22_params as params
+
+
+def _get_params_module():
+    """Lazy import to avoid circular dependencies with c22_params."""
+    import c22_params as params
+    return params
+
+
+def generate_length_tuple_from_average(
+    mean_length_mm: float,
+    increment_mm: int,
+    n_lengths: int,
+    round_to_mm: int = 50,
+    min_length_mm: int | None = None,
+    max_length_mm: int | None = None
+) -> tuple[int, ...]:
+    """
+    Generate stock length tuple deterministically around a target mean.
+
+    Lengths are created in fixed increments around the rounded mean and returned
+    as sorted, unique, rounded integers.
+    """
+    if mean_length_mm <= 0:
+        raise ValueError("mean_length_mm must be > 0")
+    if increment_mm <= 0:
+        raise ValueError("increment_mm must be > 0")
+    if n_lengths <= 0:
+        raise ValueError("n_lengths must be > 0")
+    if round_to_mm <= 0:
+        raise ValueError("round_to_mm must be > 0")
+    if min_length_mm is not None and max_length_mm is not None and min_length_mm > max_length_mm:
+        raise ValueError("min_length_mm must be <= max_length_mm")
+
+    center = int(round(mean_length_mm / round_to_mm) * round_to_mm)
+
+    values = set()
+    offset = 0
+    max_attempts = 10000
+
+    while len(values) < n_lengths and offset < max_attempts:
+        candidates = [center] if offset == 0 else [center - offset * increment_mm, center + offset * increment_mm]
+        for candidate in candidates:
+            rounded = int(round(candidate / round_to_mm) * round_to_mm)
+            if min_length_mm is not None and rounded < min_length_mm:
+                continue
+            if max_length_mm is not None and rounded > max_length_mm:
+                continue
+            values.add(rounded)
+            if len(values) >= n_lengths:
+                break
+        offset += 1
+
+    if len(values) < n_lengths:
+        raise ValueError(
+            "Could not generate enough unique lengths within constraints. "
+            "Increase bounds, lower n_lengths, or lower increment_mm."
+        )
+
+    return tuple(sorted(values))
 
 
 def _get_mech_props_new() -> Dict[str, Any]:
     """Cache mechanical properties for new timber."""
+    params = _get_params_module()
     return params.MECH_PROPS_NEW
 
 
 def _get_lca_new() -> Dict[str, Any]:
     """Cache LCA properties for new timber."""
+    params = _get_params_module()
     return params.LCA_NEW
 
 
 def _get_mech_props_reclaimed() -> Dict[str, Any]:
     """Cache mechanical properties for reclaimed timber."""
+    params = _get_params_module()
     return params.MECH_PROPS_RECLAIMED
 
 
 def _get_lca_reclaimed() -> Dict[str, Any]:
     """Cache LCA properties for reclaimed timber."""
+    params = _get_params_module()
     return params.LCA_RECLAIMED
 
 
@@ -40,6 +102,7 @@ def generate_new_timber_catalog() -> pd.DataFrame:
     """
     lca_new = _get_lca_new()
     mech_new = _get_mech_props_new()
+    params = _get_params_module()
     
     # Pre-cache values to avoid repeated dict lookups
     e_modulus = float(mech_new['E_modulus_eff'])
@@ -89,6 +152,7 @@ def generate_reclaimed_stock() -> pd.DataFrame:
     """
     mech_reclaimed = _get_mech_props_reclaimed()
     lca_reclaimed = _get_lca_reclaimed()
+    params = _get_params_module()
     
     # Pre-cache values
     embodied_carbon = float(lca_reclaimed['Embodied Carbon Coëfficiënt'])
@@ -142,3 +206,76 @@ def generate_reclaimed_stock() -> pd.DataFrame:
     df_reclaimed = pd.DataFrame(inventory_list)
     print(f"✅ Reclaimed stock gegenereerd! ({len(df_reclaimed)} elementen)")
     return df_reclaimed
+
+
+def generate_mixed_stock_subset(
+    total_elements: int,
+    reused_ratio: float = 0.5,
+    random_state: int | None = None,
+    allow_replacement: bool = True
+) -> pd.DataFrame:
+    """
+    Generate a smaller mixed set with a target reused/new distribution.
+
+    Args:
+        total_elements: Total number of elements in the returned dataset.
+        reused_ratio: Share of reused elements in range [0, 1].
+        random_state: Seed for reproducible sampling.
+        allow_replacement: If False, raises an error when requested count exceeds
+            available stock in either source dataset.
+
+    Returns:
+        pd.DataFrame: Mixed subset containing both new and reused elements.
+    """
+    if total_elements <= 0:
+        raise ValueError("total_elements must be > 0")
+    if not 0 <= reused_ratio <= 1:
+        raise ValueError("reused_ratio must be between 0 and 1")
+
+    requested_reused = int(round(total_elements * reused_ratio))
+    requested_new = total_elements - requested_reused
+
+    df_new = generate_new_timber_catalog()
+    df_reused = generate_reclaimed_stock()
+
+    available_new = len(df_new)
+    available_reused = len(df_reused)
+
+    replace_new = requested_new > available_new
+    replace_reused = requested_reused > available_reused
+
+    if (replace_new or replace_reused) and not allow_replacement:
+        raise ValueError(
+            "Requested subset size exceeds available stock. "
+            f"Requested new/reused: {requested_new}/{requested_reused}, "
+            f"available new/reused: {available_new}/{available_reused}. "
+            "Set allow_replacement=True or reduce total_elements/reused_ratio."
+        )
+
+    rng = np.random.default_rng(random_state)
+    seed_new = int(rng.integers(0, 2**31 - 1))
+    seed_reused = int(rng.integers(0, 2**31 - 1))
+    seed_shuffle = int(rng.integers(0, 2**31 - 1))
+
+    sampled_new = df_new.sample(
+        n=requested_new,
+        replace=replace_new,
+        random_state=seed_new
+    )
+    sampled_reused = df_reused.sample(
+        n=requested_reused,
+        replace=replace_reused,
+        random_state=seed_reused
+    )
+
+    df_subset = pd.concat([sampled_new, sampled_reused], ignore_index=True)
+    df_subset = df_subset.sample(frac=1, random_state=seed_shuffle).reset_index(drop=True)
+
+    realized_reused_ratio = (df_subset['State'] == 1).mean()
+    print(
+        "📦 Mixed subset gegenereerd: "
+        f"{len(df_subset)} totaal | "
+        f"new={requested_new}, reused={requested_reused} "
+        f"(reused_ratio={realized_reused_ratio:.2f})"
+    )
+    return df_subset

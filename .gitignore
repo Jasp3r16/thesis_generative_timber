@@ -24,7 +24,6 @@ checkpoint_*.ipynb
 ~$*.xlsx
 ~$*.xls
 *.csv
-*.json
 # Als je per ongeluk een data-map binnen je repo maakt:
 data/
 temp/
@@ -45,8 +44,6 @@ temp/
 
 # MAAR behoud de project-specifieke instellingen (zoals extraPaths)
 !.vscode/settings.json
-!search_space.json
-!edge_index.json
 # Maar als je je workspace-bestand IN de repo hebt staan, haal deze dan weg:
 *.code-workspace
 
