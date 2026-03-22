@@ -1,5 +1,7 @@
 import pandas as pd
 import random
+from typing import Mapping, Optional, Sequence
+
 import c11_params
 
 def get_valid_shifts(divisions, edge_length):
@@ -153,7 +155,11 @@ def generate_edges(num_samples, cells_x, cells_y):
 
 # Zorg dat get_corner_indices, get_valid_shifts en bilinear_interpolate ook beschikbaar zijn
 
-def generate_sample_vertices(sample_id, params=None, valid_shifts=None):
+def generate_sample_vertices(
+    sample_id: int,
+    params: Optional[Mapping[str, float]] = None,
+    valid_shifts: Optional[Sequence[float]] = None,
+):
     """
     Genereert de coördinaten voor een enkel ruimtelijk vakwerk.
     
@@ -162,6 +168,13 @@ def generate_sample_vertices(sample_id, params=None, valid_shifts=None):
     Modus 2 (Reconstructie): Als 'params' een dictionary is, worden de 
     specifieke optimum waarden ingeladen.
     """
+    if params is None:
+        if not valid_shifts:
+            raise ValueError("valid_shifts must be provided and non-empty when params is None")
+        shift_options = valid_shifts
+    else:
+        shift_options = []
+
     all_vertices = []
     num_nodes_x_top = c11_params.GRID_CELLS_X + 1
     num_nodes_y_top = c11_params.GRID_CELLS_Y + 1
@@ -195,12 +208,12 @@ def generate_sample_vertices(sample_id, params=None, valid_shifts=None):
 
                 if not is_corner:
                     if is_x_edge:
-                        shift_y = random.choice(valid_shifts)
+                        shift_y = random.choice(shift_options)
                     elif is_y_edge:
-                        shift_x = random.choice(valid_shifts)
+                        shift_x = random.choice(shift_options)
                     else:
-                        shift_x = random.choice(valid_shifts)
-                        shift_y = random.choice(valid_shifts)
+                        shift_x = random.choice(shift_options)
+                        shift_y = random.choice(shift_options)
 
             final_x = base_x + shift_x
             final_y = base_y + shift_y
@@ -239,7 +252,7 @@ def generate_sample_vertices(sample_id, params=None, valid_shifts=None):
                 # Modus 1: Genereer random voor de dataset
                 u = random.uniform(*c11_params.SCALE_UV)
                 v = random.uniform(*c11_params.SCALE_UV)
-                z_shift = random.choice(valid_shifts)
+                z_shift = random.choice(shift_options)
 
             lx, ly = bilinear_interpolate(p00, p10, p01, p11, u, v)
             final_z = -c11_params.LAYER_HEIGHT + z_shift
