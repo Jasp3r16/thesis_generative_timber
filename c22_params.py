@@ -29,7 +29,7 @@ RECLAIMED_LENGTH_ROUND_TO_MM = 50
 
 # LCA Aannames Reclaimed Hout
 LCA_RECLAIMED = {
-    'Embodied Carbon Coëfficiënt': 15.0,                # Fictief laag (enkel de-constructie impact)
+    'Embodied Carbon Coëfficiënt': 0.0,                # Fictief laag (enkel de-constructie impact)
     "Transport_distance_range": (5, 240),               # Locatie Delft: (lokaal, Groningen)
     'Emmisiefactor_diesel_range': (0.17, 0.18),
     'Emmisiefactor_elektrisch_range': (0.02, 0.05),

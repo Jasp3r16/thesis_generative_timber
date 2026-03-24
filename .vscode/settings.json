@@ -13,6 +13,6 @@
         "./src"
     ],
     "python.analysis.ignore": [
-        "**/*.ipynb"
+        "./*.ipynb"
     ]
 }

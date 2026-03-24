@@ -22,10 +22,10 @@ def calculate_pseudo_lca_stock(df_stock):
     df_lca['Impact_Material_kgCO2'] = df_lca['Volume_m3'] * df_lca['ECC']
 
     # Karakteristieke dichtheid (k_density) delen door 1000 om van kg/m3 naar ton/m3 te gaan
-    df_lca['Impact_Transport_kgCO2'] = df_lca['Volume_m3'] * (df_lca['k_density'] / 1000) * df_lca['Transport_Dist'] * df_lca['Emmisiefactor']
+    df_lca['Impact_Transport_kgCO2'] = df_lca['Volume_m3'] * (df_lca['mean_density'] / 1000) * df_lca['Transport_Dist'] * df_lca['Emmisiefactor']
 
     # Binaire bewerkingsfactor (0 of 1) maal de vaste penalty
-    df_lca['Impact_Processing_kgCO2'] = df_lca['Bewerkingsfactor'] * c11_params.PROCESSING_PENALTY_CO2
+    df_lca['Impact_Processing_kgCO2'] = df_lca['Volume_m3'] * df_lca['Bewerkingsfactor'] * c11_params.PREPARATION_EMISSION_FACTOR
 
     # Stap E: Totale E_cost Berekenen
     df_lca['E_cost_Total_kgCO2'] = (
@@ -53,14 +53,14 @@ def calculate_geometric_penalties(slot, stock_item):
     d_stock = stock_item['Depth'] / 1000.0
     a_stock = w_stock * d_stock
 
-    k_density = stock_item['k_density'] # kg/m3
+    density = stock_item['mean_density'] # kg/m3
 
     # Status: 0 = Virgin, 1 = Reclaimed (afhankelijk van hoe je dataset in elkaar zit, pas dit evt. aan)
     gwp_unit = c11_params.GWP_RECLAIMED if stock_item['State'] == 1 else c11_params.GWP_VIRGIN
 
     # Zaagverlies en Overdimensionering in kg CO2 eq
-    c_waste = (l_stock - l_slot) * a_stock * k_density * gwp_unit
-    c_overdim = (a_stock - a_req) * l_slot * k_density * gwp_unit
+    c_waste = (l_stock - l_slot) * a_stock * density * gwp_unit
+    c_overdim = (a_stock - a_req) * l_slot * density * gwp_unit
 
     return max(0, c_waste), max(0, c_overdim)
 

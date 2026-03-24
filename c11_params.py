@@ -15,4 +15,4 @@ GWP_VIRGIN = 0.50
 GWP_RECLAIMED = 0.08
 
 # LCA Parameters voor E_cost
-PROCESSING_PENALTY_CO2 = 5.0  # kg CO2 boete voor bewerkingen (bijv. ontspijkeren)
+PREPARATION_EMISSION_FACTOR = 13.3  # kg CO2 boete voor bewerkingen (bijv. ontspijkeren)
