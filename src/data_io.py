@@ -1,12 +1,30 @@
 import config
 import geometry
 import c11_params
+import warnings
 
 def define_search_space(cells_x, cells_y, divisions, edge_length):
     """
     Vertaalt de geometrische constraints naar een digitaal leesbare 'Search Space'
     voor een machine learning of optimalisatie algoritme.
+
+    Let op:
+    De geometrie-reconstructie in `geometry.generate_sample_vertices` gebruikt momenteel
+    grid/maat-waarden uit `c11_params`. Als je hier afwijkende waarden meegeeft,
+    kan de gegenereerde search space niet 1-op-1 overeenkomen met de geometrie.
     """
+    if (
+        cells_x != c11_params.GRID_CELLS_X
+        or cells_y != c11_params.GRID_CELLS_Y
+        or edge_length != c11_params.EDGE_LENGTH
+    ):
+        warnings.warn(
+            "define_search_space() called with values that differ from c11_params. "
+            "geometry.generate_sample_vertices currently uses c11_params directly, "
+            "so this can cause a mismatch between search-space keys and geometry.",
+            stacklevel=2,
+        )
+
     valid_shifts = geometry.get_valid_shifts(divisions, edge_length)
     search_space = {}
 

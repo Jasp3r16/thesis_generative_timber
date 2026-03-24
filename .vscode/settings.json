@@ -11,5 +11,8 @@
     ],
     "python.autoComplete.extraPaths": [
         "./src"
+    ],
+    "python.analysis.ignore": [
+        "**/*.ipynb"
     ]
 }
