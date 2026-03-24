@@ -294,7 +294,6 @@ def generate_mixed_stock_subset(
     rng = np.random.default_rng(random_state)
     seed_new = int(rng.integers(0, 2**31 - 1))
     seed_reused = int(rng.integers(0, 2**31 - 1))
-    seed_shuffle = int(rng.integers(0, 2**31 - 1))
 
     sampled_new = df_new.sample(
         n=requested_new,
@@ -307,8 +306,7 @@ def generate_mixed_stock_subset(
         random_state=seed_reused
     )
 
-    df_subset = pd.concat([sampled_new, sampled_reused], ignore_index=True)
-    df_subset = df_subset.sample(frac=1, random_state=seed_shuffle).reset_index(drop=True)
+    df_subset = pd.concat([sampled_new, sampled_reused], ignore_index=True).reset_index(drop=True)
 
     realized_reused_ratio = (df_subset['State'] == 1).mean()
     print(
