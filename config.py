@@ -7,6 +7,7 @@ import sys
 # Dit vindt de map '50_Repository' waar dit script in staat
 REPO_ROOT = Path(__file__).resolve().parent
 SRC_PATH = REPO_ROOT / "src"
+DATA_IO_PATH = REPO_ROOT / "02_data_io"
 
 # Zorg dat Python de 'src' map altijd kan vinden voor je imports
 if str(SRC_PATH) not in sys.path:

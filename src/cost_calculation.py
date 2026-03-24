@@ -156,3 +156,61 @@ def build_cost_matrix(df_design, df_stock_raw, target_stock_ids=None):
     print(f"📊 Aantal fysiek geldige combinaties gevonden: {succesvolle_matches}")
 
     return cost_matrix, df_stock, pd.DataFrame(detailed_logs)
+
+
+def analyze_and_export_slot_logs(df_logs, target_slot_for_analysis, all_stock_ids, export_dir, display_fn=None):
+    """
+    Bereidt de diepte-analyse voor een specifieke slot-id voor, toont tabellen en exporteert CSV.
+
+    Returns:
+        (df_logs_slot, df_logs_slot_rs, analysis_export_path)
+    """
+    print("\n" + "=" * 80)
+    print(f"🔬 DIEPTE-ANALYSE: ALLE FACTOREN VOOR SLOT {target_slot_for_analysis}")
+    print("=" * 80)
+
+    analysis_export_path = export_dir / f"diepte_analyse_{target_slot_for_analysis}.csv"
+
+    if df_logs.empty:
+        print("Geen logboek data gevonden.")
+        print("=" * 80)
+        return pd.DataFrame(), pd.DataFrame(), analysis_export_path
+
+    df_logs = df_logs.sort_values(by=['Slot_ID', 'Stock_ID']).reset_index(drop=True)
+    slot_mask = df_logs['Slot_ID'].astype(str).str.strip().str.lower() == str(target_slot_for_analysis).lower()
+    df_logs_slot = df_logs.loc[slot_mask].copy()
+
+    # Zorg dat alle stock-items zichtbaar zijn voor deze slot, ook als ze ontbreken in logs.
+    df_all_stock = pd.DataFrame({'Stock_ID': all_stock_ids}).drop_duplicates()
+    df_logs_slot = df_all_stock.merge(df_logs_slot, on='Stock_ID', how='left')
+
+    if 'Slot_ID' in df_logs_slot.columns:
+        df_logs_slot['Slot_ID'] = df_logs_slot['Slot_ID'].fillna(target_slot_for_analysis)
+    if 'Status' in df_logs_slot.columns:
+        df_logs_slot['Status'] = df_logs_slot['Status'].fillna('⚠️ ontbreekt in log')
+
+    rs_mask = df_logs_slot['Stock_ID'].astype(str).str.contains('RS', case=False, na=False)
+    df_logs_slot_rs = df_logs_slot.loc[rs_mask].copy()
+
+    print(f"\nAantal RS-items voor {target_slot_for_analysis}: {len(df_logs_slot_rs)}")
+    if not df_logs_slot_rs.empty:
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', None):
+            if display_fn is not None:
+                display_fn(df_logs_slot_rs.fillna('-').reset_index(drop=True))
+            else:
+                print(df_logs_slot_rs.fillna('-').reset_index(drop=True).to_string(index=False))
+    else:
+        print("Geen RS-items gevonden in de input stock lijst.")
+
+    print("\nVolledige lijst (NS + RS):")
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', None):
+        if display_fn is not None:
+            display_fn(df_logs_slot.fillna('-').reset_index(drop=True))
+        else:
+            print(df_logs_slot.fillna('-').reset_index(drop=True).to_string(index=False))
+
+    df_logs_slot.to_csv(analysis_export_path, index=False)
+    print(f"\n💾 Diepte-analyse geëxporteerd naar: {analysis_export_path}")
+    print("=" * 80)
+
+    return df_logs_slot, df_logs_slot_rs, analysis_export_path
