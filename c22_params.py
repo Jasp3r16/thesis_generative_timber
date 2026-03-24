@@ -4,16 +4,28 @@ import config
 from generation_timber import generate_length_tuple_from_average
 
 # --- PARAMETERS RECLAIMED STOCK ---
-DONOR_BATCHES = [
-    {"batch_id": "B01", "count": 4, "orig_width": 63, "orig_depth": 150, "orig_length": 3300},
-    {"batch_id": "B02", "count": 10, "orig_width": 75, "orig_depth": 225, "orig_length": 4000},
-    {"batch_id": "B03", "count": 4, "orig_width": 100, "orig_depth": 250, "orig_length": 4800}
+# Typology B: strict, discrete cross-section library from historical nominal sizes
+# with a fixed planing allowance.
+RECLAIMED_HISTORICAL_CROSS_SECTIONS_MM = [
+    (60, 160),
+    (70, 180),
+    (80, 240),
+    (90, 220),
+]
+RECLAIMED_PLANING_ALLOWANCE_MM = 10
+RECLAIMED_CROSS_SECTION_LIBRARY_MM = [
+    (width_nom - RECLAIMED_PLANING_ALLOWANCE_MM, depth_nom - RECLAIMED_PLANING_ALLOWANCE_MM)
+    for width_nom, depth_nom in RECLAIMED_HISTORICAL_CROSS_SECTIONS_MM
 ]
 
-MECH_PROPS_RECLAIMED = {
-    'C24': {'e_mod': 11000.0, 'f_mk': 24, 'density': 420},
-    'C18': {'e_mod': 9000.0,  'f_mk': 18, 'density': 380}
-}
+# Finite reclaimed inventory size and stochastic length model.
+RECLAIMED_STOCK_COUNT = 18
+RECLAIMED_LENGTH_DISTRIBUTION = "normal"  # supported: "normal"
+RECLAIMED_LENGTH_MIN_MM = 2400
+RECLAIMED_LENGTH_MAX_MM = 4000
+RECLAIMED_LENGTH_MEAN_MM = 3200
+RECLAIMED_LENGTH_STD_MM = 450
+RECLAIMED_LENGTH_ROUND_TO_MM = 50
 
 # LCA Aannames Reclaimed Hout
 LCA_RECLAIMED = {
@@ -26,7 +38,6 @@ LCA_RECLAIMED = {
 }
 
 # --- PARAMETERS NEW STOCK (CATALOGUS) ---
-
 DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM = 3600
 
 json_path = 'representative_beam_length.json'
@@ -72,15 +83,30 @@ DEPTH_WIDTH_COMBINATIONS = [
     for width in DEPTH_WIDTH_MAPPING[depth]
 ]
 
-MECH_PROPS_NEW = {
-    'E_modulus_eff': 11000.0, # N/mm2
-    'f_mk': 24,               # N/mm2
-    'Density': 420            # kg/m3
-}
-
 # LCA Aannames Nieuw Hout
 LCA_NEW = {
     'Embodied Carbon Coëfficiënt': 150.0,  # Fictief hoog (productie + drogen)
     'Emmisiefactor_diesel_range': (0.17, 0.18), # Alleen groot diesel transport voor nieuw hout
     'Bewerkingsfactor': 0                  # 0 = Geen ontspijkering nodig
+}
+
+MECH_PROPS = {
+    'C18': {
+        'f_mk': 18.0,            # N/mm2
+        'E_modulus_eff': 9000.0, # N/mm2
+        'E_modulus_005': 6000.0, # N/mm2
+        'f_vk': 2.0,             # N/mm2
+        'f_c0k': 18.0,           # N/mm2
+        'k_density': 320,        # kg/m3 (karakteristieke dichtheid)
+        'mean_density': 380      # kg/m3
+    },
+    'C24': {
+        'f_mk': 24.0,             # N/mm2
+        'E_modulus_eff': 11000.0, # N/mm2
+        'E_modulus_005': 7400.0,  # N/mm2
+        'f_vk': 2.5,              # N/mm2
+        'f_c0k': 21.0,            # N/mm2
+        'k_density': 350,         # kg/m3 (karakteristieke dichtheid)
+        'mean_density': 420       # kg/m3
+    }
 }

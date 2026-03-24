@@ -26,6 +26,7 @@ EXPORT_PATH = ONEDRIVE_ROOT / "60_Research_Exports"
 # Submappen binnen de data-inventory
 GH_DATA_PATH = DATA_PATH / "01_grasshopper_data"
 RAW_DATA_PATH = DATA_PATH / "02_raw_data"
+TIMBER_STOCK_PATH = DATA_PATH / "03_timber_data"
 
 # Submappen binnen de research-exports
 SM_EXPORT_PATH = EXPORT_PATH / "01_surrogate_models"

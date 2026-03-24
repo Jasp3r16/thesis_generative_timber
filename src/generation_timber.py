@@ -69,28 +69,40 @@ def generate_length_tuple_from_average(
     return tuple(sorted(values))
 
 
-def _get_mech_props_new() -> Dict[str, Any]:
-    """Cache mechanical properties for new timber."""
+def _get_mech_props_by_class(strength_class: str) -> Dict[str, Any]:
+    """Return mechanical properties for a given strength class (e.g. C18, C24)."""
     params = _get_params_module()
-    return params.MECH_PROPS_NEW
+    mech_props = getattr(params, "MECH_PROPS")
+    try:
+        return mech_props[strength_class]
+    except KeyError as exc:
+        available = ", ".join(sorted(mech_props.keys()))
+        raise KeyError(f"Unknown strength class '{strength_class}'. Available: {available}") from exc
+
+
+def _mechanical_props_row(mech_props: Dict[str, Any]) -> Dict[str, float]:
+    """Return all mechanical properties in a dataset-ready structure."""
+    return {
+        'f_mk': float(mech_props['f_mk']),
+        'E_modulus_eff': float(mech_props['E_modulus_eff']),
+        'E_modulus_005': float(mech_props['E_modulus_005']),
+        'f_vk': float(mech_props['f_vk']),
+        'f_c0k': float(mech_props['f_c0k']),
+        'k_density': float(mech_props['k_density']),
+        'mean_density': float(mech_props['mean_density']),
+    }
 
 
 def _get_lca_new() -> Dict[str, Any]:
     """Cache LCA properties for new timber."""
     params = _get_params_module()
-    return params.LCA_NEW
-
-
-def _get_mech_props_reclaimed() -> Dict[str, Any]:
-    """Cache mechanical properties for reclaimed timber."""
-    params = _get_params_module()
-    return params.MECH_PROPS_RECLAIMED
+    return getattr(params, "LCA_NEW")
 
 
 def _get_lca_reclaimed() -> Dict[str, Any]:
     """Cache LCA properties for reclaimed timber."""
     params = _get_params_module()
-    return params.LCA_RECLAIMED
+    return getattr(params, "LCA_RECLAIMED")
 
 def assign_transport_distance():
     """
@@ -137,13 +149,11 @@ def generate_new_timber_catalog() -> pd.DataFrame:
         pd.DataFrame: Catalog with columns for geometry, mechanical, and LCA properties
     """
     lca_new = _get_lca_new()
-    mech_new = _get_mech_props_new()
+    mech_new = _get_mech_props_by_class("C24")
+    mech_row = _mechanical_props_row(mech_new)
     params = _get_params_module()
     
     # Pre-cache values to avoid repeated dict lookups
-    e_modulus = float(mech_new['E_modulus_eff'])
-    f_mk = int(mech_new['f_mk'])
-    density = int(mech_new['Density'])
     embodied_carbon = float(lca_new['Embodied Carbon Coëfficiënt'])
     emission_range = lca_new['Emmisiefactor_diesel_range']
     processing_factor = int(lca_new['Bewerkingsfactor'])
@@ -166,9 +176,7 @@ def generate_new_timber_catalog() -> pd.DataFrame:
             'Length': float(length),
             'Depth': float(depth),
             'Width': float(width),
-            'E_modulus_eff': e_modulus,
-            'f_mk': f_mk,
-            'Density': density,
+            **mech_row,
             'ECC': embodied_carbon,
             'Origin_Country': origin_country,
             'Transport_Dist': transport_dist,
@@ -183,12 +191,14 @@ def generate_new_timber_catalog() -> pd.DataFrame:
 
 def generate_reclaimed_stock() -> pd.DataFrame:
     """
-    Generate reclaimed timber inventory from donor batches with realistic losses.
+    Generate reclaimed timber inventory from a discrete section library and
+    stochastic bounded lengths.
     
     Returns:
         pd.DataFrame: Inventory with columns for geometry, mechanical, and LCA properties
     """
-    mech_reclaimed = _get_mech_props_reclaimed()
+    mech_reclaimed = _get_mech_props_by_class("C18")
+    mech_row = _mechanical_props_row(mech_reclaimed)
     lca_reclaimed = _get_lca_reclaimed()
     params = _get_params_module()
     
@@ -199,48 +209,63 @@ def generate_reclaimed_stock() -> pd.DataFrame:
     electric_range = lca_reclaimed['Emmisiefactor_elektrisch_range']
     diesel_range = lca_reclaimed['Emmisiefactor_diesel_range']
     
-    inventory_list = []
-    current_id = 1
-    
-    for batch in params.DONOR_BATCHES:
-        batch_count = batch['count']
-        orig_length = batch['orig_length']
-        orig_depth = batch['orig_depth']
-        orig_width = batch['orig_width']
-        
-        for _ in range(batch_count):
-            # Geometry with losses
-            length = orig_length - random.randint(100, 400)
-            depth = orig_depth - random.randint(10, 16)
-            width = orig_width - random.randint(10, 16)
-            
-            # Grade determination
-            grade = np.random.choice(['C24', 'C18'], p=[0.60, 0.40])
-            grade_props = mech_reclaimed[grade]
-            
+    stock_count = int(params.RECLAIMED_STOCK_COUNT)
+    if stock_count <= 0:
+        raise ValueError("RECLAIMED_STOCK_COUNT must be > 0")
 
-            transport_dist = random.randint(*lca_reclaimed['Transport_distance_range'])
-            if random.random() < prob_electric:
-                emission_factor = random.uniform(*electric_range)
-            else:
-                emission_factor = random.uniform(*diesel_range)
-            
-            inventory_list.append({
-                'Member_ID': f"RS_{current_id:05d}",
-                'State': 1,  # 1 = Reclaimed
-                'Length': float(length),
-                'Depth': float(depth),
-                'Width': float(width),
-                'E_modulus_eff': float(grade_props['e_mod']),
-                'f_mk': int(grade_props['f_mk']),
-                'Density': int(grade_props['density']),
-                'ECC': embodied_carbon,
-                'Origin_Country': "Netherlands",
-                'Transport_Dist': transport_dist,
-                'Emmisiefactor': round(emission_factor, 4),
-                'Bewerkingsfactor': processing_factor
-            })
-            current_id += 1
+    section_library = list(params.RECLAIMED_CROSS_SECTION_LIBRARY_MM)
+    if not section_library:
+        raise ValueError("RECLAIMED_CROSS_SECTION_LIBRARY_MM cannot be empty")
+
+    length_distribution = str(params.RECLAIMED_LENGTH_DISTRIBUTION).lower()
+    min_len = int(params.RECLAIMED_LENGTH_MIN_MM)
+    max_len = int(params.RECLAIMED_LENGTH_MAX_MM)
+    mean_len = float(params.RECLAIMED_LENGTH_MEAN_MM)
+    std_len = float(params.RECLAIMED_LENGTH_STD_MM)
+    round_to = int(params.RECLAIMED_LENGTH_ROUND_TO_MM)
+
+    if min_len > max_len:
+        raise ValueError("RECLAIMED_LENGTH_MIN_MM must be <= RECLAIMED_LENGTH_MAX_MM")
+    if std_len <= 0:
+        raise ValueError("RECLAIMED_LENGTH_STD_MM must be > 0")
+    if round_to <= 0:
+        raise ValueError("RECLAIMED_LENGTH_ROUND_TO_MM must be > 0")
+    if length_distribution != "normal":
+        raise ValueError("Only RECLAIMED_LENGTH_DISTRIBUTION='normal' is supported")
+
+    # Build a balanced ordered sequence so each section appears equally
+    # (difference at most 1 when stock_count is not divisible).
+    n_sections = len(section_library)
+    full_cycles = stock_count // n_sections
+    remainder = stock_count % n_sections
+    section_sequence = (section_library * full_cycles) + section_library[:remainder]
+
+    inventory_list = []
+    for idx, (width, depth) in enumerate(section_sequence):
+
+        sampled_length = np.random.normal(loc=mean_len, scale=std_len)
+        bounded_length = float(np.clip(sampled_length, min_len, max_len))
+        length = int(round(bounded_length / round_to) * round_to)
+
+        transport_dist = random.randint(*lca_reclaimed['Transport_distance_range'])
+        if random.random() < prob_electric:
+            emission_factor = random.uniform(*electric_range)
+        else:
+            emission_factor = random.uniform(*diesel_range)
+
+        inventory_list.append({
+            'Member_ID': f"RS_{idx + 1:05d}",
+            'State': 1,  # 1 = Reclaimed
+            'Length': float(length),
+            'Depth': float(depth),
+            'Width': float(width),
+            **mech_row,
+            'ECC': embodied_carbon,
+            'Origin_Country': "Netherlands",
+            'Transport_Dist': transport_dist,
+            'Emmisiefactor': round(emission_factor, 4),
+            'Bewerkingsfactor': processing_factor
+        })
     
     df_reclaimed = pd.DataFrame(inventory_list)
     print(f"✅ Reclaimed stock gegenereerd! ({len(df_reclaimed)} elementen)")
