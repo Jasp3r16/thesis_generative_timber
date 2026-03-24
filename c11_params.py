@@ -9,10 +9,9 @@ SCALE_UV = 0.25, 0.75        # Random positie in de cel
 
 GRID = f"{GRID_CELLS_X}x{GRID_CELLS_Y}"
 
-# --- PARAMETERS VOOR HOUT EN LCA ---
-# GWP Waarden (kg CO2 eq / kg hout)
-GWP_VIRGIN = 0.50
-GWP_RECLAIMED = 0.08
-
-# LCA Parameters voor E_cost
-PREPARATION_EMISSION_FACTOR = 13.3  # kg CO2 boete voor bewerkingen (bijv. ontspijkeren)
+# LCA factoren voor de assignment cost matrix (kg CO2e)
+PREPARATION_EMISSION_FACTOR = 13.3     # per m3 reclaimed stock voorbereid volume
+END_OF_LIFE_EMISSION_FACTOR = 12.0     # per m3 offcut waste (C3/C4 verwerking)
+SAW_ENERGY_KWH_PER_CUT = 0.05          # kWh per cross-cut
+GRID_INTENSITY_KGCO2_PER_KWH = 0.388   # NL netfactor (2025)
+SAW_CUT_PENALTY = SAW_ENERGY_KWH_PER_CUT * GRID_INTENSITY_KGCO2_PER_KWH

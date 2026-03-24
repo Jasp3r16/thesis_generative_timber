@@ -34,7 +34,7 @@ LCA_RECLAIMED = {
     'Emmisiefactor_diesel_range': (0.17, 0.18),
     'Emmisiefactor_elektrisch_range': (0.02, 0.05),
     'Kans_op_elektrisch': 0.30,                         # 30% kans dat het lokaal via een e-truck gaat
-    'Bewerkingsfactor': 1                               # 1 = Ontspijkeren en schaven nodig
+    'Bewerkingsfactor': 1                                # 1 = Ontspijkeren en schaven nodig
 }
 
 # --- PARAMETERS NEW STOCK (CATALOGUS) ---

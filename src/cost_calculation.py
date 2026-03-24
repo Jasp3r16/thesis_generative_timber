@@ -1,76 +1,106 @@
-import config
 import c11_params
 import numpy as np
 import pandas as pd
 
 # ==========================================
-# CEL 2: DE REKENFUNCTIES (MODULES)
+# LCA COST MATRIX PARAMETERS
 # ==========================================
-def calculate_pseudo_lca_stock(df_stock):
+PREPARATION_FACTOR = float(c11_params.PREPARATION_EMISSION_FACTOR)
+END_OF_LIFE_FACTOR = float(c11_params.END_OF_LIFE_EMISSION_FACTOR)
+SAW_CUT_PENALTY = float(c11_params.SAW_CUT_PENALTY)
+
+
+def prepare_stock_cost_inputs(df_stock_raw):
     """
-    Berekent de pseudo-LCA score (E_cost) voor een reeds ingeladen DataFrame
-    met de timber stock.
+    Maakt een strikte inputtabel voor kostenberekening.
+    Vereiste data moet aanwezig zijn in de stock CSV; er worden geen numerieke fallbacks gebruikt.
     """
-    # Maak een kopie om waarschuwingen (SettingWithCopyWarning) te voorkomen
-    df_lca = df_stock.copy()
+    df_stock = df_stock_raw.copy()
 
-    print("Start in-memory pseudo-LCA berekeningen...")
+    required_columns = ['mean_density', 'Transport_Dist', 'Emmisiefactor', 'Bewerkingsfactor', 'ECC']
+    missing_columns = [col for col in required_columns if col not in df_stock.columns]
+    if missing_columns:
+        raise ValueError(f"Ontbrekende verplichte stock-kolommen: {missing_columns}")
 
-    # Stap A: Bereken Volume in m3 (dimensies zijn in mm, dus delen door 1000)
-    df_lca['Volume_m3'] = (df_lca['Length'] / 1000) * (df_lca['Width'] / 1000) * (df_lca['Depth'] / 1000)
+    null_columns = [col for col in required_columns if df_stock[col].isna().any()]
+    if null_columns:
+        raise ValueError(f"Lege waarden gevonden in verplichte stock-kolommen: {null_columns}")
 
-    df_lca['Impact_Material_kgCO2'] = df_lca['Volume_m3'] * df_lca['ECC']
+    df_stock['Density_Resolved'] = df_stock['mean_density'].astype(float)
+    df_stock['Distance_Resolved'] = df_stock['Transport_Dist'].astype(float)
+    df_stock['TransportFactor_Resolved'] = df_stock['Emmisiefactor'].astype(float)
+    df_stock['Bewerkingsfactor_Resolved'] = df_stock['Bewerkingsfactor'].astype(float)
+    df_stock['ECC_Resolved'] = df_stock['ECC'].astype(float)
+    df_stock['PreparationFactor_Resolved'] = df_stock['Bewerkingsfactor_Resolved'] * PREPARATION_FACTOR
 
-    # Karakteristieke dichtheid (k_density) delen door 1000 om van kg/m3 naar ton/m3 te gaan
-    df_lca['Impact_Transport_kgCO2'] = df_lca['Volume_m3'] * (df_lca['mean_density'] / 1000) * df_lca['Transport_Dist'] * df_lca['Emmisiefactor']
+    return df_stock
 
-    # Binaire bewerkingsfactor (0 of 1) maal de vaste penalty
-    df_lca['Impact_Processing_kgCO2'] = df_lca['Volume_m3'] * df_lca['Bewerkingsfactor'] * c11_params.PREPARATION_EMISSION_FACTOR
 
-    # Stap E: Totale E_cost Berekenen
-    df_lca['E_cost_Total_kgCO2'] = (
-        df_lca['Impact_Material_kgCO2'] +
-        df_lca['Impact_Transport_kgCO2'] +
-        df_lca['Impact_Processing_kgCO2']
-    )
-
-    return df_lca
-
-def calculate_geometric_penalties(slot, stock_item):
+def calculate_lca_formula(slot, stock_item):
     """
-    Module 2: Berekent de CO2-penalty's voor zaagverlies en overdimensionering
-    voor één specifieke match tussen een Slot (ontwerp) en Stock (voorraad).
-    Geeft een tuple terug: (c_waste, c_overdim).
+    Stap 1: berekent C_{i,j} volgens de LCA-logica.
+    C = E_embodied + E_prep + E_trans + E_waste + E_saw.
+    Retourneert (np.inf, None) als de match fysiek niet haalbaar is.
     """
-    # 1. Haal afmetingen op en converteer naar meters
-    l_slot = slot['Length_Req'] / 1000.0
-    w_req = slot['Width_Req'] / 1000.0
-    d_req = slot['Depth_Req'] / 1000.0
-    a_req = w_req * d_req
+    l_req = slot['Length_Req'] / 1000.0
+    a_req = (slot['Width_Req'] / 1000.0) * (slot['Depth_Req'] / 1000.0)
 
     l_stock = stock_item['Length'] / 1000.0
-    w_stock = stock_item['Width'] / 1000.0
-    d_stock = stock_item['Depth'] / 1000.0
-    a_stock = w_stock * d_stock
+    a_stock = (stock_item['Width'] / 1000.0) * (stock_item['Depth'] / 1000.0)
 
-    density = stock_item['mean_density'] # kg/m3
+    # Hard feasibility rule: onvoldoende lengte of doorsnede-oppervlak -> onmogelijke match.
+    if l_stock < l_req or a_stock < a_req:
+        return np.inf, None
 
-    # Status: 0 = Virgin, 1 = Reclaimed (afhankelijk van hoe je dataset in elkaar zit, pas dit evt. aan)
-    gwp_unit = c11_params.GWP_RECLAIMED if stock_item['State'] == 1 else c11_params.GWP_VIRGIN
+    density = float(stock_item['Density_Resolved'])
+    distance_km = float(stock_item['Distance_Resolved'])
+    transport_factor = float(stock_item['TransportFactor_Resolved'])
+    embodied_factor = float(stock_item['ECC_Resolved'])
+    preparation_factor = float(stock_item['PreparationFactor_Resolved'])
 
-    # Zaagverlies en Overdimensionering in kg CO2 eq
-    c_waste = (l_stock - l_slot) * a_stock * density * gwp_unit
-    c_overdim = (a_stock - a_req) * l_slot * density * gwp_unit
+    # Expliciete volumedecompositie:
+    # V_stock = V_req + V_over + V_waste
+    v_req = a_req * l_req
+    v_profile_target = a_stock * l_req
+    v_over = max(0.0, v_profile_target - v_req)
+    v_waste = max(0.0, a_stock * (l_stock - l_req))
+    v_stock = a_stock * l_stock
 
-    return max(0, c_waste), max(0, c_overdim)
+    e_embodied = v_stock * embodied_factor
+    e_prep = v_stock * preparation_factor
+    e_trans = (((v_req + v_over) * density) / 1000.0) * distance_km * transport_factor
+    e_waste = v_waste * END_OF_LIFE_FACTOR
+    e_saw = 0.0 if stock_item['Length'] == slot['Length_Req'] else SAW_CUT_PENALTY
+
+    total_cost = e_embodied + e_prep + e_trans + e_waste + e_saw
+
+    return total_cost, {
+        'V_req': v_req,
+        'V_over': v_over,
+        'V_waste': v_waste,
+        'V_stock': v_stock,
+        'E_embodied': e_embodied,
+        'E_prep': e_prep,
+        'E_trans': e_trans,
+        'E_waste': e_waste,
+        'E_saw': e_saw,
+        'TOTAL_Score': total_cost
+    }
+
+
+def calculate_assignment_cost(slot, stock_item):
+    """Backward-compatible alias voor de formulefunctie."""
+    return calculate_lca_formula(slot, stock_item)
 
 print("✅ Rekenmodules succesvol gedefinieerd.")
 
 def build_cost_matrix(df_design, df_stock_raw, target_stock_ids=None):
-    print("Start generatie van de integrale CO2 Cost Matrix...")
+    """
+    Stap 2: bouwt de kostenmatrix met de assignment-cost functie.
+    """
+    print("Start generatie van de integrale CO2 Cost Matrix (nieuwe LCA-logica)...")
 
-    # 1. Bereken de basis LCA score (Roep de module uit Cel 2 aan)
-    df_stock = calculate_pseudo_lca_stock(df_stock_raw)
+    df_stock = prepare_stock_cost_inputs(df_stock_raw)
 
     n_slots = len(df_design)
     n_stock = len(df_stock)
@@ -85,55 +115,41 @@ def build_cost_matrix(df_design, df_stock_raw, target_stock_ids=None):
         slot = df_design.iloc[i]
         slot_id = slot['edge_id'] # of Element_ID, afhankelijk van je kolomnaam
 
-        slot_max_dim = max(slot['Width_Req'], slot['Depth_Req'])
-        slot_min_dim = min(slot['Width_Req'], slot['Depth_Req'])
-
         for j in range(n_stock):
             stock_item = df_stock.iloc[j]
             stock_id = stock_item['Member_ID']
 
-            stock_max_dim = max(stock_item['Width'], stock_item['Depth'])
-            stock_min_dim = min(stock_item['Width'], stock_item['Depth'])
+            total_match_score, components = calculate_lca_formula(slot, stock_item)
 
-            # --- HARD CONSTRAINTS (INCLUSIEF ROTATIE) ---
-            fits_physically = (
-                stock_item['Length'] >= slot['Length_Req'] and
-                stock_max_dim >= slot_max_dim and
-                stock_min_dim >= slot_min_dim
-            )
-
-            if fits_physically:
-                # 2. Haal de individuele LCA componenten op
-                i_mat = stock_item['Impact_Material_kgCO2']
-                i_trans = stock_item['Impact_Transport_kgCO2']
-                i_proc = stock_item['Impact_Processing_kgCO2']
-                e_cost_base = stock_item['E_cost_Total_kgCO2']
-                c_waste, c_overdim = calculate_geometric_penalties(slot, stock_item)
-                total_match_score = e_cost_base + c_waste + c_overdim
-
+            if np.isfinite(total_match_score):
                 cost_matrix[i, j] = total_match_score
                 succesvolle_matches += 1
 
-                # 4. Uitgebreid loggen voor de diepte-analyse
+                # Uitgebreid loggen voor de diepte-analyse
                 if target_stock_ids and stock_id in target_stock_ids:
+                    assert components is not None
                     detailed_logs.append({
                         'Slot_ID': slot_id,
                         'Stock_ID': stock_id,
                         'Status': '✅',
-                        'Mat_CO2': round(i_mat, 3),
-                        'Trans_CO2': round(i_trans, 3),
-                        'Proc_CO2': round(i_proc, 3),
-                        'E_cost_Base': round(e_cost_base, 2),
-                        'Waste_CO2': round(c_waste, 3),
-                        'Overdim_CO2': round(c_overdim, 3),
-                        'TOTAL_Score': round(total_match_score, 2)
+                        'V_req_m3': round(components['V_req'], 6),
+                        'V_over_m3': round(components['V_over'], 6),
+                        'V_waste_m3': round(components['V_waste'], 6),
+                        'V_stock_m3': round(components['V_stock'], 6),
+                        'Embodied_CO2': round(components['E_embodied'], 3),
+                        'Prep_CO2': round(components['E_prep'], 3),
+                        'Trans_CO2': round(components['E_trans'], 3),
+                        'Waste_CO2': round(components['E_waste'], 3),
+                        'Saw_CO2': round(components['E_saw'], 4),
+                        'TOTAL_Score': round(components['TOTAL_Score'], 3)
                     })
             else:
                 if target_stock_ids and stock_id in target_stock_ids:
                     detailed_logs.append({
                         'Slot_ID': slot_id, 'Stock_ID': stock_id, 'Status': '❌',
-                        'Mat_CO2': '-', 'Trans_CO2': '-', 'Proc_CO2': '-', 'E_cost_Base': "-",
-                        'Waste_CO2': '-', 'Overdim_CO2': '-', 'TOTAL_Score': np.inf
+                        'V_req_m3': '-', 'V_over_m3': '-', 'V_waste_m3': '-', 'V_stock_m3': '-',
+                        'Embodied_CO2': '-', 'Prep_CO2': '-', 'Trans_CO2': '-', 'Waste_CO2': '-', 'Saw_CO2': '-',
+                        'TOTAL_Score': np.inf
                     })
 
     print(f"✅ Matrix gegenereerd! Dimensies: {n_slots} benodigde staven x {n_stock} inventaris-balken.")
