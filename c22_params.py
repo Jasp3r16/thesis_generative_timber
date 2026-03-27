@@ -40,7 +40,7 @@ LCA_RECLAIMED = {
 # --- PARAMETERS NEW STOCK (CATALOGUS) ---
 DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM = 3600
 
-json_path = 'representative_beam_length.json'
+json_path = config.DATA_IO_PATH / 'representative_beam_length.json'
 with open(json_path, "r", encoding="utf-8") as f:
     data = json.load(f)
 value = float(data["representative_length_mm"])
