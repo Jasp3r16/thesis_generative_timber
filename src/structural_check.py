@@ -1,6 +1,5 @@
 from __future__ import annotations
 import math
-from typing import Any
 import numpy as np
 import pandas as pd
 
@@ -11,7 +10,18 @@ def bereken_utilization_voor_dataset(
 	req_length_m: float,
 	gnn_marge: float = 1.10,
 ) -> float:
-	"""Bereken Eurocode 5 utilization voor een stock element en gevraagde kracht."""
+	"""Bereken Eurocode 5 utilization voor één stock-element.
+
+	Args:
+		row: Rij met minimaal `Width`, `Depth`, `f_c0k`, `f_tk`, `E_modulus_eff`.
+		req_force_kn: Gevraagde axiale kracht in kN (positief=trek, negatief=druk).
+		req_length_m: Gevraagde staaflengte in meter voor knikberekening.
+		gnn_marge: Veiligheidsfactor op voorspelde kracht (default 1.10).
+
+	Returns:
+		Utilization-ratio. Waarden <= 1.0 zijn constructief toelaatbaar.
+		Geeft `np.inf` terug als de berekende capaciteit ongeldig/niet-positief is.
+	"""
 	reken_kracht_kn = float(req_force_kn) * float(gnn_marge)
 
 	f_c_k = float(row["f_c0k"])
@@ -50,33 +60,33 @@ def bereken_utilization_voor_dataset(
 	return force_n / capaciteit_n
 
 
-def _resolve_ftk_column(df_stock: pd.DataFrame) -> pd.DataFrame:
-	"""Maak/normaliseer kolom f_tk op basis van aanwezige datasetkolommen."""
-	df_resolved = df_stock.copy()
-	if "f_tk" in df_resolved.columns:
-		return df_resolved
-
-	tensile_aliases = ["f_t0k", "f_t_0_k", "f_t_0k", "ftk", "f_t,k"]
-	found_alias = next((col for col in tensile_aliases if col in df_resolved.columns), None)
-
-	if found_alias is not None:
-		df_resolved["f_tk"] = df_resolved[found_alias]
-	elif "f_mk" in df_resolved.columns:
-		df_resolved["f_tk"] = 0.58 * pd.to_numeric(df_resolved["f_mk"], errors="coerce")
-	else:
-		df_resolved["f_tk"] = 14.0
-
-	return df_resolved
-
-
 def compute_utilization_outputs(
 	df_forces: pd.DataFrame,
 	df_input_stock: pd.DataFrame,
 	gnn_marge: float = 1.10,
 ) -> dict[str, pd.DataFrame]:
-	"""Genereer utilization long/matrix, veilige opties en slots voor de workflow."""
+	"""Genereer alle utilization-tabellen voor notebook- en cost-matrix workflow.
+
+	Args:
+		df_forces: DataFrame met minimaal `edge_id` (of `beam_id`), `length_m`, `axial_force_kn`.
+		df_input_stock: Stock-dataset met geometrie- en sterktekolommen.
+		gnn_marge: Veiligheidsfactor op voorspelde kracht.
+
+	Returns:
+		Dictionary met:
+		- `df_inventory`: opgeschoonde stock-data incl. `f_tk`
+		- `df_forces_local`: genormaliseerde force-tabel
+		- `df_utilization_long`: long-format combinatie-tabel (edge x stock)
+		- `df_utilization_matrix`: raw utilization matrix
+		- `df_utilization_matrix_display`: matrix met `inf` voor utilization > 1.0
+		- `veilige_opties`: combinaties met 0 < utilization <= 1.0
+		- `df_slots`: inputtabel voor cost matrix (`edge_id`, `length_m`, `axial_force_kn`, `Length_Req`)
+
+	Raises:
+		ValueError: Als verplichte kolommen ontbreken in force- of stock-data.
+	"""
 	df_forces_local = df_forces.copy()
-	df_inventory = _resolve_ftk_column(df_input_stock.copy())
+	df_inventory = df_input_stock.copy()
 
 	if "edge_id" not in df_forces_local.columns and "beam_id" in df_forces_local.columns:
 		df_forces_local = df_forces_local.rename(columns={"beam_id": "edge_id"})
