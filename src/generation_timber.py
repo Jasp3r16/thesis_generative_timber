@@ -84,6 +84,7 @@ def _mechanical_props_row(mech_props: Dict[str, Any]) -> Dict[str, float]:
     """Return all mechanical properties in a dataset-ready structure."""
     return {
         'f_mk': float(mech_props['f_mk']),
+        'f_tk': float(mech_props['f_tk']),
         'E_modulus_eff': float(mech_props['E_modulus_eff']),
         'E_modulus_005': float(mech_props['E_modulus_005']),
         'f_vk': float(mech_props['f_vk']),

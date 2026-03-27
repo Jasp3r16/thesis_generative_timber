@@ -93,6 +93,7 @@ LCA_NEW = {
 MECH_PROPS = {
     'C18': {
         'f_mk': 18.0,            # N/mm2
+        'f_tk': 11.0,            # N/mm2
         'E_modulus_eff': 9000.0, # N/mm2
         'E_modulus_005': 6000.0, # N/mm2
         'f_vk': 2.0,             # N/mm2
@@ -102,6 +103,7 @@ MECH_PROPS = {
     },
     'C24': {
         'f_mk': 24.0,             # N/mm2
+        'f_tk': 14.0,             # N/mm2
         'E_modulus_eff': 11000.0, # N/mm2
         'E_modulus_005': 7400.0,  # N/mm2
         'f_vk': 2.5,              # N/mm2
