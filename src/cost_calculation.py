@@ -10,6 +10,17 @@ END_OF_LIFE_FACTOR = float(c11_params.END_OF_LIFE_EMISSION_FACTOR)
 SAW_CUT_PENALTY = float(c11_params.SAW_CUT_PENALTY)
 
 
+def _resolve_utilization_value(df_utilization_matrix, slot_id, stock_id):
+    """Haal utilization op uit matrix; return np.nan als combinatie ontbreekt."""
+    if df_utilization_matrix is None:
+        return np.nan
+    if slot_id not in df_utilization_matrix.index:
+        return np.nan
+    if stock_id not in df_utilization_matrix.columns:
+        return np.nan
+    return df_utilization_matrix.loc[slot_id, stock_id]
+
+
 def prepare_stock_cost_inputs(df_stock_raw):
     """
     Maakt een strikte inputtabel voor kostenberekening.
@@ -42,11 +53,15 @@ def calculate_lca_formula(slot, stock_item):
     C = E_embodied + E_prep + E_trans + E_waste + E_saw.
     Retourneert (np.inf, None) als de match fysiek niet haalbaar is.
     """
-    l_req = slot['Length_Req'] / 1000.0
-    a_req = (slot['Width_Req'] / 1000.0) * (slot['Depth_Req'] / 1000.0)
-
     l_stock = stock_item['Length'] / 1000.0
     a_stock = (stock_item['Width'] / 1000.0) * (stock_item['Depth'] / 1000.0)
+
+    l_req = slot['Length_Req'] / 1000.0
+    # Backward-compatible fallback for workflows where section demand is not modeled per slot.
+    if 'Width_Req' in slot and 'Depth_Req' in slot:
+        a_req = (slot['Width_Req'] / 1000.0) * (slot['Depth_Req'] / 1000.0)
+    else:
+        a_req = a_stock
 
     # Hard feasibility rule: onvoldoende lengte of doorsnede-oppervlak -> onmogelijke match.
     if l_stock < l_req or a_stock < a_req:
@@ -94,7 +109,13 @@ def calculate_assignment_cost(slot, stock_item):
 
 print("✅ Rekenmodules succesvol gedefinieerd.")
 
-def build_cost_matrix(df_design, df_stock_raw, target_stock_ids=None):
+def build_cost_matrix(
+    df_design,
+    df_stock_raw,
+    target_stock_ids=None,
+    df_utilization_matrix=None,
+    max_utilization_threshold=1.0,
+):
     """
     Stap 2: bouwt de kostenmatrix met de assignment-cost functie.
     """
@@ -111,6 +132,8 @@ def build_cost_matrix(df_design, df_stock_raw, target_stock_ids=None):
     # Hier slaan we de gedetailleerde berekeningen in op!
     detailed_logs = []
 
+    util_constraint_active = df_utilization_matrix is not None
+
     for i in range(n_slots):
         slot = df_design.iloc[i]
         slot_id = slot['edge_id'] # of Element_ID, afhankelijk van je kolomnaam
@@ -118,8 +141,21 @@ def build_cost_matrix(df_design, df_stock_raw, target_stock_ids=None):
         for j in range(n_stock):
             stock_item = df_stock.iloc[j]
             stock_id = stock_item['Member_ID']
+            utilization_value = _resolve_utilization_value(df_utilization_matrix, slot_id, stock_id)
 
-            total_match_score, components = calculate_lca_formula(slot, stock_item)
+            utilization_failed = False
+            if util_constraint_active:
+                if not np.isfinite(utilization_value):
+                    utilization_failed = True
+                elif float(utilization_value) > float(max_utilization_threshold):
+                    utilization_failed = True
+
+            if utilization_failed:
+                total_match_score, components = np.inf, None
+                feasibility_reason = 'Utilization'
+            else:
+                total_match_score, components = calculate_lca_formula(slot, stock_item)
+                feasibility_reason = 'Passed' if np.isfinite(total_match_score) else 'GeometryOrLCA'
 
             if np.isfinite(total_match_score):
                 cost_matrix[i, j] = total_match_score
@@ -132,6 +168,8 @@ def build_cost_matrix(df_design, df_stock_raw, target_stock_ids=None):
                         'Slot_ID': slot_id,
                         'Stock_ID': stock_id,
                         'Status': '✅',
+                        'Feasibility_Check': feasibility_reason,
+                        'Utilization_Value': round(float(utilization_value), 4) if np.isfinite(utilization_value) else '-',
                         'V_req_m3': round(components['V_req'], 6),
                         'V_over_m3': round(components['V_over'], 6),
                         'V_waste_m3': round(components['V_waste'], 6),
@@ -147,6 +185,8 @@ def build_cost_matrix(df_design, df_stock_raw, target_stock_ids=None):
                 if target_stock_ids and stock_id in target_stock_ids:
                     detailed_logs.append({
                         'Slot_ID': slot_id, 'Stock_ID': stock_id, 'Status': '❌',
+                        'Feasibility_Check': feasibility_reason,
+                        'Utilization_Value': round(float(utilization_value), 4) if np.isfinite(utilization_value) else '-',
                         'V_req_m3': '-', 'V_over_m3': '-', 'V_waste_m3': '-', 'V_stock_m3': '-',
                         'Embodied_CO2': '-', 'Prep_CO2': '-', 'Trans_CO2': '-', 'Waste_CO2': '-', 'Saw_CO2': '-',
                         'TOTAL_Score': np.inf
@@ -154,6 +194,8 @@ def build_cost_matrix(df_design, df_stock_raw, target_stock_ids=None):
 
     print(f"✅ Matrix gegenereerd! Dimensies: {n_slots} benodigde staven x {n_stock} inventaris-balken.")
     print(f"📊 Aantal fysiek geldige combinaties gevonden: {succesvolle_matches}")
+    if util_constraint_active:
+        print(f"🧱 Utilization-constraint actief met drempel <= {float(max_utilization_threshold):.3f}")
 
     return cost_matrix, df_stock, pd.DataFrame(detailed_logs)
 
