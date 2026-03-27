@@ -51,54 +51,6 @@ def reconstruct_edges(cells_x, cells_y):
     
     return df_edges
 
-def extract_beam_properties(df_vertices, df_edges):
-    """
-    Berekent staaflengtes en kent constructieve profielen toe
-    op basis van de positie in het ruimtevakwerk.
-    """
-    # Maak een snelle zoek-dictionary voor de coördinaten
-    # (Dit is veel sneller dan elke keer door de hele tabel zoeken)
-    v_dict = df_vertices.set_index('vertex_index').to_dict('index')
-    beams = []
-
-    for _, edge in df_edges.iterrows():
-        # Let op de 'v' prefix die we in stap 2 hebben toegevoegd
-        v1_id = f"v{edge['V1']}" if not str(edge['V1']).startswith('v') else edge['V1']
-        v2_id = f"v{edge['V2']}" if not str(edge['V2']).startswith('v') else edge['V2']
-
-        pt1 = v_dict[v1_id]
-        pt2 = v_dict[v2_id]
-
-        # Stelling van Pythagoras (3D Euclidische afstand in meters)
-        dx = pt1['x'] - pt2['x']
-        dy = pt1['y'] - pt2['y']
-        dz = pt1['z'] - pt2['z']
-        lengte_m = math.sqrt(dx**2 + dy**2 + dz**2)
-
-        # Converteer naar millimeters voor de hout-database
-        lengte_mm = lengte_m * 1000.0
-
-        # Bepaal het constructieve type en de benodigde dwarsdoorsnede (in mm)
-        if pt1['layer'] == 'top' and pt2['layer'] == 'top':
-            b_type = 'Top Chord'
-            w_req, d_req = 75.0, 150.0   # Aangepast naar beschikbare maten (75x150)
-        elif pt1['layer'] == 'bottom' and pt2['layer'] == 'bottom':
-            b_type = 'Bottom Chord'
-            w_req, d_req = 75.0, 100.0   # Aangepast naar 75x100
-        else:
-            b_type = 'Diagonal Web'
-            w_req, d_req = 50.0, 100.0   # Diagonalen mogen dunner zijn (50x100)
-
-        beams.append({
-            'edge_id': edge['edge_id'],
-            'type': b_type,
-            'Length_Req': round(lengte_mm, 2),
-            'Width_Req': w_req,
-            'Depth_Req': d_req
-        })
-
-    return pd.DataFrame(beams)
-
 
 def _normalize_vertex_id(vertex_id):
     """Normaliseer vertex index naar het formaat 'v{n}'."""
