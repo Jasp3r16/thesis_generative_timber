@@ -70,6 +70,7 @@ def save_evaluation(
     node_count: int,
     edge_count: int,
     export_path: Path,
+    training_visuals_fig: plt.Figure = None,
     status: str = "✅ GOOD FIT"
 ):
     """
@@ -87,6 +88,8 @@ def save_evaluation(
         2x2 figure with predictions vs actual + residuals plots
     error_dist_fig : plt.Figure
         Figure with error distribution histograms
+    training_visuals_fig : plt.Figure, optional
+        Figure with training diagnostics (loss curve + normalized target distribution)
     node_count : int
         Number of nodes in the graph
     edge_count : int
@@ -102,7 +105,7 @@ def save_evaluation(
     """
     
     # Create directory structure
-    date_today = datetime.now().strftime("%Y-%m-%d")
+    date_today = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     eval_dir = export_path / f"{model_prefix}_{date_today}"
     eval_dir.mkdir(parents=True, exist_ok=True)
     
@@ -153,8 +156,15 @@ def save_evaluation(
     error_dist_fig.savefig(error_plot_path, dpi=150, bbox_inches='tight')
     saved_files['error_dist_plot'] = error_plot_path
     print(f"✅ Error distribution saved: 02_error_distribution_{timestamp}.png")
+
+    # 4. Save training diagnostics plot (optional)
+    if training_visuals_fig is not None:
+        training_plot_path = eval_dir / f"03_training_diagnostics_{timestamp}.png"
+        training_visuals_fig.savefig(training_plot_path, dpi=150, bbox_inches='tight')
+        saved_files['training_diagnostics_plot'] = training_plot_path
+        print(f"✅ Training diagnostics saved: 03_training_diagnostics_{timestamp}.png")
     
-    # 4. Create summary README
+    # 5. Create summary README
     summary_text = f"""# Evaluation Results: {model_prefix}
 
 **Date**: {timestamp}  
@@ -181,7 +191,8 @@ def save_evaluation(
 1. `metrics_{timestamp}.json` — Raw metrics (machine-readable)
 2. `01_predictions_residuals_{timestamp}.png` — 4-panel: predictions vs actual + residual plots (train & test)
 3. `02_error_distribution_{timestamp}.png` — Error histograms for train & test
-4. `README.md` — This summary
+4. `03_training_diagnostics_{timestamp}.png` — Training loss curve + normalized target profile (if available)
+5. `README.md` — This summary
 
 ## Model Files
 
