@@ -31,6 +31,7 @@ TIMBER_STOCK_PATH = DATA_PATH / "03_timber_data"
 
 # Submappen binnen de research-exports
 SM_EXPORT_PATH = EXPORT_PATH / "01_surrogate_models"
+SM_DATA_PATH = EXPORT_PATH / "02_surrogate_model_data"
 
 # ==========================================
 # 3. INITIALISATIE
