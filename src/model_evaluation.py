@@ -1,12 +1,64 @@
 """
-Utility to save evaluation results from surrogate model training.
-Saves metrics, plots, and documentation to organized folder structure.
+Utility for model evaluation: printing metrics, interpretation, and saving results.
+Includes formatted output and organized folder structure for tracking model performance.
 """
 
 import json
 from pathlib import Path
 from datetime import datetime
 import matplotlib.pyplot as plt
+
+
+def print_evaluation_metrics(metrics: dict, status: str = "unknown"):
+    """
+    Print formatted performance metrics and interpretation.
+    
+    Parameters:
+    -----------
+    metrics : dict
+        Dictionary with keys: train_r2, test_r2, train_mae, test_mae, train_rmse, test_rmse, r2_gap
+    status : str
+        Model status ("good_fit", "overfitting", "underfitting")
+    
+    Returns:
+    --------
+    None (prints to stdout)
+    """
+    
+    print("=" * 70)
+    print("MODEL EVALUATION METRICS")
+    print("=" * 70)
+    print(f"\n📊 REGRESSION PERFORMANCE:")
+    print(f"   Train R²:  {metrics['train_r2']:.4f}")
+    print(f"   Test R²:   {metrics['test_r2']:.4f}")
+    print(f"   R² Gap:    {metrics['r2_gap']:.4f}  {'🟢 GOOD' if metrics['r2_gap'] < 0.05 else '🟡 CAUTION' if metrics['r2_gap'] < 0.10 else '🔴 HIGH'}")
+    
+    print(f"\n📏 ERROR METRICS (kN):")
+    print(f"   Train MAE:  {metrics['train_mae']:.4f}")
+    print(f"   Test MAE:   {metrics['test_mae']:.4f}")
+    print(f"   Train RMSE: {metrics['train_rmse']:.4f}")
+    print(f"   Test RMSE:  {metrics['test_rmse']:.4f}")
+    
+    print(f"\n🎯 INTERPRETATION:")
+    if status == "good_fit":
+        print(f"   ✅ GOOD FIT - Model generalizes well!")
+        print(f"      • Train and Test R² are close (gap: {metrics['r2_gap']:.4f} < 0.05)")
+        print(f"      • Predictions are accurate (Test R²: {metrics['test_r2']:.4f})")
+        print(f"      • Model ready for deployment")
+    elif status == "overfitting":
+        print(f"   ⚠️ OVERFITTING - Model memorizes training data")
+        print(f"      • Large gap between Train and Test R² (gap: {metrics['r2_gap']:.4f} > 0.05)")
+        print(f"      • Train R² ({metrics['train_r2']:.4f}) >> Test R² ({metrics['test_r2']:.4f})")
+        print(f"      • Recommendation: Collect more diverse training data or add regularization")
+    elif status == "underfitting":
+        print(f"   ⚠️ UNDERFITTING - Model lacks capacity")
+        print(f"      • Both R² scores low (Train: {metrics['train_r2']:.4f}, Test: {metrics['test_r2']:.4f} < 0.7)")
+        print(f"      • Model cannot capture data complexity")
+        print(f"      • Recommendation: Increase model capacity or train longer")
+    else:
+        print(f"   ❓ Status: {status}")
+    
+    print("=" * 70 + "\n")
 
 
 def save_evaluation(
