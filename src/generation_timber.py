@@ -107,13 +107,12 @@ def _get_lca_reclaimed() -> Dict[str, Any]:
 
 def assign_transport_distance():
     """
-    Kiest een willekeurige transportafstand op basis van de importpercentages 
-    voor bouwhout in Nederland (2021).
+    Choose a random transport distance based on timber import shares in the Netherlands (2021).
     """
     
-    # Definitie van de bronnen: (Land, Gewicht/Percentage, Gemiddelde afstand in km)
-    # De afstanden zijn schattingen tot centraal Nederland en kunnen voor 
-    # de uiteindelijke LCA-berekening in de thesis worden gefinetuned.
+    # Source definitions: (country, weight/share, average distance in km)
+    # Distances are estimates to central Netherlands and can be fine-tuned
+    # for the final LCA calculations in the thesis.
     sources = {
         "Duitsland": {"weight": 26, "base_distance": 300},
         "Zweden": {"weight": 18, "base_distance": 1000},
@@ -124,18 +123,18 @@ def assign_transport_distance():
         "Polen": {"weight": 5, "base_distance": 900},
         "Frankrijk": {"weight": 4, "base_distance": 500},
         "Spanje & Portugal": {"weight": 3, "base_distance": 1800},
-        "Overig": {"weight": 7, "base_distance": 4000} # Resterende 7%
+        "Overig": {"weight": 7, "base_distance": 4000}  # Remaining 7%
     }
 
-    # Splits de data op in lijsten voor de random.choices functie
+    # Split the data into lists for random.choices.
     country_names = list(sources.keys())
     weights = [sources[country]["weight"] for country in country_names]
 
-    # 1. Kies een land op basis van de gewogen kansen
+    # 1. Choose a country based on weighted probabilities.
     chosen_country = random.choices(country_names, weights=weights, k=1)[0]
     base_dist = sources[chosen_country]["base_distance"]
 
-    # 2. Voeg variatie toe (+/- 15%) voor een realistischere spreiding
+    # 2. Add variation (+/- 15%) for a more realistic spread.
     variation = base_dist * 0.15
     final_distance = random.uniform(base_dist - variation, base_dist + variation)
 
@@ -154,7 +153,7 @@ def generate_new_timber_catalog() -> pd.DataFrame:
     mech_row = _mechanical_props_row(mech_new)
     params = _get_params_module()
     
-    # Pre-cache values to avoid repeated dict lookups
+    # Pre-cache values to avoid repeated dict lookups.
     embodied_carbon = float(lca_new['Embodied Carbon Coëfficiënt'])
     emission_range = lca_new['Emmisiefactor_diesel_range']
     processing_factor = int(lca_new['Bewerkingsfactor'])
@@ -164,11 +163,11 @@ def generate_new_timber_catalog() -> pd.DataFrame:
         params.DEPTH_WIDTH_COMBINATIONS
     ))
     
-    print(f"📊 Catalogus genereren... {len(combinations)} balk-typen")
+    print(f"Generating catalog... {len(combinations)} beam types")
     
     data = []
     for idx, (length, (depth, width)) in enumerate(combinations):
-        # Genereer unieke afstandsdata per element
+        # Generate unique distance data for each element.
         origin_country, transport_dist = assign_transport_distance()
         
         data.append({
@@ -186,7 +185,7 @@ def generate_new_timber_catalog() -> pd.DataFrame:
         })
     
     df_new = pd.DataFrame(data)
-    print(f"✅ New stock succesvol gegenereerd! ({len(df_new)} elementen)")
+    print(f"New stock generated successfully! ({len(df_new)} elements)")
     return df_new
 
 
@@ -203,7 +202,7 @@ def generate_reclaimed_stock() -> pd.DataFrame:
     lca_reclaimed = _get_lca_reclaimed()
     params = _get_params_module()
     
-    # Pre-cache values
+    # Pre-cache values.
     embodied_carbon = float(lca_reclaimed['Embodied Carbon Coëfficiënt'])
     processing_factor = int(lca_reclaimed['Bewerkingsfactor'])
     prob_electric = lca_reclaimed['Kans_op_elektrisch']
@@ -234,7 +233,7 @@ def generate_reclaimed_stock() -> pd.DataFrame:
     if length_distribution != "normal":
         raise ValueError("Only RECLAIMED_LENGTH_DISTRIBUTION='normal' is supported")
 
-    # Build a balanced ordered sequence so each section appears equally
+    # Build a balanced ordered sequence so each section appears equally.
     # (difference at most 1 when stock_count is not divisible).
     n_sections = len(section_library)
     full_cycles = stock_count // n_sections
@@ -269,7 +268,7 @@ def generate_reclaimed_stock() -> pd.DataFrame:
         })
     
     df_reclaimed = pd.DataFrame(inventory_list)
-    print(f"✅ Reclaimed stock gegenereerd! ({len(df_reclaimed)} elementen)")
+    print(f"Reclaimed stock generated successfully! ({len(df_reclaimed)} elements)")
     return df_reclaimed
 
 
@@ -336,8 +335,8 @@ def generate_mixed_stock_subset(
 
     realized_reused_ratio = (df_subset['State'] == 1).mean()
     print(
-        "📦 Mixed subset gegenereerd: "
-        f"{len(df_subset)} totaal | "
+        "Mixed subset generated: "
+        f"{len(df_subset)} total | "
         f"new={requested_new}, reused={requested_reused} "
         f"(reused_ratio={realized_reused_ratio:.2f})"
     )

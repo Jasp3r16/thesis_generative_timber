@@ -4,25 +4,25 @@ import numpy as np
 import pandas as pd
 
 
-def bereken_utilization_voor_dataset(
+def calculate_utilization_for_dataset(
 	row: pd.Series,
 	req_force_kn: float,
 	req_length_m: float,
-	gnn_marge: float = 1.10,
+	gnn_margin: float = 1.10,
 ) -> float:
-	"""Bereken Eurocode 5 utilization voor één stock-element.
+	"""Calculate Eurocode 5 utilization for one stock element.
 
 	Args:
-		row: Rij met minimaal `Width`, `Depth`, `f_c0k`, `f_tk`, `E_modulus_eff`.
-		req_force_kn: Gevraagde axiale kracht in kN (positief=trek, negatief=druk).
-		req_length_m: Gevraagde staaflengte in meter voor knikberekening.
-		gnn_marge: Veiligheidsfactor op voorspelde kracht (default 1.10).
+		row: Row with at least `Width`, `Depth`, `f_c0k`, `f_tk`, `E_modulus_eff`.
+		req_force_kn: Requested axial force in kN (positive=tension, negative=compression).
+		req_length_m: Requested member length in meters for buckling calculation.
+		gnn_margin: Safety factor on predicted force (default 1.10).
 
 	Returns:
-		Utilization-ratio. Waarden <= 1.0 zijn constructief toelaatbaar.
-		Geeft `np.inf` terug als de berekende capaciteit ongeldig/niet-positief is.
+		Utilization ratio. Values <= 1.0 are structurally acceptable.
+		Returns `np.inf` if the calculated capacity is invalid or non-positive.
 	"""
-	reken_kracht_kn = float(req_force_kn) * float(gnn_marge)
+	required_force_kn = float(req_force_kn) * float(gnn_margin)
 
 	f_c_k = float(row["f_c0k"])
 	e_0_mean = float(row["E_modulus_eff"])
@@ -38,14 +38,14 @@ def bereken_utilization_voor_dataset(
 	l_mm = float(req_length_m) * 1000.0
 	area = b * h
 
-	if reken_kracht_kn >= 0:
-		force_n = reken_kracht_kn * 1000.0
+	if required_force_kn >= 0:
+		force_n = required_force_kn * 1000.0
 		capaciteit_n = area * f_t_d
 		if capaciteit_n <= 0:
 			return float(np.inf)
 		return force_n / capaciteit_n
 
-	force_n = abs(reken_kracht_kn * 1000.0)
+	force_n = abs(required_force_kn * 1000.0)
 	i_min = (max(b, h) * min(b, h) ** 3) / 12.0
 	i_radius = math.sqrt(i_min / area)
 	slenderness = l_mm / i_radius
@@ -70,7 +70,7 @@ def compute_utilization_outputs(
 	Args:
 		df_forces: DataFrame met minimaal `edge_id` (of `beam_id`), `length_m`, `axial_force_kn`.
 		df_input_stock: Stock-dataset met geometrie- en sterktekolommen.
-		gnn_marge: Veiligheidsfactor op voorspelde kracht.
+		gnn_marge: Safety factor on the predicted force.
 
 	Returns:
 		Dictionary met:
@@ -83,7 +83,7 @@ def compute_utilization_outputs(
 		- `df_slots`: inputtabel voor cost matrix (`edge_id`, `length_m`, `axial_force_kn`, `Length_Req`)
 
 	Raises:
-		ValueError: Als verplichte kolommen ontbreken in force- of stock-data.
+		ValueError: Raised when required columns are missing in the force or stock data.
 	"""
 	df_forces_local = df_forces.copy()
 	df_inventory = df_input_stock.copy()
@@ -97,9 +97,9 @@ def compute_utilization_outputs(
 	missing_stock_cols = [c for c in required_stock_cols if c not in df_inventory.columns]
 	missing_force_cols = [c for c in required_force_cols if c not in df_forces_local.columns]
 	if missing_stock_cols:
-		raise ValueError("Ontbrekende kolommen in df_input_stock: " + ", ".join(missing_stock_cols))
+		raise ValueError("Missing columns in df_input_stock: " + ", ".join(missing_stock_cols))
 	if missing_force_cols:
-		raise ValueError("Ontbrekende kolommen in df_forces: " + ", ".join(missing_force_cols))
+		raise ValueError("Missing columns in df_forces: " + ", ".join(missing_force_cols))
 
 	numeric_stock_cols = ["Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"]
 	for col in numeric_stock_cols:
@@ -119,7 +119,7 @@ def compute_utilization_outputs(
 				stock_row,
 				req_force_kn=req_force_kn,
 				req_length_m=req_length_m,
-				gnn_marge=gnn_marge,
+				gnn_margin=gnn_marge,
 			),
 			axis=1,
 		)
@@ -163,7 +163,23 @@ def compute_utilization_outputs(
 	}
 
 
+def bereken_utilization_voor_dataset(
+	row: pd.Series,
+	req_force_kn: float,
+	req_length_m: float,
+	gnn_marge: float = 1.10,
+) -> float:
+	"""Backward-compatible wrapper for calculate_utilization_for_dataset."""
+	return calculate_utilization_for_dataset(
+		row=row,
+		req_force_kn=req_force_kn,
+		req_length_m=req_length_m,
+		gnn_margin=gnn_marge,
+	)
+
+
 __all__ = [
+	"calculate_utilization_for_dataset",
 	"bereken_utilization_voor_dataset",
 	"compute_utilization_outputs",
 ]

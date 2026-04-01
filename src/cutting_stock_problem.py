@@ -1,4 +1,4 @@
-# @title
+# Cutting stock optimization
 import pulp
 import numpy as np
 import pandas as pd
@@ -6,11 +6,11 @@ import c11_params
 
 def optimize_cutting_stock(df_slots, verrijkte_stock):
 
-    print("Start Advanced MILP Optimizer (Inclusief 1D Cutting Stock / Nesting)...")
+    print("Starting advanced MILP optimizer (including 1D cutting stock / nesting)...")
     # ==========================================
-    # 1. DATA VOORBEREIDEN (Vanuit df_slots en verrijkte_stock)
+    # 1. PREPARE DATA (from df_slots and verrijkte_stock)
     # ==========================================
-    # Maak dictionaries zodat de Optimizer razendsnel lengtes en dimensies kan opzoeken
+    # Build dictionaries so the optimizer can look up lengths and dimensions quickly.
     slot_lengths = {row['edge_id']: row['Length_Req'] for _, row in df_slots.iterrows()}
     slot_max_dim = {row['edge_id']: max(row['Width_Req'], row['Depth_Req']) for _, row in df_slots.iterrows()}
     slot_min_dim = {row['edge_id']: min(row['Width_Req'], row['Depth_Req']) for _, row in df_slots.iterrows()}
@@ -22,7 +22,7 @@ def optimize_cutting_stock(df_slots, verrijkte_stock):
     stock_area = {row['Member_ID']: (row['Width'] * row['Depth']) / 1e6 for _, row in verrijkte_stock.iterrows()} # Area in m2
     stock_rho = {row['Member_ID']: row['Density'] for _, row in verrijkte_stock.iterrows()}
 
-    # Bepaal GWP voor elk hout-item (Afhankelijk of NS of RS in de naam staat)
+    # Determine GWP for each timber item (based on whether NS or RS is in the ID).
     stock_gwp = {row['Member_ID']: c11_params.GWP_RECLAIMED if 'RS' in row['Member_ID'] else c11_params.GWP_VIRGIN for _, row in verrijkte_stock.iterrows()}
     stock_base_cost = {row['Member_ID']: row['E_cost_Total_kgCO2'] for _, row in verrijkte_stock.iterrows()}
 
@@ -32,40 +32,40 @@ def optimize_cutting_stock(df_slots, verrijkte_stock):
     reclaimed_items = [item for item in stock_items if 'RS' in item]
 
     # ==========================================
-    # 2. FILTEREN VAN GELDIGE COMBINATIES (Alleen Dwarsdoorsnede & Max Lengte)
+    # 2. FILTER VALID COMBINATIONS (cross-section and max length only)
     # ==========================================
     valid_matches = []
     for slot_id in construction_slots:
         for stock_id in stock_items:
-            # HARD CONSTRAINT: Balk moet in ieder geval dik/breed genoeg zijn (inclusief rotatie)
-            # EN de stock-balk moet langer of gelijk zijn aan deze ene specifieke staaf.
+            # HARD CONSTRAINT: the beam must be wide/deep enough (including rotation)
+            # and the stock beam must be at least as long as the required member.
             if (stock_max_dim[stock_id] >= slot_max_dim[slot_id] and
                 stock_min_dim[stock_id] >= slot_min_dim[slot_id] and
                 stock_lengths[stock_id] >= slot_lengths[slot_id]):
                 valid_matches.append((stock_id, slot_id))
 
     # ==========================================
-    # 3. HET MILP MODEL OPZETTEN
+    # 3. SET UP THE MILP MODEL
     # ==========================================
     prob = pulp.LpProblem("Timber_Cutting_Stock_Optimization", pulp.LpMinimize)
 
-    # Variabele 1: Wordt deze combinatie (Slot uit Stock) gemaakt? (0 of 1)
+    # Variable 1: is this combination (slot from stock) selected? (0 or 1)
     x = pulp.LpVariable.dicts("Match", valid_matches, 0, 1, pulp.LpBinary)
 
-    # Variabele 2: Wordt deze Hout-balk überhaupt AANGESNEDEN? (0 of 1)
-    # (Dit is nieuw! Hiermee bepalen we of we het basisafval en base_cost moeten rekenen)
+    # Variable 2: is this timber beam cut at all? (0 or 1)
+    # This determines whether base waste and base cost apply.
     y = pulp.LpVariable.dicts("UsedStock", stock_items, 0, 1, pulp.LpBinary)
 
     # ==========================================
-    # 4. OBJECTIVE FUNCTION (CO2 Minimalisatie Dynamisch Berekenen)
+    # 4. OBJECTIVE FUNCTION (dynamic CO2 minimization)
     # ==========================================
     objective_terms = []
 
-    # A. De Base LCA Cost (alleen als we de balk aansnijden)
+    # A. Base LCA cost (only when the beam is cut)
     for stock_id in stock_items:
         objective_terms.append(y[stock_id] * stock_base_cost[stock_id])
 
-    # B. De Overdimensionering (Wordt berekend per stukje staaf dat we uit de balk zagen)
+    # B. Oversizing (calculated per piece cut from the beam)
     for stock_id, slot_id in valid_matches:
         lengte_m = slot_lengths[slot_id] / 1000.0
         area_verschil = stock_area[stock_id] - slot_area[slot_id]
@@ -73,72 +73,72 @@ def optimize_cutting_stock(df_slots, verrijkte_stock):
 
         objective_terms.append(x[(stock_id, slot_id)] * max(0, overdim_co2))
 
-    # C. Het Zaagverlies (Restlengte). Dit is de genialiteit van 1D-CSP:
-    # (Totale lengte van de balk - Som van alle stukjes die we eruit zagen) * Area * Density * GWP
+    # C. Saw waste (remaining length). This is the 1D-CSP logic:
+    # (Total beam length - Sum of all cut pieces) * area * density * GWP
     for stock_id in stock_items:
         valid_slots_for_this_stock = [s_id for (st_id, s_id) in valid_matches if st_id == stock_id]
 
         if valid_slots_for_this_stock:
-            # Lengte in meters!
+            # Length in meters.
             totale_lengte_m = stock_lengths[stock_id] / 1000.0
             gebruikte_lengte_m = pulp.lpSum([x[(stock_id, slot_id)] * (slot_lengths[slot_id] / 1000.0) for slot_id in valid_slots_for_this_stock])
 
-            # De CO2 waarde van een meter 'leeg' hout van deze balk
+            # CO2 value of one meter of unused timber from this beam.
             co2_per_meter_waste = stock_area[stock_id] * stock_rho[stock_id] * stock_gwp[stock_id]
 
-            # Voeg de afval berekening toe: (Lengte Balk * IsGebruikt - Gebruikte Lengte) * CO2_per_m
+            # Add the waste calculation: (beam length * used flag - used length) * CO2_per_m
             waste_term = (totale_lengte_m * y[stock_id] - gebruikte_lengte_m) * co2_per_meter_waste
             objective_terms.append(waste_term)
 
-    # Voeg alles samen als het doel van de AI
+    # Combine everything as the optimization objective.
     prob += pulp.lpSum(objective_terms)
 
     # ==========================================
-    # 5. CONSTRAINTS (De Regels)
+    # 5. CONSTRAINTS
     # ==========================================
-    # Regel 1: Elke staaf in de constructie MOET precies 1 keer gezaagd worden
+    # Rule 1: each construction member must be cut exactly once.
     for slot_id in construction_slots:
         prob += pulp.lpSum([x[(st_id, slot_id)] for (st_id, sl_id) in valid_matches if sl_id == slot_id]) == 1
 
-    # Regel 2: De stukken die we uit een balk zagen, mogen samen NIET langer zijn dan de balk! (De 1D Bin Packing regel)
+    # Rule 2: the pieces cut from a beam may not exceed the beam length.
     for stock_id in stock_items:
         valid_slots_for_this_stock = [s_id for (st_id, s_id) in valid_matches if st_id == stock_id]
         if valid_slots_for_this_stock:
-            # Let op: We vermenigvuldigen de maximale lengte met y[stock_id] (0 of 1).
-            # Als y 0 is (niet gebruikt), mag de som dus ook maximaal 0 zijn!
+            # Multiply the maximum length by y[stock_id] (0 or 1).
+            # If y is 0 (not used), the sum must also be <= 0.
             prob += pulp.lpSum([x[(stock_id, slot_id)] * slot_lengths[slot_id] for slot_id in valid_slots_for_this_stock]) <= stock_lengths[stock_id] * y[stock_id]
 
-    # Regel 3: Reclaimed hout kan maar 1 keer fysiek "aangesneden" worden (y <= 1).
-    # Voor New hout geldt dat we er theoretisch oneindig veel van kunnen "kopen" (als ze exact deze lengte hebben),
-    # MAAR omdat we hier 'nesting' doen binnen specifieke ID's uit je lijst, is y een binaire variabele voor ELKE balk.
-    # De limieten worden dus impliciet beheerd doordat elke balk_id maar 1 object in je voorraad is.
+    # Rule 3: reclaimed timber can only be cut once physically (y <= 1).
+    # For new timber, you could theoretically buy unlimited copies if lengths match,
+    # but because nesting is done within specific IDs from the list, y is binary per beam.
+    # The limits are therefore managed implicitly because each beam_id exists only once in inventory.
 
     # ==========================================
-    # 6. OPLOSSEN
+    # 6. SOLVE
     # ==========================================
     prob.solve()
 
     print("\n" + "="*50)
-    print(f"STATUS OPLOSSING: {pulp.LpStatus[prob.status]}")
+    print(f"SOLUTION STATUS: {pulp.LpStatus[prob.status]}")
     print("="*50)
 
     if pulp.LpStatus[prob.status] == 'Optimal':
         total_cost = pulp.value(prob.objective)
 
-        print(f"\n✅ Optimaal 'Nesting' ontwerp gevonden! CO2 Penalty: {total_cost:.2f} kg")
+        print(f"\nOptimal nesting design found! CO2 penalty: {total_cost:.2f} kg")
 
-        print("\n📦 HOE DE BALKEN WORDEN OPGEZAAGD:")
+        print("\nHow the beams are cut:")
         print("-" * 50)
         for stock_id in stock_items:
             if y[stock_id].varValue == 1:
-                # Welke staven zijn uit deze balk gehaald?
-                gekozen_slots = [s_id for (st_id, s_id) in valid_matches if st_id == stock_id and x[(stock_id, s_id)].varValue == 1]
-                if gekozen_slots:
-                    totale_gebruikte_lengte = sum([slot_lengths[s_id] for s_id in gekozen_slots])
-                    restafval = stock_lengths[stock_id] - totale_gebruikte_lengte
+                # Which members were cut from this beam?
+                chosen_slots = [s_id for (st_id, s_id) in valid_matches if st_id == stock_id and x[(stock_id, s_id)].varValue == 1]
+                if chosen_slots:
+                    total_used_length = sum([slot_lengths[s_id] for s_id in chosen_slots])
+                    leftover_waste = stock_lengths[stock_id] - total_used_length
 
-                    print(f"Balk: {stock_id} (Lengte: {stock_lengths[stock_id]:.0f}mm) -> Aangesneden!")
-                    print(f"  └─ Bevat staven: {', '.join(gekozen_slots)}")
-                    print(f"  └─ Restafval: {restafval:.0f}mm")
+                    print(f"Beam: {stock_id} (Length: {stock_lengths[stock_id]:.0f}mm) -> Cut")
+                    print(f"  └─ Contains members: {', '.join(chosen_slots)}")
+                    print(f"  └─ Leftover waste: {leftover_waste:.0f}mm")
     else:
-        print("❌ Geen oplossing. De voorraad (zélfs met opdelen) is niet voldoende.")
+        print("No solution. The inventory is insufficient, even with nesting.")

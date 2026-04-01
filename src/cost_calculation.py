@@ -11,7 +11,7 @@ SAW_CUT_PENALTY = float(c11_params.SAW_CUT_PENALTY)
 
 
 def _resolve_utilization_value(df_utilization_matrix, slot_id, stock_id):
-    """Haal utilization op uit matrix; return np.nan als combinatie ontbreekt."""
+    """Fetch utilization from the matrix; return np.nan if the combination is missing."""
     if df_utilization_matrix is None:
         return np.nan
     if slot_id not in df_utilization_matrix.index:
@@ -23,19 +23,19 @@ def _resolve_utilization_value(df_utilization_matrix, slot_id, stock_id):
 
 def prepare_stock_cost_inputs(df_stock_raw):
     """
-    Maakt een strikte inputtabel voor kostenberekening.
-    Vereiste data moet aanwezig zijn in de stock CSV; er worden geen numerieke fallbacks gebruikt.
+    Prepare a strict input table for cost calculation.
+    Required data must be present in the stock CSV; no numeric fallbacks are used.
     """
     df_stock = df_stock_raw.copy()
 
     required_columns = ['mean_density', 'Transport_Dist', 'Emmisiefactor', 'Bewerkingsfactor', 'ECC']
     missing_columns = [col for col in required_columns if col not in df_stock.columns]
     if missing_columns:
-        raise ValueError(f"Ontbrekende verplichte stock-kolommen: {missing_columns}")
+        raise ValueError(f"Missing required stock columns: {missing_columns}")
 
     null_columns = [col for col in required_columns if df_stock[col].isna().any()]
     if null_columns:
-        raise ValueError(f"Lege waarden gevonden in verplichte stock-kolommen: {null_columns}")
+        raise ValueError(f"Empty values found in required stock columns: {null_columns}")
 
     df_stock['Density_Resolved'] = df_stock['mean_density'].astype(float)
     df_stock['Distance_Resolved'] = df_stock['Transport_Dist'].astype(float)
@@ -49,9 +49,9 @@ def prepare_stock_cost_inputs(df_stock_raw):
 
 def calculate_lca_formula(slot, stock_item):
     """
-    Stap 1: berekent C_{i,j} volgens de LCA-logica.
+    Step 1: calculate C_{i,j} according to the LCA logic.
     C = E_embodied + E_prep + E_trans + E_waste + E_saw.
-    Retourneert (np.inf, None) als de match fysiek niet haalbaar is.
+    Returns (np.inf, None) if the match is physically infeasible.
     """
     l_stock = stock_item['Length'] / 1000.0
     a_stock = (stock_item['Width'] / 1000.0) * (stock_item['Depth'] / 1000.0)
@@ -63,7 +63,7 @@ def calculate_lca_formula(slot, stock_item):
     else:
         a_req = a_stock
 
-    # Hard feasibility rule: onvoldoende lengte of doorsnede-oppervlak -> onmogelijke match.
+    # Hard feasibility rule: insufficient length or cross-section area -> impossible match.
     if l_stock < l_req or a_stock < a_req:
         return np.inf, None
 
@@ -73,7 +73,7 @@ def calculate_lca_formula(slot, stock_item):
     embodied_factor = float(stock_item['ECC_Resolved'])
     preparation_factor = float(stock_item['PreparationFactor_Resolved'])
 
-    # Expliciete volumedecompositie:
+    # Explicit volume decomposition:
     # V_stock = V_req + V_over + V_waste
     v_req = a_req * l_req
     v_profile_target = a_stock * l_req
@@ -107,7 +107,7 @@ def calculate_assignment_cost(slot, stock_item):
     """Backward-compatible alias voor de formulefunctie."""
     return calculate_lca_formula(slot, stock_item)
 
-print("✅ Rekenmodules succesvol gedefinieerd.")
+print("Calculation modules defined successfully.")
 
 def build_cost_matrix(
     df_design,
@@ -117,9 +117,9 @@ def build_cost_matrix(
     max_utilization_threshold=1.0,
 ):
     """
-    Stap 2: bouwt de kostenmatrix met de assignment-cost functie.
+    Step 2: build the cost matrix with the assignment-cost function.
     """
-    print("Start generatie van de integrale CO2 Cost Matrix (nieuwe LCA-logica)...")
+    print("Starting generation of the integrated CO2 cost matrix (new LCA logic)...")
 
     df_stock = prepare_stock_cost_inputs(df_stock_raw)
 
@@ -127,9 +127,9 @@ def build_cost_matrix(
     n_stock = len(df_stock)
 
     cost_matrix = np.full((n_slots, n_stock), np.inf)
-    succesvolle_matches = 0
+    successful_matches = 0
 
-    # Hier slaan we de gedetailleerde berekeningen in op!
+    # Store the detailed calculations here.
     detailed_logs = []
 
     util_constraint_active = df_utilization_matrix is not None
@@ -159,9 +159,9 @@ def build_cost_matrix(
 
             if np.isfinite(total_match_score):
                 cost_matrix[i, j] = total_match_score
-                succesvolle_matches += 1
+                successful_matches += 1
 
-                # Uitgebreid loggen voor de diepte-analyse
+                # Extensive logging for the detailed analysis.
                 if target_stock_ids and stock_id in target_stock_ids:
                     assert components is not None
                     detailed_logs.append({
@@ -192,29 +192,29 @@ def build_cost_matrix(
                         'TOTAL_Score': np.inf
                     })
 
-    print(f"✅ Matrix gegenereerd! Dimensies: {n_slots} benodigde staven x {n_stock} inventaris-balken.")
-    print(f"📊 Aantal fysiek geldige combinaties gevonden: {succesvolle_matches}")
+    print(f"Matrix generated! Dimensions: {n_slots} required members x {n_stock} inventory beams.")
+    print(f"Physical valid combinations found: {successful_matches}")
     if util_constraint_active:
-        print(f"🧱 Utilization-constraint actief met drempel <= {float(max_utilization_threshold):.3f}")
+        print(f"Utilization constraint active with threshold <= {float(max_utilization_threshold):.3f}")
 
     return cost_matrix, df_stock, pd.DataFrame(detailed_logs)
 
 
 def analyze_and_export_slot_logs(df_logs, target_slot_for_analysis, all_stock_ids, export_dir, display_fn=None):
     """
-    Bereidt de diepte-analyse voor een specifieke slot-id voor, toont tabellen en exporteert CSV.
+    Prepare the detailed analysis for a specific slot ID, display tables, and export CSV.
 
     Returns:
         (df_logs_slot, df_logs_slot_rs, analysis_export_path)
     """
     print("\n" + "=" * 80)
-    print(f"🔬 DIEPTE-ANALYSE: ALLE FACTOREN VOOR SLOT {target_slot_for_analysis}")
+    print(f"DETAILED ANALYSIS: ALL FACTORS FOR SLOT {target_slot_for_analysis}")
     print("=" * 80)
 
     analysis_export_path = export_dir / f"diepte_analyse_{target_slot_for_analysis}.csv"
 
     if df_logs.empty:
-        print("Geen logboek data gevonden.")
+        print("No log data found.")
         print("=" * 80)
         return pd.DataFrame(), pd.DataFrame(), analysis_export_path
 
@@ -222,7 +222,7 @@ def analyze_and_export_slot_logs(df_logs, target_slot_for_analysis, all_stock_id
     slot_mask = df_logs['Slot_ID'].astype(str).str.strip().str.lower() == str(target_slot_for_analysis).lower()
     df_logs_slot = df_logs.loc[slot_mask].copy()
 
-    # Zorg dat alle stock-items zichtbaar zijn voor deze slot, ook als ze ontbreken in logs.
+    # Ensure all stock items are visible for this slot, even if they are missing from the logs.
     df_all_stock = pd.DataFrame({'Stock_ID': all_stock_ids}).drop_duplicates()
     df_logs_slot = df_all_stock.merge(df_logs_slot, on='Stock_ID', how='left')
 
@@ -242,9 +242,9 @@ def analyze_and_export_slot_logs(df_logs, target_slot_for_analysis, all_stock_id
             else:
                 print(df_logs_slot_rs.fillna('-').reset_index(drop=True).to_string(index=False))
     else:
-        print("Geen RS-items gevonden in de input stock lijst.")
+        print("No RS items found in the input stock list.")
 
-    print("\nVolledige lijst (NS + RS):")
+    print("\nFull list (NS + RS):")
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', None):
         if display_fn is not None:
             display_fn(df_logs_slot.fillna('-').reset_index(drop=True))
@@ -252,7 +252,7 @@ def analyze_and_export_slot_logs(df_logs, target_slot_for_analysis, all_stock_id
             print(df_logs_slot.fillna('-').reset_index(drop=True).to_string(index=False))
 
     df_logs_slot.to_csv(analysis_export_path, index=False)
-    print(f"\n💾 Diepte-analyse geëxporteerd naar: {analysis_export_path}")
+    print(f"\nDetailed analysis exported to: {analysis_export_path}")
     print("=" * 80)
 
     return df_logs_slot, df_logs_slot_rs, analysis_export_path

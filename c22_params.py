@@ -3,7 +3,7 @@ import json
 import config
 from generation_timber import generate_length_tuple_from_average
 
-# --- PARAMETERS RECLAIMED STOCK ---
+# --- RECLAIMED STOCK PARAMETERS ---
 # Typology B: strict, discrete cross-section library from historical nominal sizes
 # with a fixed planing allowance.
 RECLAIMED_HISTORICAL_CROSS_SECTIONS_MM = [
@@ -27,14 +27,14 @@ RECLAIMED_LENGTH_MEAN_MM = 3200
 RECLAIMED_LENGTH_STD_MM = 450
 RECLAIMED_LENGTH_ROUND_TO_MM = 50
 
-# LCA Aannames Reclaimed Hout
+# LCA assumptions for reclaimed timber.
 LCA_RECLAIMED = {
-    'Embodied Carbon Coëfficiënt': 0.0,                # Fictief laag (enkel de-constructie impact)
-    "Transport_distance_range": (5, 240),               # Locatie Delft: (lokaal, Groningen)
+    'Embodied Carbon Coëfficiënt': 0.0,                # Fictitiously low (deconstruction only)
+    "Transport_distance_range": (5, 240),               # Delft location: (local, Groningen)
     'Emmisiefactor_diesel_range': (0.17, 0.18),
     'Emmisiefactor_elektrisch_range': (0.02, 0.05),
-    'Kans_op_elektrisch': 0.30,                         # 30% kans dat het lokaal via een e-truck gaat
-    'Bewerkingsfactor': 1                                # 1 = Ontspijkeren en schaven nodig
+    'Kans_op_elektrisch': 0.30,                         # 30% chance that local transport uses an e-truck
+    'Bewerkingsfactor': 1                                # 1 = de-nailing and planing required
 }
 
 # --- PARAMETERS NEW STOCK (CATALOGUS) ---
@@ -45,7 +45,7 @@ with open(json_path, "r", encoding="utf-8") as f:
     data = json.load(f)
 value = float(data["representative_length_mm"])
 if value == 0:
-    print(f"⚠️ Waarschuwing: Nul waarde gevonden in {json_path}: {value}. Fallback naar default.")
+    print(f"Warning: zero value found in {json_path}: {value}. Falling back to default.")
     value = DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM
 
 STRUCTURE_AVERAGE_LENGTH_MM = value
@@ -63,9 +63,9 @@ TUPLE_LENGTHS = generate_length_tuple_from_average(
     min_length_mm=MIN_LENGTH_MM,
     max_length_mm=MAX_LENGTH_MM
 )
-print("Gegenereerde lengte tuple (mm):", TUPLE_LENGTHS)
+print("Generated length tuple (mm):", TUPLE_LENGTHS)
 
-# DEPTH_WIDTH_MAPPING: Voor elke depth, welke widths zijn geldig
+# DEPTH_WIDTH_MAPPING: For each depth, which widths are valid.
 DEPTH_WIDTH_MAPPING = {
     100: [38, 50, 63, 75, 100],
     150: [38, 50, 63, 75, 100],
@@ -76,18 +76,18 @@ DEPTH_WIDTH_MAPPING = {
     300: [50, 75, 100, 150, 300]
 }
 
-# Auto-genereer DEPTH_WIDTH_COMBINATIONS uit DEPTH_WIDTH_MAPPING
+# Auto-generate DEPTH_WIDTH_COMBINATIONS from DEPTH_WIDTH_MAPPING.
 DEPTH_WIDTH_COMBINATIONS = [
     (depth, width)
     for depth in DEPTH_WIDTH_MAPPING.keys()
     for width in DEPTH_WIDTH_MAPPING[depth]
 ]
 
-# LCA Aannames Nieuw Hout
+# LCA assumptions for new timber.
 LCA_NEW = {
-    'Embodied Carbon Coëfficiënt': 150.0,  # Fictief hoog (productie + drogen)
-    'Emmisiefactor_diesel_range': (0.17, 0.18), # Alleen groot diesel transport voor nieuw hout
-    'Bewerkingsfactor': 0                  # 0 = Geen ontspijkering nodig
+    'Embodied Carbon Coëfficiënt': 150.0,  # Fictitiously high (production + drying)
+    'Emmisiefactor_diesel_range': (0.17, 0.18), # Diesel transport only for new timber
+    'Bewerkingsfactor': 0                  # 0 = No de-nailing required
 }
 
 MECH_PROPS = {

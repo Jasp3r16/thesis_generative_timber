@@ -5,7 +5,7 @@ from typing import Mapping, Optional, Sequence
 import c11_params
 
 def get_valid_shifts(divisions, edge_length):
-    """Berekent de toegestane verschuivingen (verwijdert extremen)."""
+    """Calculate the allowed shifts (excluding the extremes)."""
     half_div = divisions // 2
     all_steps = list(range(-half_div, half_div + 1))
     valid_steps = all_steps[1:-1] # Verwijder eerste en laatste
@@ -14,10 +14,10 @@ def get_valid_shifts(divisions, edge_length):
 
 def get_corner_indices(cells_x, cells_y):
     """
-    Berekent de indices van de hoekpunten voor de Top Layer.
-    Werkt voor elke grid grootte (n x m).
+    Calculate the corner indices for the top layer.
+    Works for any grid size (n x m).
     """
-    # Aantal punten is altijd aantal cellen + 1
+    # The number of points is always the number of cells + 1.
     nodes_x = cells_x + 1
     nodes_y = cells_y + 1
     total_nodes = nodes_x * nodes_y
@@ -33,24 +33,24 @@ def get_corner_indices(cells_x, cells_y):
 
 def bilinear_interpolate(p00, p10, p01, p11, u, v):
     """
-    Interpoleert een punt binnen een vierhoek.
-    p00: Bottom-Left, p10: Bottom-Right, p01: Top-Left, p11: Top-Right (in standaard cartesiaans)
-    Maar in matrix indexering (rij i, kol j):
-    (i, j) is vaak Top-Left in images, maar Bottom-Left in Grasshopper/Cartesiaans als y omhoog gaat.
-    Laten we aannemen: i=0 is y=0 (onder), i=max is y=max (boven).
-    Dan is rij i "onder" rij i+1.
+    Interpolate a point inside a quadrilateral.
+    p00: Bottom-Left, p10: Bottom-Right, p01: Top-Left, p11: Top-Right (in standard Cartesian coordinates).
+    In matrix indexing (row i, column j):
+    (i, j) is often Top-Left in images, but Bottom-Left in Grasshopper/Cartesian coordinates if y increases upward.
+    Assume: i=0 means y=0 (bottom), i=max means y=max (top).
+    Then row i is below row i+1.
     p_bl = (i, j), p_br = (i, j+1)
     p_tl = (i+1, j), p_tr = (i+1, j+1)
     """
-    # X interpolatie
-    # Onderkant (row i)
+    # X interpolation
+    # Bottom (row i)
     x_bot = p00['x'] * (1 - u) + p10['x'] * u
-    # Bovenkant (row i+1)
+    # Top (row i+1)
     x_top = p01['x'] * (1 - u) + p11['x'] * u
 
     final_x = x_bot * (1 - v) + x_top * v
 
-    # Y interpolatie
+    # Y interpolation
     y_bot = p00['y'] * (1 - u) + p10['y'] * u
     y_top = p01['y'] * (1 - u) + p11['y'] * u
 
@@ -60,35 +60,35 @@ def bilinear_interpolate(p00, p10, p01, p11, u, v):
 
 def generate_edges(num_samples, cells_x, cells_y):
     """
-    Genereert een topologische verbindingslijst (edges) voor een dubbellaags ruimtelijk vakwerk.
+    Generate a topological edge list for a double-layer spatial truss.
 
-    De functie bouwt een grid op bestaande uit drie onderdelen:
-    1. Een Top Layer grid van (cells_x + 1) bij (cells_y + 1) punten.
-    2. Een Bottom Layer grid van (cells_x) bij (cells_y) punten, gecentreerd onder de top-cellen.
-    3. Diagonale verbindingen (piramide-structuur) tussen de bottom-punten en de vier bovenliggende top-punten.
+    The function builds a grid consisting of three parts:
+    1. A top layer grid of (cells_x + 1) by (cells_y + 1) points.
+    2. A bottom layer grid of (cells_x) by (cells_y) points, centered below the top cells.
+    3. Diagonal connections (pyramid structure) between the bottom points and the four above top points.
 
     Args:
-        num_samples (int): Het aantal unieke samples dat gegenereerd moet worden.
-        cells_x (int): Het aantal cellen in de X-richting.
-        cells_y (int): Het aantal cellen in de Y-richting.
+        num_samples (int): Number of unique samples to generate.
+        cells_x (int): Number of cells in the X direction.
+        cells_y (int): Number of cells in the Y direction.
 
     Returns:
-        pd.DataFrame: Een DataFrame met de kolommen ['sample_id', 'edge_id', 'V1', 'V2'].
-            V1 en V2 zijn de indices van de verbonden hoekpunten (vertices).
+        pd.DataFrame: A DataFrame with the columns ['sample_id', 'edge_id', 'V1', 'V2'].
+            V1 and V2 are the indices of the connected vertices.
     """
     edges_data = []
 
-    # Bereken hulpparameters
+    # Compute helper parameters.
     nodes_x_top = cells_x + 1
     nodes_y_top = cells_y + 1
     num_top_vertices = nodes_x_top * nodes_y_top
 
-    # We itereren door elke sample om de edges per sample vast te leggen
+    # Iterate over each sample to capture the edges per sample.
     for sample_id in range(num_samples):
 
-        edge_counter = 0  # Reset edge counter per sample (of wil je unieke ID's over de hele file? Meestal per sample resetten: e0..e127)
+        edge_counter = 0  # Reset edge counter per sample.
 
-        # Hulpfunctie om edge toe te voegen
+        # Helper to add an edge.
         def add_edge(u, v):
             nonlocal edge_counter
             edges_data.append({
@@ -100,51 +100,51 @@ def generate_edges(num_samples, cells_x, cells_y):
             edge_counter += 1
 
         # --- 1. TOP LAYER GRID ---
-        # Vertices 0 tot num_top_vertices-1
-        for r in range(nodes_y_top):      # loop rijen
-            for c in range(nodes_x_top):  # loop kolommen
+        # Vertices 0 to num_top_vertices-1.
+        for r in range(nodes_y_top):      # iterate rows
+            for c in range(nodes_x_top):  # iterate columns
                 current = r * nodes_x_top + c
 
-                # Horizontaal (naar rechts)
-                if c < cells_x: # zolang niet de laatste kolom
+                # Horizontal (to the right)
+                if c < cells_x: # while not the last column
                     add_edge(current, current + 1)
 
-                # Verticaal (naar beneden, of 'boven' in matrix index)
-                if r < cells_y: # zolang niet de laatste rij
+                # Vertical (downwards, or 'up' in matrix indexing)
+                if r < cells_y: # while not the last row
                     add_edge(current, current + nodes_x_top)
 
         # --- 2. BOTTOM LAYER GRID ---
-        # Start index is na de laatste top vertex
+        # Start index comes after the last top vertex.
         start_idx_bottom = num_top_vertices
 
-        # Bottom grid heeft evenveel punten als er cellen zijn (cells_x * cells_y)
-        # Maar de grid verbindingen zijn er eentje minder dan het aantal punten
-        # Bottom punten zijn een grid van (cells_x) breed bij (cells_y) hoog.
+        # The bottom grid has as many points as there are cells (cells_x * cells_y).
+        # But the grid connections are one fewer than the number of points.
+        # Bottom points form a grid of width (cells_x) and height (cells_y).
 
         for r in range(cells_y):
             for c in range(cells_x):
                 current = start_idx_bottom + r * cells_x + c
 
-                # Horizontaal (naar rechts)
+                # Horizontal (to the right)
                 if c < cells_x - 1:
                     add_edge(current, current + 1)
 
-                # Verticaal (naar beneden)
+                # Vertical (downwards)
                 if r < cells_y - 1:
                     add_edge(current, current + cells_x)
 
         # --- 3. DIAGONALS (Pyramid connections) ---
-        # Verbind elke Bottom vertex met de 4 Top vertices erboven
+        # Connect each bottom vertex with the 4 top vertices above it.
         for r in range(cells_y):
             for c in range(cells_x):
                 bottom_node = start_idx_bottom + r * cells_x + c
 
-                # De 4 corresponderende punten in de Top layer
-                # Top grid is (cells_x + 1) breed
-                top_tl = r * nodes_x_top + c               # Top-Left (of row i)
-                top_tr = r * nodes_x_top + (c + 1)         # Top-Right
-                top_bl = (r + 1) * nodes_x_top + c         # Bottom-Left (row i+1)
-                top_br = (r + 1) * nodes_x_top + (c + 1)   # Bottom-Right
+                # The 4 corresponding points in the top layer.
+                # Top grid width is (cells_x + 1).
+                top_tl = r * nodes_x_top + c               # Top-left (or row i)
+                top_tr = r * nodes_x_top + (c + 1)         # Top-right
+                top_bl = (r + 1) * nodes_x_top + c         # Bottom-left (row i+1)
+                top_br = (r + 1) * nodes_x_top + (c + 1)   # Bottom-right
 
                 add_edge(bottom_node, top_tl)
                 add_edge(bottom_node, top_tr)
@@ -153,7 +153,7 @@ def generate_edges(num_samples, cells_x, cells_y):
 
     return pd.DataFrame(edges_data)
 
-# Zorg dat get_corner_indices, get_valid_shifts en bilinear_interpolate ook beschikbaar zijn
+    # Make sure get_corner_indices, get_valid_shifts, and bilinear_interpolate are also available.
 
 def generate_sample_vertices(
     sample_id: int,
@@ -161,12 +161,12 @@ def generate_sample_vertices(
     valid_shifts: Optional[Sequence[float]] = None,
 ):
     """
-    Genereert de coördinaten voor een enkel ruimtelijk vakwerk.
+    Generate the coordinates for a single spatial truss.
     
-    Modus 1 (Dataset Generatie): Als 'params' None is, worden willekeurige 
-    verschuivingen toegepast op basis van de valid_shifts.
-    Modus 2 (Reconstructie): Als 'params' een dictionary is, worden de 
-    specifieke optimum waarden ingeladen.
+    Mode 1 (dataset generation): if 'params' is None, random shifts are applied
+    based on valid_shifts.
+    Mode 2 (reconstruction): if 'params' is a dictionary, the specific optimum
+    values are loaded.
     """
     if params is None:
         if not valid_shifts:
@@ -183,7 +183,7 @@ def generate_sample_vertices(
     top_layer_coords = {}
     vertex_idx = 0
 
-    # --- STAP 1: TOP LAYER ---
+    # --- STEP 1: TOP LAYER ---
     for i in range(num_nodes_y_top):
         for j in range(num_nodes_x_top):
             base_x = j * c11_params.EDGE_LENGTH
@@ -195,13 +195,13 @@ def generate_sample_vertices(
 
             shift_x, shift_y = 0.0, 0.0
 
-            # BEPAAL DE WAARDEN OP BASIS VAN DE MODUS
+            # Determine the values based on the mode.
             if params is not None:
-                # Modus 2: Haal op uit Optuna optimum
+                # Mode 2: read values from the Optuna optimum.
                 shift_x = params.get(f"{v_name}_shift_x", 0.0)
                 shift_y = params.get(f"{v_name}_shift_y", 0.0)
             else:
-                # Modus 1: Genereer random voor de dataset
+                # Mode 1: generate random values for the dataset.
                 is_x_edge = (j == 0) or (j == num_nodes_x_top - 1)
                 is_y_edge = (i == 0) or (i == num_nodes_y_top - 1)
                 is_corner = is_x_edge and is_y_edge
@@ -232,7 +232,7 @@ def generate_sample_vertices(
             })
             vertex_idx += 1
 
-    # --- STAP 2: BOTTOM LAYER ---
+    # --- STEP 2: BOTTOM LAYER ---
     for i in range(c11_params.GRID_CELLS_Y):
         for j in range(c11_params.GRID_CELLS_X):
             v_name = f"v{vertex_idx}"
@@ -242,14 +242,14 @@ def generate_sample_vertices(
             p01 = top_layer_coords[(i+1, j)]    # Top-Left
             p11 = top_layer_coords[(i+1, j+1)]  # Top-Right
 
-            # BEPAAL DE WAARDEN OP BASIS VAN DE MODUS
+            # Determine the values based on the mode.
             if params is not None:
-                # Modus 2: Haal op uit Optuna optimum
+                # Mode 2: read values from the Optuna optimum.
                 u = params.get(f"{v_name}_u", 0.5)
                 v = params.get(f"{v_name}_v", 0.5)
                 z_shift = params.get(f"{v_name}_shift_z", 0.0)
             else:
-                # Modus 1: Genereer random voor de dataset
+                # Mode 1: generate random values for the dataset.
                 u = random.uniform(*c11_params.SCALE_UV)
                 v = random.uniform(*c11_params.SCALE_UV)
                 z_shift = random.choice(shift_options)
@@ -272,8 +272,8 @@ def generate_sample_vertices(
 
 def generate_full_dataset(num_samples, round_decimals=2):
     """
-    Genereert een dataset van ruimtelijke vakwerken en waarborgt geometrische diversiteit.
-    Maakt gebruik van ruimtelijke discretisatie om sterk op elkaar lijkende configuraties (near-duplicates) te verwerpen.
+    Generate a dataset of spatial trusses and ensure geometric diversity.
+    Uses spatial discretization to reject strongly similar configurations (near-duplicates).
     """
     valid_shifts = get_valid_shifts(c11_params.DIVISIONS, c11_params.EDGE_LENGTH)
     all_data = []
@@ -281,15 +281,15 @@ def generate_full_dataset(num_samples, round_decimals=2):
     seen_signatures = set()
     samples_generated = 0
     attempts = 0
-    max_attempts = num_samples * 10  # Veiligheidslimiet voor de while-loop
+    max_attempts = num_samples * 10  # Safety limit for the while loop.
     
     while samples_generated < num_samples and attempts < max_attempts:
-        # 1. Genereer een kandidaat-configuratie
+        # 1. Generate a candidate configuration.
         vertices = generate_sample_vertices(samples_generated, params=None, valid_shifts=valid_shifts)
         
-        # 2. Creëer een topologische handtekening via afronding (discretisatie)
-        # We extraheren alleen de (x, y, z) coördinaten en ronden ze af om
-        # micromillimeter-variaties als duplicaten te identificeren.
+        # 2. Create a topological signature via rounding (discretization).
+        # We only extract the (x, y, z) coordinates and round them so that
+        # micromillimeter variations are treated as duplicates.
         signature = tuple(
             (round(v['x'], round_decimals), 
              round(v['y'], round_decimals), 
@@ -297,7 +297,7 @@ def generate_full_dataset(num_samples, round_decimals=2):
             for v in vertices
         )
         
-        # 3. Valideer de uniciteit van de kandidaat
+        # 3. Validate the candidate's uniqueness.
         if signature not in seen_signatures:
             seen_signatures.add(signature)
             all_data.extend(vertices)
@@ -306,7 +306,7 @@ def generate_full_dataset(num_samples, round_decimals=2):
         attempts += 1
         
     if attempts >= max_attempts:
-        print(f"Waarschuwing: Generatie voortijdig gestopt ter preventie van een oneindige loop. "
-              f"De design space is mogelijk te beperkt. Totaal gegenereerd: {samples_generated}")
+          print(f"Warning: generation stopped early to prevent an infinite loop. "
+              f"The design space may be too limited. Total generated: {samples_generated}")
               
     return pd.DataFrame(all_data)

@@ -28,33 +28,33 @@ def print_evaluation_metrics(metrics: dict, status: str = "unknown"):
     print("=" * 70)
     print("MODEL EVALUATION METRICS")
     print("=" * 70)
-    print(f"\n📊 REGRESSION PERFORMANCE:")
+    print(f"\nRegression performance:")
     print(f"   Train R²:  {metrics['train_r2']:.4f}")
     print(f"   Test R²:   {metrics['test_r2']:.4f}")
     print(f"   R² Gap:    {metrics['r2_gap']:.4f}  {'🟢 GOOD' if metrics['r2_gap'] < 0.05 else '🟡 CAUTION' if metrics['r2_gap'] < 0.10 else '🔴 HIGH'}")
     
-    print(f"\n📏 ERROR METRICS (kN):")
+    print(f"\nError metrics (kN):")
     print(f"   Train MAE:  {metrics['train_mae']:.4f}")
     print(f"   Test MAE:   {metrics['test_mae']:.4f}")
     print(f"   Train RMSE: {metrics['train_rmse']:.4f}")
     print(f"   Test RMSE:  {metrics['test_rmse']:.4f}")
     
-    print(f"\n🎯 INTERPRETATION:")
+    print(f"\nInterpretation:")
     if status == "good_fit":
-        print(f"   ✅ GOOD FIT - Model generalizes well!")
-        print(f"      • Train and Test R² are close (gap: {metrics['r2_gap']:.4f} < 0.05)")
+        print(f"   Good fit - model generalizes well.")
+        print(f"      • Train and test R² are close (gap: {metrics['r2_gap']:.4f} < 0.05)")
         print(f"      • Predictions are accurate (Test R²: {metrics['test_r2']:.4f})")
         print(f"      • Model ready for deployment")
     elif status == "overfitting":
-        print(f"   ⚠️ OVERFITTING - Model memorizes training data")
-        print(f"      • Large gap between Train and Test R² (gap: {metrics['r2_gap']:.4f} > 0.05)")
+        print(f"   Overfitting - model memorizes training data")
+        print(f"      • Large gap between train and test R² (gap: {metrics['r2_gap']:.4f} > 0.05)")
         print(f"      • Train R² ({metrics['train_r2']:.4f}) >> Test R² ({metrics['test_r2']:.4f})")
-        print(f"      • Recommendation: Collect more diverse training data or add regularization")
+        print(f"      • Recommendation: collect more diverse training data or add regularization")
     elif status == "underfitting":
-        print(f"   ⚠️ UNDERFITTING - Model lacks capacity")
-        print(f"      • Both R² scores low (Train: {metrics['train_r2']:.4f}, Test: {metrics['test_r2']:.4f} < 0.7)")
+        print(f"   Underfitting - model lacks capacity")
+        print(f"      • Both R² scores are low (Train: {metrics['train_r2']:.4f}, Test: {metrics['test_r2']:.4f} < 0.7)")
         print(f"      • Model cannot capture data complexity")
-        print(f"      • Recommendation: Increase model capacity or train longer")
+        print(f"      • Recommendation: increase model capacity or train longer")
     else:
         print(f"   ❓ Status: {status}")
     
@@ -113,7 +113,7 @@ def save_evaluation(
     saved_files = {}
     
     print(f"\n{'='*60}")
-    print(f"SAVING EVALUATION RESULTS FOR: {model_prefix}")
+    print(f"Saving evaluation results for: {model_prefix}")
     print(f"{'='*60}\n")
     
     # 1. Save metrics as JSON
@@ -143,26 +143,26 @@ def save_evaluation(
     with open(metrics_path, 'w') as f:
         json.dump(metrics_data, f, indent=2)
     saved_files['metrics'] = metrics_path
-    print(f"✅ Metrics saved: metrics_{timestamp}.json")
+    print(f"Metrics saved: metrics_{timestamp}.json")
     
     # 2. Save predictions vs actual + residuals plot
     pred_plot_path = eval_dir / f"01_predictions_residuals_{timestamp}.png"
     pred_residuals_fig.savefig(pred_plot_path, dpi=150, bbox_inches='tight')
     saved_files['pred_residuals_plot'] = pred_plot_path
-    print(f"✅ Predictions plot saved: 01_predictions_residuals_{timestamp}.png")
+    print(f"Predictions plot saved: 01_predictions_residuals_{timestamp}.png")
     
     # 3. Save error distribution plot
     error_plot_path = eval_dir / f"02_error_distribution_{timestamp}.png"
     error_dist_fig.savefig(error_plot_path, dpi=150, bbox_inches='tight')
     saved_files['error_dist_plot'] = error_plot_path
-    print(f"✅ Error distribution saved: 02_error_distribution_{timestamp}.png")
+    print(f"Error distribution saved: 02_error_distribution_{timestamp}.png")
 
     # 4. Save training diagnostics plot (optional)
     if training_visuals_fig is not None:
         training_plot_path = eval_dir / f"03_training_diagnostics_{timestamp}.png"
         training_visuals_fig.savefig(training_plot_path, dpi=150, bbox_inches='tight')
         saved_files['training_diagnostics_plot'] = training_plot_path
-        print(f"✅ Training diagnostics saved: 03_training_diagnostics_{timestamp}.png")
+        print(f"Training diagnostics saved: 03_training_diagnostics_{timestamp}.png")
     
     # 5. Create summary README
     summary_text = f"""# Evaluation Results: {model_prefix}
@@ -212,9 +212,9 @@ Located in `SM_EXPORT_PATH/01_surrogate_models/`:
     with open(readme_path, 'w') as f:
         f.write(summary_text)
     saved_files['readme'] = readme_path
-    print(f"✅ README saved: README.md")
+    print(f"README saved: README.md")
     
-    print(f"\n📁 All evaluation files saved to:")
+    print(f"\nAll evaluation files saved to:")
     print(f"   {eval_dir}\n")
     
     return saved_files
