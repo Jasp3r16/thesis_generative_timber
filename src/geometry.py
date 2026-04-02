@@ -270,7 +270,7 @@ def generate_sample_vertices(
 
     return all_vertices
 
-def generate_full_dataset(num_samples, round_decimals=2):
+def generate_vertices(num_samples, round_decimals=2):
     """
     Generate a dataset of spatial trusses and ensure geometric diversity.
     Uses spatial discretization to reject strongly similar configurations (near-duplicates).

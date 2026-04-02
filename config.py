@@ -39,9 +39,9 @@ SM_DATA_PATH = EXPORT_PATH / "02_surrogate_model_data"
 # Create the export folder automatically on OneDrive if it does not exist yet.
 EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 
-print("System loaded successfully.")
+print("System loaded successfully.\n")
 print(f"Code is running locally from: {REPO_ROOT.name}")
-print(f"Data connected to OneDrive: {ONEDRIVE_ROOT.name}")
+print(f"Data connected to OneDrive: {ONEDRIVE_ROOT.name}\n")
 
 '''
 # Optional debug prints for checking paths.
