@@ -4,9 +4,58 @@ Includes formatted output and organized folder structure for tracking model perf
 """
 
 import json
+import platform
+import subprocess
+import sys
 from pathlib import Path
 from datetime import datetime
+from pprint import pformat
+from importlib.metadata import PackageNotFoundError, version as package_version
 import matplotlib.pyplot as plt
+
+from naming import build_run_folder_name
+
+
+def _safe_package_version(package_name: str) -> str | None:
+    try:
+        return package_version(package_name)
+    except PackageNotFoundError:
+        return None
+
+
+def collect_environment_snapshot() -> dict:
+    """Collect a compact environment snapshot for experiment records."""
+    repo_root = Path(__file__).resolve().parents[1]
+    git_commit = None
+
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode == 0:
+            git_commit = completed.stdout.strip() or None
+    except OSError:
+        git_commit = None
+
+    package_names = ["numpy", "pandas", "torch", "torch-geometric", "scikit-learn", "joblib", "matplotlib"]
+    package_versions = {}
+    for package_name in package_names:
+        package_version_value = _safe_package_version(package_name)
+        if package_version_value is not None:
+            package_versions[package_name] = package_version_value
+
+    return {
+        "python_version": sys.version.split()[0],
+        "python_implementation": platform.python_implementation(),
+        "platform": platform.platform(),
+        "executable": sys.executable,
+        "git_commit": git_commit,
+        "packages": package_versions,
+    }
 
 
 def print_evaluation_metrics(metrics: dict, status: str = "unknown"):
@@ -71,7 +120,20 @@ def save_evaluation(
     edge_count: int,
     export_path: Path,
     training_visuals_fig: plt.Figure = None,
-    status: str = "✅ GOOD FIT"
+    status: str = "✅ GOOD FIT",
+    run_id: str | None = None,
+    artifact_stem: str | None = None,
+    learning_rate: float | None = None,
+    epochs: int | None = None,
+    final_val_r2: float | None = None,
+    strict_dataset_label: str | None = None,
+    source_dataset_path: str | None = None,
+    architecture_summary: dict | str | None = None,
+    experiment_notes: str | None = None,
+    train_split_ratio: float | None = None,
+    random_seed: int | None = None,
+    source_notebook: str | None = None,
+    environment_snapshot: dict | None = None,
 ):
     """
     Save all evaluation results (metrics + plots) to organized folder structure.
@@ -105,8 +167,8 @@ def save_evaluation(
     """
     
     # Create directory structure
-    date_today = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    eval_dir = export_path / f"{model_prefix}_{date_today}"
+    run_folder_id = run_id or model_prefix
+    eval_dir = export_path / build_run_folder_name(run_folder_id)
     eval_dir.mkdir(parents=True, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -115,14 +177,30 @@ def save_evaluation(
     print(f"\n{'='*60}")
     print(f"Saving evaluation results for: {model_prefix}")
     print(f"{'='*60}\n")
+
+    architecture_text = pformat(architecture_summary, sort_dicts=False) if architecture_summary is not None else "Not provided"
+    environment_data = environment_snapshot or collect_environment_snapshot()
     
     # 1. Save metrics as JSON
     metrics_data = {
+        "run_id": run_id or model_prefix,
+        "artifact_stem": artifact_stem or model_prefix,
         "model_prefix": model_prefix,
         "dataset": dataset_name,
+        "source_dataset_path": source_dataset_path,
+        "strict_dataset_label": strict_dataset_label,
+        "learning_rate": learning_rate,
+        "epochs": epochs,
+        "final_val_r2": final_val_r2,
+        "train_split_ratio": train_split_ratio,
+        "random_seed": random_seed,
+        "source_notebook": source_notebook,
         "timestamp": timestamp,
         "node_count": node_count,
         "edge_count": edge_count,
+        "architecture_summary": architecture_summary,
+        "experiment_notes": experiment_notes,
+        "environment_snapshot": environment_data,
         "metrics": {
             "train": {
                 "r2": float(metrics['train_r2']),
@@ -164,11 +242,120 @@ def save_evaluation(
         saved_files['training_diagnostics_plot'] = training_plot_path
         print(f"Training diagnostics saved: 03_training_diagnostics_{timestamp}.png")
     
-    # 5. Create summary README
-    summary_text = f"""# Evaluation Results: {model_prefix}
+    # 5. Save architecture summary
+    architecture_path = eval_dir / f"model_architecture_{timestamp}.txt"
+    architecture_text_block = f"""# Model Architecture Summary
 
+Run ID: {run_id or model_prefix}
+Artifact stem: {artifact_stem or model_prefix}
+Dataset: {dataset_name}
+Strict dataset label: {strict_dataset_label or 'n/a'}
+Learning rate: {learning_rate if learning_rate is not None else 'n/a'}
+Epochs: {epochs if epochs is not None else 'n/a'}
+Final validation R²: {final_val_r2 if final_val_r2 is not None else 'n/a'}
+Graph: {node_count} nodes x {edge_count} edges
+
+{architecture_text}
+"""
+    with open(architecture_path, 'w', encoding='utf-8') as f:
+        f.write(architecture_text_block)
+    saved_files['architecture_summary'] = architecture_path
+    print(f"Architecture summary saved: {architecture_path.name}")
+
+    # 6. Save manifest for downstream tooling
+    manifest_path = eval_dir / f"run_manifest_{timestamp}.json"
+    with open(manifest_path, 'w', encoding='utf-8') as f:
+        json.dump(
+            {
+                "run_id": run_id or model_prefix,
+                "artifact_stem": artifact_stem or model_prefix,
+                "dataset": dataset_name,
+                "strict_dataset_label": strict_dataset_label,
+                "source_dataset_path": source_dataset_path,
+                "learning_rate": learning_rate,
+                "epochs": epochs,
+                "final_val_r2": final_val_r2,
+                "status": status,
+                "node_count": node_count,
+                "edge_count": edge_count,
+                "files": {key: str(path.name) for key, path in saved_files.items()},
+            },
+            f,
+            indent=2,
+        )
+    saved_files['manifest'] = manifest_path
+    print(f"Manifest saved: {manifest_path.name}")
+
+    # 7. Save experiment card for reproducibility audits
+    experiment_card_path = eval_dir / f"experiment_card_{timestamp}.md"
+    experiment_card = f"""# Experiment Card
+
+## Identity
+
+- Run ID: {run_id or model_prefix}
+- Artifact stem: {artifact_stem or model_prefix}
+- Validation folder: {eval_dir.name}
+- Source notebook: {source_notebook or 'n/a'}
+
+## Data
+
+- Dataset file: {dataset_name}
+- Source dataset path: {source_dataset_path or 'n/a'}
+- Strict dataset label: {strict_dataset_label or 'n/a'}
+- Train split ratio: {train_split_ratio if train_split_ratio is not None else 'n/a'}
+- Random seed: {random_seed if random_seed is not None else 'n/a'}
+
+## Training
+
+- Learning rate: {learning_rate if learning_rate is not None else 'n/a'}
+- Epochs: {epochs if epochs is not None else 'n/a'}
+- Final validation R²: {final_val_r2 if final_val_r2 is not None else 'n/a'}
+- Status: {status}
+
+## Model
+
+- Node count: {node_count}
+- Edge count: {edge_count}
+- Architecture summary:
+
+```text
+{architecture_text}
+```
+
+## Environment
+
+- Python: {environment_data.get('python_version', 'n/a')}
+- Implementation: {environment_data.get('python_implementation', 'n/a')}
+- Platform: {environment_data.get('platform', 'n/a')}
+- Executable: {environment_data.get('executable', 'n/a')}
+- Git commit: {environment_data.get('git_commit', 'n/a')}
+
+## Package Versions
+
+```json
+{json.dumps(environment_data.get('packages', {}), indent=2)}
+```
+
+## Notes
+
+{experiment_notes or 'n/a'}
+"""
+    with open(experiment_card_path, 'w', encoding='utf-8') as f:
+        f.write(experiment_card)
+    saved_files['experiment_card'] = experiment_card_path
+    print(f"Experiment card saved: {experiment_card_path.name}")
+
+    # 8. Create summary README
+    summary_text = f"""# Evaluation Results: {artifact_stem or model_prefix}
+
+**Run ID**: {run_id or model_prefix}  
+**Artifact stem**: {artifact_stem or model_prefix}  
 **Date**: {timestamp}  
 **Dataset**: {dataset_name}  
+**Strict dataset label**: {strict_dataset_label or 'n/a'}  
+**Learning rate**: {learning_rate if learning_rate is not None else 'n/a'}  
+**Epochs**: {epochs if epochs is not None else 'n/a'}  
+**Final validation R²**: {final_val_r2 if final_val_r2 is not None else 'n/a'}  
 **Graph**: {node_count} nodes × {edge_count} edges
 
 ## Performance Metrics
@@ -186,26 +373,44 @@ def save_evaluation(
 
 **Meaning**: The model explains {metrics['test_r2']*100:.1f}% of variance in test data with {metrics['test_mae']:.2f} kN average error.
 
+## Architecture Summary
+
+```text
+{architecture_text}
+```
+
+## Experimental Setup
+
+- Source dataset: {source_dataset_path or dataset_name}
+- Validation folder: {eval_dir.name}
+- Hyperparameter provenance is captured in the filename stem and manifest.
+
+{f'## Contextual Notes\n\n{experiment_notes}\n' if experiment_notes else ''}
+
 ## Files in This Folder
 
 1. `metrics_{timestamp}.json` — Raw metrics (machine-readable)
 2. `01_predictions_residuals_{timestamp}.png` — 4-panel: predictions vs actual + residual plots (train & test)
 3. `02_error_distribution_{timestamp}.png` — Error histograms for train & test
 4. `03_training_diagnostics_{timestamp}.png` — Training loss curve + normalized target profile (if available)
-5. `README.md` — This summary
+5. `model_architecture_{timestamp}.txt` — Text summary of the trained model
+6. `run_manifest_{timestamp}.json` — Machine-readable run manifest
+7. `experiment_card_{timestamp}.md` — Reproducibility snapshot for the run
+8. `README.md` — This summary
 
 ## Model Files
 
 Located in `SM_EXPORT_PATH/01_surrogate_models/`:
-- `truss_edge_gnn_{model_prefix}.pt` — Model weights
-- `node_scaler_{model_prefix}.pkl` — Node feature scaler
-- `edge_scaler_{model_prefix}.pkl` — Edge label scaler
+- `{artifact_stem or model_prefix}_surrogate_model.pt` — Model weights
+- `{artifact_stem or model_prefix}_node_scaler.pkl` — Node feature scaler
+- `{artifact_stem or model_prefix}_edge_scaler.pkl` — Edge label scaler
 
 ## Comparison Tips
 
 - Compare `r2_gap` across runs to see which model generalizes best
 - Look at test plots to identify systematic errors or outliers
 - Check if test MAE is acceptable for your use case
+- Use the manifest to trace the exact dataset and hyperparameters for each run
 """
     
     readme_path = eval_dir / "README.md"

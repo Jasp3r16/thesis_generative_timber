@@ -36,16 +36,38 @@ def load_surrogate_bundle(prefix_sm: str | None = None, device: str | None = Non
     device_obj = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
     if prefix_sm is None:
-        prefix_sm = (config.SM_EXPORT_PATH / "prefix_sm.txt").read_text(encoding="utf-8").strip()
+        prefix_path = config.SM_EXPORT_PATH / "prefix_sm.txt"
+        if prefix_path.exists():
+            prefix_sm = prefix_path.read_text(encoding="utf-8").strip()
+        else:
+            checkpoint_candidates = sorted(
+                config.SM_EXPORT_PATH.glob("*_surrogate_model.pt"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+            if not checkpoint_candidates:
+                raise FileNotFoundError("No surrogate model checkpoint found in SM_EXPORT_PATH.")
+            prefix_sm = checkpoint_candidates[0].stem.removesuffix("_surrogate_model")
 
-    model_path = config.SM_EXPORT_PATH / f"truss_edge_gnn_{prefix_sm}.pt"
-    node_scaler_path = config.SM_EXPORT_PATH / f"node_scaler_{prefix_sm}.pkl"
-    edge_scaler_path = config.SM_EXPORT_PATH / f"edge_scaler_{prefix_sm}.pkl"
+    model_path = config.SM_EXPORT_PATH / f"{prefix_sm}_surrogate_model.pt"
+    node_scaler_path = config.SM_EXPORT_PATH / f"{prefix_sm}_node_scaler.pkl"
+    edge_scaler_path = config.SM_EXPORT_PATH / f"{prefix_sm}_edge_scaler.pkl"
+
+    if not model_path.exists():
+        legacy_model_path = config.SM_EXPORT_PATH / f"truss_edge_gnn_{prefix_sm}.pt"
+        legacy_node_scaler_path = config.SM_EXPORT_PATH / f"node_scaler_{prefix_sm}.pkl"
+        legacy_edge_scaler_path = config.SM_EXPORT_PATH / f"edge_scaler_{prefix_sm}.pkl"
+        if legacy_model_path.exists():
+            model_path = legacy_model_path
+            node_scaler_path = legacy_node_scaler_path
+            edge_scaler_path = legacy_edge_scaler_path
 
     checkpoint = torch.load(model_path, map_location=device_obj)
     state_dict = checkpoint["model_state_dict"] if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint else checkpoint
 
-    model = TrussEdgeGNN(node_in_dim=3, hidden_dim=128).to(device_obj)
+    node_in_dim = checkpoint.get("node_in_dim", 3) if isinstance(checkpoint, dict) else 3
+    hidden_dim = checkpoint.get("hidden_dim", 128) if isinstance(checkpoint, dict) else 128
+    model = TrussEdgeGNN(node_in_dim=node_in_dim, hidden_dim=hidden_dim).to(device_obj)
     model.load_state_dict(state_dict)
     model.eval()
 
