@@ -119,7 +119,7 @@ def compute_utilization_outputs(
 				stock_row,
 				req_force_kn=req_force_kn,
 				req_length_m=req_length_m,
-				gnn_margin=gnn_marge,
+				gnn_marge=gnn_marge,
 			),
 			axis=1,
 		)
@@ -151,6 +151,24 @@ def compute_utilization_outputs(
 
 	df_slots = df_forces_local[["edge_id", "length_m", "axial_force_kn"]].copy()
 	df_slots["Length_Req"] = (df_slots["length_m"] * 1000.0).round(0)
+
+	# Derive required slot section (Width_Req, Depth_Req) from the most efficient
+	# structurally safe option per edge (highest utilization <= 1.0).
+	best_safe_per_edge = (
+		veilige_opties
+		.sort_values(by=["edge_id", "utilization"], ascending=[True, False])
+		.drop_duplicates(subset=["edge_id"], keep="first")
+		[["edge_id", "Width", "Depth", "utilization"]]
+		.rename(
+			columns={
+				"Width": "Width_Req",
+				"Depth": "Depth_Req",
+				"utilization": "Utilization_Req",
+			}
+		)
+	)
+
+	df_slots = df_slots.merge(best_safe_per_edge, on="edge_id", how="left")
 
 	return {
 		"df_inventory": df_inventory,

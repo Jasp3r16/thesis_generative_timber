@@ -47,6 +47,50 @@ def prepare_stock_cost_inputs(df_stock_raw):
     return df_stock
 
 
+def _get_required_area(slot, a_stock):
+    """Return required cross-section area in m2, falling back to stock area when unavailable."""
+    if (
+        'Width_Req' in slot and 'Depth_Req' in slot
+        and pd.notna(slot['Width_Req']) and pd.notna(slot['Depth_Req'])
+    ):
+        return (float(slot['Width_Req']) / 1000.0) * (float(slot['Depth_Req']) / 1000.0)
+    return a_stock
+
+
+def _classify_geometry_constraint(slot, stock_item):
+    """Classify infeasibility cause as length, dimensions, both, or passed."""
+    l_stock = float(stock_item['Length']) / 1000.0
+    a_stock = (float(stock_item['Width']) / 1000.0) * (float(stock_item['Depth']) / 1000.0)
+    l_req = float(slot['Length_Req']) / 1000.0
+    a_req = _get_required_area(slot, a_stock)
+
+    length_failed = l_stock < l_req
+    dimensions_failed = a_stock < a_req
+
+    if length_failed and dimensions_failed:
+        return 'Length+Dimensions'
+    if length_failed:
+        return 'Length'
+    if dimensions_failed:
+        return 'Dimensions'
+    return 'Passed'
+
+
+def _collect_feasibility_reasons(slot, stock_item, utilization_failed):
+    """Collect all active feasibility constraints for this slot-stock combination."""
+    reasons = []
+    if utilization_failed:
+        reasons.append('Utilization')
+
+    geometry_reason = _classify_geometry_constraint(slot, stock_item)
+    if geometry_reason == 'Length+Dimensions':
+        reasons.extend(['Length', 'Dimensions'])
+    elif geometry_reason in ('Length', 'Dimensions'):
+        reasons.append(geometry_reason)
+
+    return reasons if reasons else ['Passed']
+
+
 def calculate_lca_formula(slot, stock_item):
     """
     Step 1: calculate C_{i,j} according to the LCA logic.
@@ -57,11 +101,7 @@ def calculate_lca_formula(slot, stock_item):
     a_stock = (stock_item['Width'] / 1000.0) * (stock_item['Depth'] / 1000.0)
 
     l_req = slot['Length_Req'] / 1000.0
-    # Backward-compatible fallback for workflows where section demand is not modeled per slot.
-    if 'Width_Req' in slot and 'Depth_Req' in slot:
-        a_req = (slot['Width_Req'] / 1000.0) * (slot['Depth_Req'] / 1000.0)
-    else:
-        a_req = a_stock
+    a_req = _get_required_area(slot, a_stock)
 
     # Hard feasibility rule: insufficient length or cross-section area -> impossible match.
     if l_stock < l_req or a_stock < a_req:
@@ -150,12 +190,13 @@ def build_cost_matrix(
                 elif float(utilization_value) > float(max_utilization_threshold):
                     utilization_failed = True
 
+            all_reasons = _collect_feasibility_reasons(slot, stock_item, utilization_failed)
+            feasibility_reason = '+'.join(all_reasons)
+
             if utilization_failed:
                 total_match_score, components = np.inf, None
-                feasibility_reason = 'Utilization'
             else:
                 total_match_score, components = calculate_lca_formula(slot, stock_item)
-                feasibility_reason = 'Passed' if np.isfinite(total_match_score) else 'GeometryOrLCA'
 
             if np.isfinite(total_match_score):
                 cost_matrix[i, j] = total_match_score
@@ -168,7 +209,7 @@ def build_cost_matrix(
                         'Slot_ID': slot_id,
                         'Stock_ID': stock_id,
                         'Status': '✅',
-                        'Feasibility_Check': feasibility_reason,
+                        'Feasibility_Reasons': ', '.join(all_reasons),
                         'Utilization_Value': round(float(utilization_value), 4) if np.isfinite(utilization_value) else '-',
                         'V_req_m3': round(components['V_req'], 6),
                         'V_over_m3': round(components['V_over'], 6),
@@ -185,7 +226,7 @@ def build_cost_matrix(
                 if target_stock_ids and stock_id in target_stock_ids:
                     detailed_logs.append({
                         'Slot_ID': slot_id, 'Stock_ID': stock_id, 'Status': '❌',
-                        'Feasibility_Check': feasibility_reason,
+                        'Feasibility_Reasons': ', '.join(all_reasons),
                         'Utilization_Value': round(float(utilization_value), 4) if np.isfinite(utilization_value) else '-',
                         'V_req_m3': '-', 'V_over_m3': '-', 'V_waste_m3': '-', 'V_stock_m3': '-',
                         'Embodied_CO2': '-', 'Prep_CO2': '-', 'Trans_CO2': '-', 'Waste_CO2': '-', 'Saw_CO2': '-',
