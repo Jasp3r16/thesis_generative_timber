@@ -241,7 +241,15 @@ def build_cost_matrix(
     return cost_matrix, df_stock, pd.DataFrame(detailed_logs)
 
 
-def analyze_and_export_slot_logs(df_logs, target_slot_for_analysis, all_stock_ids, export_dir, display_fn=None):
+def analyze_and_export_slot_logs(
+    df_logs,
+    target_slot_for_analysis,
+    all_stock_ids,
+    export_dir,
+    display_fn=None,
+    max_full_list_rows=None,
+    show_full_list=True,
+):
     """
     Prepare the detailed analysis for a specific slot ID, display tables, and export CSV.
 
@@ -285,12 +293,25 @@ def analyze_and_export_slot_logs(df_logs, target_slot_for_analysis, all_stock_id
     else:
         print("No RS items found in the input stock list.")
 
-    print("\nFull list (NS + RS):")
-    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', None):
-        if display_fn is not None:
-            display_fn(df_logs_slot.fillna('-').reset_index(drop=True))
+    if show_full_list:
+        df_logs_slot_full = df_logs_slot.fillna('-').reset_index(drop=True)
+        if max_full_list_rows is not None:
+            max_rows = int(max_full_list_rows)
+            if max_rows < 0:
+                max_rows = 0
+            df_logs_slot_display = df_logs_slot_full.head(max_rows)
+            print(f"\nFull list (NS + RS) - showing first {max_rows} rows:")
         else:
-            print(df_logs_slot.fillna('-').reset_index(drop=True).to_string(index=False))
+            df_logs_slot_display = df_logs_slot_full
+            print("\nFull list (NS + RS):")
+
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', None):
+            if display_fn is not None:
+                display_fn(df_logs_slot_display)
+            else:
+                print(df_logs_slot_display.to_string(index=False))
+    else:
+        print("\nFull list (NS + RS) skipped (testing mode is off).")
 
     df_logs_slot.to_csv(analysis_export_path, index=False)
     print(f"\nDetailed analysis exported to: {analysis_export_path}")
