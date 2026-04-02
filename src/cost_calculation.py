@@ -28,7 +28,7 @@ def prepare_stock_cost_inputs(df_stock_raw):
     """
     df_stock = df_stock_raw.copy()
 
-    required_columns = ['mean_density', 'Transport_Dist', 'Emmisiefactor', 'Bewerkingsfactor', 'ECC']
+    required_columns = ['mean_density', 'Transport_Dist', 'EmissionFactor', 'ProcessingFactor', 'ECC']
     missing_columns = [col for col in required_columns if col not in df_stock.columns]
     if missing_columns:
         raise ValueError(f"Missing required stock columns: {missing_columns}")
@@ -39,10 +39,10 @@ def prepare_stock_cost_inputs(df_stock_raw):
 
     df_stock['Density_Resolved'] = df_stock['mean_density'].astype(float)
     df_stock['Distance_Resolved'] = df_stock['Transport_Dist'].astype(float)
-    df_stock['TransportFactor_Resolved'] = df_stock['Emmisiefactor'].astype(float)
-    df_stock['Bewerkingsfactor_Resolved'] = df_stock['Bewerkingsfactor'].astype(float)
+    df_stock['TransportFactor_Resolved'] = df_stock['EmissionFactor'].astype(float)
+    df_stock['ProcessingFactor_Resolved'] = df_stock['ProcessingFactor'].astype(float)
     df_stock['ECC_Resolved'] = df_stock['ECC'].astype(float)
-    df_stock['PreparationFactor_Resolved'] = df_stock['Bewerkingsfactor_Resolved'] * PREPARATION_FACTOR
+    df_stock['PreparationFactor_Resolved'] = df_stock['ProcessingFactor_Resolved'] * PREPARATION_FACTOR
 
     return df_stock
 
@@ -104,7 +104,7 @@ def calculate_lca_formula(slot, stock_item):
 
 
 def calculate_assignment_cost(slot, stock_item):
-    """Backward-compatible alias voor de formulefunctie."""
+    """Backward-compatible alias for the formula function."""
     return calculate_lca_formula(slot, stock_item)
 
 print("Calculation modules defined successfully.")

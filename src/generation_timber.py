@@ -97,13 +97,13 @@ def _mechanical_props_row(mech_props: Dict[str, Any]) -> Dict[str, float]:
 def _get_lca_new() -> Dict[str, Any]:
     """Cache LCA properties for new timber."""
     params = _get_params_module()
-    return getattr(params, "LCA_NEW")
+    return getattr(params, "NEW_TIMBER_LCA")
 
 
 def _get_lca_reclaimed() -> Dict[str, Any]:
     """Cache LCA properties for reclaimed timber."""
     params = _get_params_module()
-    return getattr(params, "LCA_RECLAIMED")
+    return getattr(params, "RECLAIMED_TIMBER_LCA")
 
 def assign_transport_distance():
     """
@@ -114,16 +114,16 @@ def assign_transport_distance():
     # Distances are estimates to central Netherlands and can be fine-tuned
     # for the final LCA calculations in the thesis.
     sources = {
-        "Duitsland": {"weight": 26, "base_distance": 300},
-        "Zweden": {"weight": 18, "base_distance": 1000},
-        "België": {"weight": 12, "base_distance": 150},
-        "Baltische Staten": {"weight": 9, "base_distance": 1500},
-        "Nederland": {"weight": 8, "base_distance": 50},
+        "Germany": {"weight": 26, "base_distance": 300},
+        "Sweden": {"weight": 18, "base_distance": 1000},
+        "Belgium": {"weight": 12, "base_distance": 150},
+        "Baltic States": {"weight": 9, "base_distance": 1500},
+        "Netherlands": {"weight": 8, "base_distance": 50},
         "Finland": {"weight": 8, "base_distance": 1800},
-        "Polen": {"weight": 5, "base_distance": 900},
-        "Frankrijk": {"weight": 4, "base_distance": 500},
-        "Spanje & Portugal": {"weight": 3, "base_distance": 1800},
-        "Overig": {"weight": 7, "base_distance": 4000}  # Remaining 7%
+        "Poland": {"weight": 5, "base_distance": 900},
+        "France": {"weight": 4, "base_distance": 500},
+        "Spain & Portugal": {"weight": 3, "base_distance": 1800},
+        "Other": {"weight": 7, "base_distance": 4000}  # Remaining 7%
     }
 
     # Split the data into lists for random.choices.
@@ -154,9 +154,9 @@ def generate_new_timber_catalog() -> pd.DataFrame:
     params = _get_params_module()
     
     # Pre-cache values to avoid repeated dict lookups.
-    embodied_carbon = float(lca_new['Embodied Carbon Coëfficiënt'])
-    emission_range = lca_new['Emmisiefactor_diesel_range']
-    processing_factor = int(lca_new['Bewerkingsfactor'])
+    embodied_carbon = float(lca_new["embodied_carbon_coefficient"])
+    emission_range = lca_new["diesel_emission_factor_range"]
+    processing_factor = int(lca_new["processing_factor"])
     
     combinations = list(itertools.product(
         params.TUPLE_LENGTHS, 
@@ -169,6 +169,7 @@ def generate_new_timber_catalog() -> pd.DataFrame:
     for idx, (length, (depth, width)) in enumerate(combinations):
         # Generate unique distance data for each element.
         origin_country, transport_dist = assign_transport_distance()
+        emission_factor = round(random.uniform(*emission_range), 4)
         
         data.append({
             'Member_ID': f"NS_{idx:05d}",
@@ -180,8 +181,8 @@ def generate_new_timber_catalog() -> pd.DataFrame:
             'ECC': embodied_carbon,
             'Origin_Country': origin_country,
             'Transport_Dist': transport_dist,
-            'Emmisiefactor': round(random.uniform(*emission_range), 4),
-            'Bewerkingsfactor': processing_factor
+            'EmissionFactor': emission_factor,
+            'ProcessingFactor': processing_factor
         })
     
     df_new = pd.DataFrame(data)
@@ -203,11 +204,11 @@ def generate_reclaimed_stock() -> pd.DataFrame:
     params = _get_params_module()
     
     # Pre-cache values.
-    embodied_carbon = float(lca_reclaimed['Embodied Carbon Coëfficiënt'])
-    processing_factor = int(lca_reclaimed['Bewerkingsfactor'])
-    prob_electric = lca_reclaimed['Kans_op_elektrisch']
-    electric_range = lca_reclaimed['Emmisiefactor_elektrisch_range']
-    diesel_range = lca_reclaimed['Emmisiefactor_diesel_range']
+    embodied_carbon = float(lca_reclaimed["embodied_carbon_coefficient"])
+    processing_factor = int(lca_reclaimed["processing_factor"])
+    prob_electric = lca_reclaimed["electric_transport_probability"]
+    electric_range = lca_reclaimed["electric_emission_factor_range"]
+    diesel_range = lca_reclaimed["diesel_emission_factor_range"]
     
     stock_count = int(params.RECLAIMED_STOCK_COUNT)
     if stock_count <= 0:
@@ -247,7 +248,7 @@ def generate_reclaimed_stock() -> pd.DataFrame:
         bounded_length = float(np.clip(sampled_length, min_len, max_len))
         length = int(round(bounded_length / round_to) * round_to)
 
-        transport_dist = random.randint(*lca_reclaimed['Transport_distance_range'])
+        transport_dist = random.randint(*lca_reclaimed["transport_distance_range"])
         if random.random() < prob_electric:
             emission_factor = random.uniform(*electric_range)
         else:
@@ -263,8 +264,8 @@ def generate_reclaimed_stock() -> pd.DataFrame:
             'ECC': embodied_carbon,
             'Origin_Country': "Netherlands",
             'Transport_Dist': transport_dist,
-            'Emmisiefactor': round(emission_factor, 4),
-            'Bewerkingsfactor': processing_factor
+            'EmissionFactor': round(emission_factor, 4),
+            'ProcessingFactor': processing_factor
         })
     
     df_reclaimed = pd.DataFrame(inventory_list)
@@ -274,7 +275,7 @@ def generate_reclaimed_stock() -> pd.DataFrame:
 
 def generate_mixed_stock_subset(
     total_elements: int,
-    reused_ratio: float = 0.5,
+    reclaimed_ratio: float = 0.5,
     random_state: int | None = None,
     allow_replacement: bool = True
 ) -> pd.DataFrame:
@@ -283,61 +284,61 @@ def generate_mixed_stock_subset(
 
     Args:
         total_elements: Total number of elements in the returned dataset.
-        reused_ratio: Share of reused elements in range [0, 1].
+        reclaimed_ratio: Share of reclaimed elements in range [0, 1].
         random_state: Seed for reproducible sampling.
         allow_replacement: If False, raises an error when requested count exceeds
             available stock in either source dataset.
 
     Returns:
-        pd.DataFrame: Mixed subset containing both new and reused elements.
+        pd.DataFrame: Mixed subset containing both new and reclaimed elements.
     """
     if total_elements <= 0:
         raise ValueError("total_elements must be > 0")
-    if not 0 <= reused_ratio <= 1:
-        raise ValueError("reused_ratio must be between 0 and 1")
+    if not 0 <= reclaimed_ratio <= 1:
+        raise ValueError("reclaimed_ratio must be between 0 and 1")
 
-    requested_reused = int(round(total_elements * reused_ratio))
-    requested_new = total_elements - requested_reused
+    requested_reclaimed = int(round(total_elements * reclaimed_ratio))
+    requested_new = total_elements - requested_reclaimed
 
     df_new = generate_new_timber_catalog()
-    df_reused = generate_reclaimed_stock()
+    df_reclaimed = generate_reclaimed_stock()
 
     available_new = len(df_new)
-    available_reused = len(df_reused)
+    available_reclaimed = len(df_reclaimed)
 
     replace_new = requested_new > available_new
-    replace_reused = requested_reused > available_reused
+    replace_reclaimed = requested_reclaimed > available_reclaimed
 
-    if (replace_new or replace_reused) and not allow_replacement:
+    if (replace_new or replace_reclaimed) and not allow_replacement:
         raise ValueError(
             "Requested subset size exceeds available stock. "
-            f"Requested new/reused: {requested_new}/{requested_reused}, "
-            f"available new/reused: {available_new}/{available_reused}. "
-            "Set allow_replacement=True or reduce total_elements/reused_ratio."
+            f"Requested new/reclaimed: {requested_new}/{requested_reclaimed}, "
+            f"available new/reclaimed: {available_new}/{available_reclaimed}. "
+            "Set allow_replacement=True or reduce total_elements/reclaimed_ratio."
         )
 
     rng = np.random.default_rng(random_state)
     seed_new = int(rng.integers(0, 2**31 - 1))
-    seed_reused = int(rng.integers(0, 2**31 - 1))
+    seed_reclaimed = int(rng.integers(0, 2**31 - 1))
 
     sampled_new = df_new.sample(
         n=requested_new,
         replace=replace_new,
         random_state=seed_new
     )
-    sampled_reused = df_reused.sample(
-        n=requested_reused,
-        replace=replace_reused,
-        random_state=seed_reused
+    sampled_reclaimed = df_reclaimed.sample(
+        n=requested_reclaimed,
+        replace=replace_reclaimed,
+        random_state=seed_reclaimed
     )
 
-    df_subset = pd.concat([sampled_new, sampled_reused], ignore_index=True).reset_index(drop=True)
+    df_subset = pd.concat([sampled_new, sampled_reclaimed], ignore_index=True).reset_index(drop=True)
 
-    realized_reused_ratio = (df_subset['State'] == 1).mean()
+    realized_reclaimed_ratio = (df_subset['State'] == 1).mean()
     print(
         "Mixed subset generated: "
         f"{len(df_subset)} total | "
-        f"new={requested_new}, reused={requested_reused} "
-        f"(reused_ratio={realized_reused_ratio:.2f})"
+        f"new={requested_new}, reclaimed={requested_reclaimed} "
+        f"(reclaimed_ratio={realized_reclaimed_ratio:.2f})"
     )
     return df_subset

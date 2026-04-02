@@ -28,13 +28,13 @@ RECLAIMED_LENGTH_STD_MM = 450
 RECLAIMED_LENGTH_ROUND_TO_MM = 50
 
 # LCA assumptions for reclaimed timber.
-LCA_RECLAIMED = {
-    'Embodied Carbon Coëfficiënt': 0.0,                # Fictitiously low (deconstruction only)
-    "Transport_distance_range": (5, 240),               # Delft location: (local, Groningen)
-    'Emmisiefactor_diesel_range': (0.17, 0.18),
-    'Emmisiefactor_elektrisch_range': (0.02, 0.05),
-    'Kans_op_elektrisch': 0.30,                         # 30% chance that local transport uses an e-truck
-    'Bewerkingsfactor': 1                                # 1 = de-nailing and planing required
+RECLAIMED_TIMBER_LCA = {
+    "embodied_carbon_coefficient": 0.0,                # Fictitiously low (deconstruction only)
+    "transport_distance_range": (5, 240),              # Delft location: (local, Groningen)
+    "diesel_emission_factor_range": (0.17, 0.18),
+    "electric_emission_factor_range": (0.02, 0.05),
+    "electric_transport_probability": 0.30,            # 30% chance that local transport uses an e-truck
+    "processing_factor": 1                             # 1 = de-nailing and planing required
 }
 
 # --- PARAMETERS NEW STOCK (CATALOGUS) ---
@@ -84,10 +84,10 @@ DEPTH_WIDTH_COMBINATIONS = [
 ]
 
 # LCA assumptions for new timber.
-LCA_NEW = {
-    'Embodied Carbon Coëfficiënt': 150.0,  # Fictitiously high (production + drying)
-    'Emmisiefactor_diesel_range': (0.17, 0.18), # Diesel transport only for new timber
-    'Bewerkingsfactor': 0                  # 0 = No de-nailing required
+NEW_TIMBER_LCA = {
+    "embodied_carbon_coefficient": 150.0,     # Fictitiously high (production + drying)
+    "diesel_emission_factor_range": (0.17, 0.18),  # Diesel transport only for new timber
+    "processing_factor": 0                    # 0 = No de-nailing required
 }
 
 MECH_PROPS = {
