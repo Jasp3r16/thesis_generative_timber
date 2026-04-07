@@ -91,10 +91,10 @@ def _collect_feasibility_reasons(slot, stock_item, utilization_failed):
     return reasons if reasons else ['Passed']
 
 
-def calculate_lca_formula(slot, stock_item):
+def calculate_cost_formula(slot, stock_item):
     """
     Step 1: calculate C_{i,j} according to the LCA logic.
-    C = E_embodied + E_prep + E_trans + E_waste + E_saw.
+    C = E_embodied + E_prep + E_trans + E_waste + E_saw + E_opp.
     Returns (np.inf, None) if the match is physically infeasible.
     """
     l_stock = stock_item['Length'] / 1000.0
@@ -126,8 +126,9 @@ def calculate_lca_formula(slot, stock_item):
     e_trans = (((v_req + v_over) * density) / 1000.0) * distance_km * transport_factor
     e_waste = v_waste * END_OF_LIFE_FACTOR
     e_saw = 0.0 if stock_item['Length'] == slot['Length_Req'] else SAW_CUT_PENALTY
+    e_opp = 0.0  # Opportunity cost is currently not implemented; can be added here if needed.
 
-    total_cost = e_embodied + e_prep + e_trans + e_waste + e_saw
+    total_cost = e_embodied + e_prep + e_trans + e_waste + e_saw + e_opp
 
     return total_cost, {
         'V_req': v_req,
@@ -139,15 +140,9 @@ def calculate_lca_formula(slot, stock_item):
         'E_trans': e_trans,
         'E_waste': e_waste,
         'E_saw': e_saw,
+        'E_opp': e_opp,
         'TOTAL_Score': total_cost
     }
-
-
-def calculate_assignment_cost(slot, stock_item):
-    """Backward-compatible alias for the formula function."""
-    return calculate_lca_formula(slot, stock_item)
-
-print("Calculation modules defined successfully.")
 
 def build_cost_matrix(
     df_design,
@@ -196,7 +191,7 @@ def build_cost_matrix(
             if utilization_failed:
                 total_match_score, components = np.inf, None
             else:
-                total_match_score, components = calculate_lca_formula(slot, stock_item)
+                total_match_score, components = calculate_cost_formula(slot, stock_item)
 
             if np.isfinite(total_match_score):
                 cost_matrix[i, j] = total_match_score
@@ -220,6 +215,7 @@ def build_cost_matrix(
                         'Trans_CO2': round(components['E_trans'], 3),
                         'Waste_CO2': round(components['E_waste'], 3),
                         'Saw_CO2': round(components['E_saw'], 4),
+                        'Opportunity_CO2': round(components['E_opp'], 3),
                         'TOTAL_Score': round(components['TOTAL_Score'], 3)
                     })
             else:
@@ -230,7 +226,7 @@ def build_cost_matrix(
                         'Utilization_Value': round(float(utilization_value), 4) if np.isfinite(utilization_value) else '-',
                         'V_req_m3': '-', 'V_over_m3': '-', 'V_waste_m3': '-', 'V_stock_m3': '-',
                         'Embodied_CO2': '-', 'Prep_CO2': '-', 'Trans_CO2': '-', 'Waste_CO2': '-', 'Saw_CO2': '-',
-                        'TOTAL_Score': np.inf
+                        'Opportunity_CO2': '-', 'TOTAL_Score': np.inf
                     })
 
     print(f"Matrix generated! Dimensions: {n_slots} required members x {n_stock} inventory beams.")

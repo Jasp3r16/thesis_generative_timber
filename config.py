@@ -7,12 +7,16 @@ import sys
 # This resolves the repository folder where this script lives.
 REPO_ROOT = Path(__file__).resolve().parent
 SRC_PATH = REPO_ROOT / "src"
+WORKFLOWS_PATH = REPO_ROOT / "workflows"
 DATA_IO_PATH = REPO_ROOT / "02_data_io"
 
 # Make sure Python can always resolve imports from the src folder.
 if str(SRC_PATH) not in sys.path:
     sys.path.append(str(SRC_PATH))
-
+if str(WORKFLOWS_PATH) not in sys.path:
+    sys.path.append(str(WORKFLOWS_PATH))
+if str(DATA_IO_PATH) not in sys.path:
+    sys.path.append(str(DATA_IO_PATH))
 
 # ==========================================
 # 2. CLOUD DATA STORAGE (OneDrive)
