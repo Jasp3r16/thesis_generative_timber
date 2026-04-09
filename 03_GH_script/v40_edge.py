@@ -292,6 +292,7 @@ else:
 
 		if should_write_header:
 			header = [
+				"Sample_ID",
 				"Edge_ID",
 				"Source",
 				"Target",
@@ -336,6 +337,7 @@ else:
 			J = _format_fixed_number(J, MECH_PROP_DECIMALS)
 
 			writer.writerow([
+				sample,
 				edge_id,
 				source,
 				target,
