@@ -11,12 +11,15 @@ Expected inputs:
 - edge_id: optional list/tree of edge ids (same length as edge_pairs)
 - length: optional list/tree of edge lengths L (same length as edge_pairs)
 - axial_force: optional list/tree of axial force values per edge (Axial_Force)
-- A_list: list/tree of cross-sectional areas per edge (required when EXPORT_MECH_PROPS=True)
+- A_list: list/tree of cross-sectional areas per edge
 - E_list: optional list/tree of Young's modulus per edge
-- Iy_list: optional list/tree of Iy per edge (used when EXPORT_MECH_PROPS=True)
-- Iz_list: optional list/tree of Iz per edge (used when EXPORT_MECH_PROPS=True)
-- J_list: optional list/tree of J per edge (used when EXPORT_MECH_PROPS=True)
+- Iy_list: optional list/tree of Iy per edge
+- Iz_list: optional list/tree of Iz per edge
+- J_list: optional list/tree of J per edge
 - write_header: optional bool, default True
+
+Missing mechanical-property inputs are exported as 0.0.
+CSV columns always include Area, Length, E, Iy, Iz, J, EA/L, and Axial_Force.
 
 Outputs:
 - status: human-readable status message
@@ -41,14 +44,16 @@ EXPECTED_INPUTS = (
 	"write_header",
 )
 
-# Toggle additional mechanical-property export columns (Iy, Iz, J, EA/L).
-EXPORT_MECH_PROPS = False
+# Decimal precision for exported mechanical-property values.
+# Small values below 0.0001 keep at least two significant digits.
+MECH_PROP_DECIMALS = 4
 # Decimal precision for exported Length and Axial_Force values.
 # Set to None to disable rounding.
 LENGTH_DECIMALS = 4
 AXIAL_FORCE_DECIMALS = 4
 
 import csv
+import math
 import os
 import re
 
@@ -168,6 +173,26 @@ def _round_if_number(value, decimals=None):
 		return value
 
 
+def _format_fixed_number(value, decimals=None, min_significant_digits=2):
+	"""Format numeric values without scientific notation; keep non-numeric unchanged."""
+	try:
+		number = float(value)
+	except Exception:
+		return value
+
+	if decimals is None:
+		return format(number, "f")
+
+	decimals = int(decimals)
+	display_decimals = decimals
+
+	if number != 0.0 and min_significant_digits is not None and abs(number) < 1.0:
+		required_decimals = int(math.floor(-math.log10(abs(number)))) + int(min_significant_digits)
+		display_decimals = max(display_decimals, required_decimals)
+
+	return format(number, ".{}f".format(display_decimals))
+
+
 def _sticky_keys():
 	# Namespaced by component guid so multiple components do not clash.
 	comp_guid = "local"
@@ -273,23 +298,12 @@ else:
 				"Area",
 				"Length",
 				"E",
+				"Iy",
+				"Iz",
+				"J",
+				"EA/L",
 				"Axial_Force",
 			]
-
-			if EXPORT_MECH_PROPS:
-				header = [
-					"Edge_ID",
-					"Source",
-					"Target",
-					"Area",
-					"Length",
-					"E",
-					"Iy",
-					"Iz",
-					"J",
-					"EA/L",
-					"Axial_Force",
-				]
 
 			writer.writerow(header)
 			sc.sticky[header_key] = True
@@ -300,44 +314,40 @@ else:
 				continue
 
 			edge_id = _value_by_index_or_scalar(edge_id_list, i, default_value=i)
-			A = _to_float(_value_by_index_or_scalar(A_list, i, default_value=0.0), default_value=0.0)
-			L = _to_float(_value_by_index_or_scalar(length_list, i, default_value=0.0), default_value=0.0)
-			E = _to_float(_value_by_index_or_scalar(E_list, i, default_value=0.0), default_value=0.0)
+			A_value = _to_float(_value_by_index_or_scalar(A_list, i, default_value=0.0), default_value=0.0)
+			L_value = _to_float(_value_by_index_or_scalar(length_list, i, default_value=0.0), default_value=0.0)
+			E_value = _to_float(_value_by_index_or_scalar(E_list, i, default_value=0.0), default_value=0.0)
 			axial_force_value = _to_float(_value_by_index_or_scalar(axial_list, i, default_value=0.0), default_value=0.0)
-			L = _round_if_number(L, LENGTH_DECIMALS)
-			axial_force_value = _round_if_number(axial_force_value, AXIAL_FORCE_DECIMALS)
+			L_display_value = _round_if_number(L_value, LENGTH_DECIMALS)
+			axial_force_display_value = _round_if_number(axial_force_value, AXIAL_FORCE_DECIMALS)
+			ea_over_l = 0.0
+			if L_value != 0.0:
+				ea_over_l = (E_value * A_value) / L_value
+			A = _format_fixed_number(A_value, MECH_PROP_DECIMALS)
+			E = _format_fixed_number(E_value, MECH_PROP_DECIMALS)
+			L = _format_fixed_number(L_display_value, LENGTH_DECIMALS, min_significant_digits=None)
+			axial_force_value = _format_fixed_number(axial_force_display_value, AXIAL_FORCE_DECIMALS, min_significant_digits=None)
+			ea_over_l = _format_fixed_number(ea_over_l, MECH_PROP_DECIMALS)
+			Iy = _to_float(_value_by_index_or_scalar(Iy_list, i, default_value=0.0), default_value=0.0)
+			Iz = _to_float(_value_by_index_or_scalar(Iz_list, i, default_value=0.0), default_value=0.0)
+			J = _to_float(_value_by_index_or_scalar(J_list, i, default_value=0.0), default_value=0.0)
+			Iy = _format_fixed_number(Iy, MECH_PROP_DECIMALS)
+			Iz = _format_fixed_number(Iz, MECH_PROP_DECIMALS)
+			J = _format_fixed_number(J, MECH_PROP_DECIMALS)
 
-			if EXPORT_MECH_PROPS:
-				Iy = _to_float(_value_by_index_or_scalar(Iy_list, i, default_value=0.0), default_value=0.0)
-				Iz = _to_float(_value_by_index_or_scalar(Iz_list, i, default_value=0.0), default_value=0.0)
-				J = _to_float(_value_by_index_or_scalar(J_list, i, default_value=0.0), default_value=0.0)
-				ea_over_l = 0.0
-				if L != 0.0:
-					ea_over_l = (E * A) / L
-
-				writer.writerow([
-					edge_id,
-					source,
-					target,
-					A,
-					L,
-					E,
-					Iy,
-					Iz,
-					J,
-					ea_over_l,
-					axial_force_value,
-				])
-			else:
-				writer.writerow([
-					edge_id,
-					source,
-					target,
-					A,
-					L,
-					E,
-					axial_force_value,
-				])
+			writer.writerow([
+				edge_id,
+				source,
+				target,
+				A,
+				L,
+				E,
+				Iy,
+				Iz,
+				J,
+				ea_over_l,
+				axial_force_value,
+			])
 
 			rows_written += 1
 
