@@ -12,7 +12,7 @@ Expected inputs:
 - length: optional list/tree of edge lengths L (same length as edge_pairs)
 - axial_force: optional list/tree of axial force values per edge (Axial_Force)
 - A_list: list/tree of cross-sectional areas per edge (required when EXPORT_MECH_PROPS=True)
-- E_list: optional list/tree of Young's modulus per edge (used when EXPORT_MECH_PROPS=True)
+- E_list: optional list/tree of Young's modulus per edge
 - Iy_list: optional list/tree of Iy per edge (used when EXPORT_MECH_PROPS=True)
 - Iz_list: optional list/tree of Iz per edge (used when EXPORT_MECH_PROPS=True)
 - J_list: optional list/tree of J per edge (used when EXPORT_MECH_PROPS=True)
@@ -41,7 +41,7 @@ EXPECTED_INPUTS = (
 	"write_header",
 )
 
-# Toggle mechanical-property export columns (E, Iy, Iz, J, EA/L).
+# Toggle additional mechanical-property export columns (Iy, Iz, J, EA/L).
 EXPORT_MECH_PROPS = False
 # Decimal precision for exported Length and Axial_Force values.
 # Set to None to disable rounding.
@@ -272,6 +272,7 @@ else:
 				"Target",
 				"Area",
 				"Length",
+				"E",
 				"Axial_Force",
 			]
 
@@ -301,12 +302,12 @@ else:
 			edge_id = _value_by_index_or_scalar(edge_id_list, i, default_value=i)
 			A = _to_float(_value_by_index_or_scalar(A_list, i, default_value=0.0), default_value=0.0)
 			L = _to_float(_value_by_index_or_scalar(length_list, i, default_value=0.0), default_value=0.0)
+			E = _to_float(_value_by_index_or_scalar(E_list, i, default_value=0.0), default_value=0.0)
 			axial_force_value = _to_float(_value_by_index_or_scalar(axial_list, i, default_value=0.0), default_value=0.0)
 			L = _round_if_number(L, LENGTH_DECIMALS)
 			axial_force_value = _round_if_number(axial_force_value, AXIAL_FORCE_DECIMALS)
 
 			if EXPORT_MECH_PROPS:
-				E = _to_float(_value_by_index_or_scalar(E_list, i, default_value=0.0), default_value=0.0)
 				Iy = _to_float(_value_by_index_or_scalar(Iy_list, i, default_value=0.0), default_value=0.0)
 				Iz = _to_float(_value_by_index_or_scalar(Iz_list, i, default_value=0.0), default_value=0.0)
 				J = _to_float(_value_by_index_or_scalar(J_list, i, default_value=0.0), default_value=0.0)
@@ -334,6 +335,7 @@ else:
 					target,
 					A,
 					L,
+					E,
 					axial_force_value,
 				])
 
