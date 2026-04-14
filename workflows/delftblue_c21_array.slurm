@@ -15,9 +15,24 @@ set -euo pipefail
 
 REPO_DIR="${SLURM_SUBMIT_DIR}"
 GRID_FILE="${REPO_DIR}/workflows/delftblue_hyperparameter_grid.txt"
-NB_FILE="${REPO_DIR}/c21_surrogate_model_training.ipynb"
 RUN_DIR="${REPO_DIR}/workflows/delftblue_runs"
 mkdir -p "${REPO_DIR}/logs" "${RUN_DIR}"
+
+# DelftBlue runtime modules
+module purge
+module load 2024r1
+module load python
+module load cuda/12.2.0
+module load cudnn/8.9.5-cuda-12.2
+
+# Default venv location; can be overridden before sbatch
+DELFTBLUE_VENV="${DELFTBLUE_VENV:-/scratch/${USER}/venvs/thesis_gnn}"
+if [[ ! -f "${DELFTBLUE_VENV}/bin/activate" ]]; then
+  echo "Missing virtual environment: ${DELFTBLUE_VENV}" >&2
+  echo "Create it first with workflows/delftblue_phase1_setup.sh" >&2
+  exit 1
+fi
+source "${DELFTBLUE_VENV}/bin/activate"
 
 if [[ ! -f "${GRID_FILE}" ]]; then
   echo "Grid file not found: ${GRID_FILE}" >&2
