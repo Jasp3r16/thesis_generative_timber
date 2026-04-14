@@ -27,8 +27,16 @@ from c21_data_pipeline import (
 from c21_surrogate_model import TrussEdgeNNConv
 
 
-def load_parameters():
+def load_parameters(device: torch.device | None = None):
     """Load and validate all hyperparameters from environment variables."""
+    fast_mode_env = os.getenv("C21_FAST_MODE")
+    if fast_mode_env is None:
+        fast_mode = bool(device is not None and device.type == "cpu")
+        fast_mode_source = "auto_cpu" if fast_mode else "default"
+    else:
+        fast_mode = fast_mode_env.lower() == "true"
+        fast_mode_source = "env"
+
     params = {
         # Data
         "node_csv": os.getenv("C21_NODE_CSV", "v4_node_C12_S9999_D20260409.csv"),
@@ -55,9 +63,29 @@ def load_parameters():
             )
         ),
         "eval_every": int(os.getenv("C21_EVAL_EVERY", "10")),
+        "fast_mode": fast_mode,
+        "fast_mode_source": fast_mode_source,
         # Run identity
         "run_id": os.getenv("C21_RUN_ID", build_run_id()),
     }
+
+    # Fast-mode presets for local CPU iteration. Explicit env vars always win.
+    if fast_mode:
+        if "C21_EPOCHS" not in os.environ:
+            params["epochs"] = 20
+        if "C21_BATCH_SIZE" not in os.environ:
+            params["batch_size"] = 64
+        if "C21_HIDDEN_DIM" not in os.environ:
+            params["hidden_dim"] = 64
+        if "C21_EVAL_EVERY" not in os.environ:
+            params["eval_every"] = 20
+        if "C21_WEIGHT_DECAY" not in os.environ:
+            params["weight_decay"] = 1e-4
+        if "C21_USE_TRAINING_TIME_LIMIT" not in os.environ:
+            params["use_training_time_limit"] = True
+        if "C21_TRAINING_TIME_LIMIT_SECONDS" not in os.environ:
+            params["training_time_limit_seconds"] = 1800
+
     return params
 
 
@@ -502,10 +530,14 @@ def main():
     print(f"Device: {device}\n")
 
     # Load parameters
-    params = load_parameters()
+    params = load_parameters(device=device)
     print("Parameters loaded:")
+    print(f"- fast_mode={params['fast_mode']} ({params['fast_mode_source']})")
     print(f"- lr={params['learning_rate']}, epochs={params['epochs']}, batch={params['batch_size']}")
     print(f"- hidden_dim={params['hidden_dim']}, weight_decay={params['weight_decay']}")
+    print(f"- eval_every={params['eval_every']}, num_workers={params['num_workers']}")
+    if params["use_training_time_limit"]:
+        print(f"- training_time_limit_seconds={params['training_time_limit_seconds']}")
     print(f"- Run ID: {params['run_id']}\n")
 
     # Data loading
