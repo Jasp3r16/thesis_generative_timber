@@ -1,14 +1,14 @@
 #!/bin/bash
 # DelftBlue job policy: account=education-abe-msc-a, partition=gpu, walltime=12:00:00
 #SBATCH --job-name=c21_sweep_p2
-#SBATCH --output=logs/c21_p2_%A_%a.out
-#SBATCH --error=logs/c21_p2_%A_%a.err
+#SBATCH --output=logs/c21_p2_%j.out
+#SBATCH --error=logs/c21_p2_%j.err
 #SBATCH --time=12:00:00
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:1
+#SBATCH --ntasks=1
+#SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --array=1-24
+#SBATCH --mem-per-cpu=4G
 #SBATCH --account=education-abe-msc-a
 
 set -euo pipefail
@@ -22,8 +22,12 @@ mkdir -p "${REPO_DIR}/logs" "${RUN_DIR}"
 module purge
 module load 2024r1
 module load python
-module load cuda/12.2.0
-module load cudnn/8.9.5-cuda-12.2
+module try-load cuda/12.2.0
+module try-load cuda
+module try-load cudnn/8.9.5-cuda-12.2
+module try-load cudnn
+echo "Loaded modules:"
+module list 2>&1 || true
 
 # Default venv location; can be overridden before sbatch
 DELFTBLUE_VENV="${DELFTBLUE_VENV:-/scratch/${USER}/venvs/thesis_gnn}"
@@ -39,9 +43,15 @@ if [[ ! -f "${GRID_FILE}" ]]; then
   exit 1
 fi
 
-line=$(grep '^RUN2_' "${GRID_FILE}" | sed -n "${SLURM_ARRAY_TASK_ID}p")
+TASK_INDEX="${C21_TASK_INDEX:-${SLURM_ARRAY_TASK_ID:-}}"
+if [[ -z "${TASK_INDEX}" ]]; then
+  echo "Missing run index. Set C21_TASK_INDEX (or submit as SLURM array)." >&2
+  exit 1
+fi
+
+line=$(grep '^RUN2_' "${GRID_FILE}" | sed -n "${TASK_INDEX}p")
 if [[ -z "${line}" ]]; then
-  echo "No run config for array index ${SLURM_ARRAY_TASK_ID}" >&2
+  echo "No run config for index ${TASK_INDEX}" >&2
   exit 1
 fi
 
@@ -63,11 +73,12 @@ export C21_WEIGHT_DECAY="${weight_decay}"
 export C21_TRAIN_SPLIT_RATIO="${train_split_ratio}"
 export C21_RANDOM_SEED="${random_seed}"
 export C21_USE_PRETRAINED="false"
+export C21_TASK_INDEX="${TASK_INDEX}"
 
 # DelftBlue data storage path (config.py will use this)
 export DELFTBLUE_DATA_BASE="/scratch/${USER}"
 
-echo "Running ${run_id} with lr=${lr}, epochs=${epochs}, batch_size=${batch_size}, hidden_dim=${hidden_dim}, weight_decay=${weight_decay}"
+echo "Running index=${TASK_INDEX}, run_id=${run_id} with lr=${lr}, epochs=${epochs}, batch_size=${batch_size}, hidden_dim=${hidden_dim}, weight_decay=${weight_decay}"
 
 cd "${REPO_DIR}"
 

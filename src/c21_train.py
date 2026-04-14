@@ -215,11 +215,62 @@ def setup_model(params, schema, device):
     return model
 
 
+def _collect_eval_metrics(model, loader, edge_target_scaler, device):
+    """Collect R2/MAE/RMSE on original target scale for a dataloader."""
+    model.eval()
+    pred_batches = []
+    true_batches = []
+
+    with torch.no_grad():
+        for batch in loader:
+            batch = batch.to(device, non_blocking=True)
+            out = model(
+                batch.x,
+                batch.edge_index,
+                edge_attr=batch.edge_attr,
+                batch=batch.batch,
+                u=batch.u,
+            )
+            pred_batches.append(out.detach().cpu().numpy())
+            true_batches.append(batch.y_edge.detach().cpu().numpy())
+
+    preds_scaled = np.concatenate(pred_batches, axis=0)
+    trues_scaled = np.concatenate(true_batches, axis=0)
+    preds_original = edge_target_scaler.inverse_transform(preds_scaled).reshape(-1)
+    trues_original = edge_target_scaler.inverse_transform(trues_scaled).reshape(-1)
+
+    r2 = float(r2_score(trues_original, preds_original))
+    mae = float(mean_absolute_error(trues_original, preds_original))
+    rmse = float(np.sqrt(mean_squared_error(trues_original, preds_original)))
+    return {
+        "r2": r2,
+        "mae": mae,
+        "rmse": rmse,
+        "n_edges": int(trues_original.shape[0]),
+    }
+
+
 def train_model(model, train_loader, test_loader, edge_target_scaler, schema, params, device):
     """Execute training loop."""
     if params["use_pretrained"]:
         print("⏭️  Skipping training (using pretrained model)\n")
-        return [], [], None
+        train_metrics = _collect_eval_metrics(model, train_loader, edge_target_scaler, device)
+        test_metrics = _collect_eval_metrics(model, test_loader, edge_target_scaler, device)
+        run_metrics = {
+            "final_val_r2": test_metrics["r2"],
+            "train_r2": train_metrics["r2"],
+            "test_r2": test_metrics["r2"],
+            "train_mae": train_metrics["mae"],
+            "test_mae": test_metrics["mae"],
+            "train_rmse": train_metrics["rmse"],
+            "test_rmse": test_metrics["rmse"],
+            "epochs_completed": 0,
+            "training_time_seconds": 0.0,
+            "best_train_loss": None,
+            "n_train_edges": train_metrics["n_edges"],
+            "n_test_edges": test_metrics["n_edges"],
+        }
+        return [], [], run_metrics
 
     print("🚀 Starting training...\n")
 
@@ -295,36 +346,33 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
             final_val_r2 = float(r2)
             print(f"Epoch {epoch+1:03d}/{params['epochs']} | Train Loss: {avg_train_loss:.4f} | Test R2: {r2:.4f}")
 
-    # Final evaluation if needed
+    train_metrics = _collect_eval_metrics(model, train_loader, edge_target_scaler, device)
+    test_metrics = _collect_eval_metrics(model, test_loader, edge_target_scaler, device)
+    training_time_seconds = float(time.time() - train_start_time)
+
     if final_val_r2 is None:
-        model.eval()
-        pred_batches = []
-        true_batches = []
-        with torch.no_grad():
-            for batch in test_loader:
-                batch = batch.to(device, non_blocking=True)
-                out = model(
-                    batch.x,
-                    batch.edge_index,
-                    edge_attr=batch.edge_attr,
-                    batch=batch.batch,
-                    u=batch.u,
-                )
-                pred_batches.append(out.detach().cpu())
-                true_batches.append(batch.y_edge.detach().cpu())
+        final_val_r2 = test_metrics["r2"]
 
-        preds_scaled = torch.cat(pred_batches, dim=0).numpy()
-        trues_scaled = torch.cat(true_batches, dim=0).numpy()
-        final_val_r2 = float(r2_score(
-            edge_target_scaler.inverse_transform(trues_scaled),
-            edge_target_scaler.inverse_transform(preds_scaled)
-        ))
+    run_metrics = {
+        "final_val_r2": float(final_val_r2),
+        "train_r2": train_metrics["r2"],
+        "test_r2": test_metrics["r2"],
+        "train_mae": train_metrics["mae"],
+        "test_mae": test_metrics["mae"],
+        "train_rmse": train_metrics["rmse"],
+        "test_rmse": test_metrics["rmse"],
+        "epochs_completed": int(len(epoch_history)),
+        "training_time_seconds": training_time_seconds,
+        "best_train_loss": float(min(train_loss_history)) if train_loss_history else None,
+        "n_train_edges": train_metrics["n_edges"],
+        "n_test_edges": test_metrics["n_edges"],
+    }
 
-    print(f"\nTraining completed! Model R2: {final_val_r2:.4f}\n")
-    return epoch_history, train_loss_history, final_val_r2
+    print(f"\nTraining completed! Test R2: {run_metrics['test_r2']:.4f} | Test RMSE: {run_metrics['test_rmse']:.4f} | Test MAE: {run_metrics['test_mae']:.4f}\n")
+    return epoch_history, train_loss_history, run_metrics
 
 
-def export_model(model, scalers, schema, params, final_val_r2):
+def export_model(model, scalers, schema, params, run_metrics):
     """Save trained model and scalars."""
     if params["use_pretrained"]:
         print("⏭️  Skipping export (using pretrained model)\n")
@@ -332,7 +380,12 @@ def export_model(model, scalers, schema, params, final_val_r2):
 
     print("💾 Exporting model and scalers...\n")
 
-    artifact_stem = build_model_artifact_stem(params["run_id"], params["learning_rate"], params["epochs"], final_val_r2)
+    artifact_stem = build_model_artifact_stem(
+        params["run_id"],
+        params["learning_rate"],
+        params["epochs"],
+        run_metrics["final_val_r2"],
+    )
 
     # Save prefix for downstream
     with open(config.SM_EXPORT_PATH / "prefix_sm.txt", "w", encoding="utf-8") as f:
@@ -351,7 +404,21 @@ def export_model(model, scalers, schema, params, final_val_r2):
         "batch_size": params["batch_size"],
         "hidden_dim": params["hidden_dim"],
         "weight_decay": params["weight_decay"],
-        "final_val_r2": final_val_r2,
+        "final_val_r2": run_metrics["final_val_r2"],
+        "test_r2": run_metrics["test_r2"],
+        "train_r2": run_metrics["train_r2"],
+        "test_mae": run_metrics["test_mae"],
+        "train_mae": run_metrics["train_mae"],
+        "test_rmse": run_metrics["test_rmse"],
+        "train_rmse": run_metrics["train_rmse"],
+        "epochs_completed": run_metrics["epochs_completed"],
+        "training_time_seconds": run_metrics["training_time_seconds"],
+        "best_train_loss": run_metrics["best_train_loss"],
+        "n_train_edges": run_metrics["n_train_edges"],
+        "n_test_edges": run_metrics["n_test_edges"],
+        "slurm_job_id": os.getenv("SLURM_JOB_ID"),
+        "slurm_array_task_id": os.getenv("SLURM_ARRAY_TASK_ID"),
+        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "node_count": schema.node_count,
         "edge_count": schema.edge_count,
         "node_feature_dim": len(schema.node_continuous_cols) + len(schema.node_mask_cols),
@@ -390,7 +457,11 @@ def export_model(model, scalers, schema, params, final_val_r2):
             "epochs": params["epochs"],
             "batch_size": params["batch_size"],
             "weight_decay": params["weight_decay"],
-            "final_val_r2": final_val_r2,
+            "final_val_r2": run_metrics["final_val_r2"],
+            "test_r2": run_metrics["test_r2"],
+            "train_r2": run_metrics["train_r2"],
+            "test_mae": run_metrics["test_mae"],
+            "test_rmse": run_metrics["test_rmse"],
         },
         model_path
     )
@@ -443,7 +514,7 @@ def main():
     print(f"Model: TrussEdgeNNConv on {device}\n")
 
     # Training
-    epoch_history, train_loss_history, final_val_r2 = train_model(
+    epoch_history, train_loss_history, run_metrics = train_model(
         model, train_loader, test_loader, edge_target_scaler, schema, params, device
     )
 
@@ -454,7 +525,7 @@ def main():
         "edge_target": edge_target_scaler,
         "global_feature": global_feature_scaler,
     }
-    export_model(model, scalers, schema, params, final_val_r2)
+    export_model(model, scalers, schema, params, run_metrics)
 
     print("=" * 60)
     print("TRAINING COMPLETE")
@@ -465,7 +536,8 @@ def main():
         "device": device,
         "epoch_history": epoch_history,
         "train_loss_history": train_loss_history,
-        "final_val_r2": final_val_r2,
+        "final_val_r2": run_metrics["final_val_r2"],
+        "run_metrics": run_metrics,
         "scalers": scalers,
         "schema": schema,
         "train_loader": train_loader,

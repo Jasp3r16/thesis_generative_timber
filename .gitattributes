@@ -1,0 +1,9 @@
+# Ensure cluster scripts always use Unix line endings
+*.slurm text eol=lf
+*.sh text eol=lf
+
+# Keep python/config files Unix-friendly as well
+*.py text eol=lf
+
+# Notebooks are JSON; keep as text with default normalization
+*.ipynb text

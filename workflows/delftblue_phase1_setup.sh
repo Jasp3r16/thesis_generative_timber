@@ -13,8 +13,12 @@ DELFTBLUE_VENV="${DELFTBLUE_VENV:-/scratch/${USER}/venvs/thesis_gnn}"
 module purge
 module load 2024r1
 module load python
-module load cuda/12.2.0
-module load cudnn/8.9.5-cuda-12.2
+module try-load cuda/12.2.0
+module try-load cuda
+module try-load cudnn/8.9.5-cuda-12.2
+module try-load cudnn
+echo "Loaded modules:"
+module list 2>&1 || true
 
 mkdir -p "$(dirname "${DELFTBLUE_VENV}")"
 python -m venv "${DELFTBLUE_VENV}"
