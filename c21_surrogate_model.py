@@ -1,34 +1,120 @@
 import torch
 import torch.nn.functional as F
-from torch.nn import Linear, ReLU, Sequential
-from torch_geometric.nn import SAGEConv
+from torch.nn import Linear, ModuleList, ReLU, Sequential
+from torch_geometric.nn import NNConv, global_mean_pool
 
 
-class TrussEdgeGNN(torch.nn.Module):
-    """GraphSAGE edge-regression model used for c21 training and downstream inference."""
+class TrussEdgeNNConv(torch.nn.Module):
+    """Edge-aware surrogate model for the multi-source c21 training pipeline."""
 
-    def __init__(self, node_in_dim: int = 3, hidden_dim: int = 128):
+    def __init__(
+        self,
+        node_in_dim: int = 10,
+        edge_in_dim: int = 7,
+        global_in_dim: int = 3,
+        hidden_dim: int = 128,
+    ):
         super().__init__()
-        self.conv1 = SAGEConv(node_in_dim, hidden_dim)
-        self.conv2 = SAGEConv(hidden_dim, hidden_dim)
-        self.conv3 = SAGEConv(hidden_dim, hidden_dim)
-        self.conv4 = SAGEConv(hidden_dim, hidden_dim)
+        self.node_in_dim = node_in_dim
+        self.edge_in_dim = edge_in_dim
+        self.global_in_dim = global_in_dim
+        self.hidden_dim = hidden_dim
+
+        self.edge_nns = ModuleList([
+            Sequential(
+                Linear(edge_in_dim, hidden_dim),
+                ReLU(),
+                Linear(hidden_dim, node_in_dim * hidden_dim),
+            ),
+            Sequential(
+                Linear(edge_in_dim, hidden_dim),
+                ReLU(),
+                Linear(hidden_dim, hidden_dim * hidden_dim),
+            ),
+            Sequential(
+                Linear(edge_in_dim, hidden_dim),
+                ReLU(),
+                Linear(hidden_dim, hidden_dim * hidden_dim),
+            ),
+            Sequential(
+                Linear(edge_in_dim, hidden_dim),
+                ReLU(),
+                Linear(hidden_dim, hidden_dim * hidden_dim),
+            ),
+        ])
+
+        self.conv1 = NNConv(node_in_dim, hidden_dim, self.edge_nns[0], aggr="mean")
+        self.conv2 = NNConv(hidden_dim, hidden_dim, self.edge_nns[1], aggr="mean")
+        self.conv3 = NNConv(hidden_dim, hidden_dim, self.edge_nns[2], aggr="mean")
+        self.conv4 = NNConv(hidden_dim, hidden_dim, self.edge_nns[3], aggr="mean")
+
+        self.edge_attr_encoder = Sequential(
+            Linear(edge_in_dim, hidden_dim),
+            ReLU(),
+            Linear(hidden_dim, hidden_dim),
+            ReLU(),
+        )
+
+        self.global_encoder = Sequential(
+            Linear(global_in_dim, hidden_dim),
+            ReLU(),
+            Linear(hidden_dim, hidden_dim),
+            ReLU(),
+        )
+
+        self.graph_fallback = Sequential(
+            Linear(hidden_dim, hidden_dim),
+            ReLU(),
+        )
+
         self.edge_predictor = Sequential(
-            Linear(hidden_dim * 2, hidden_dim),
+            Linear(hidden_dim * 4, hidden_dim),
             ReLU(),
             Linear(hidden_dim, hidden_dim // 2),
             ReLU(),
             Linear(hidden_dim // 2, 1),
         )
 
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
-        h = F.relu(self.conv1(x, edge_index))
-        h = F.relu(self.conv2(h, edge_index))
-        h = F.relu(self.conv3(h, edge_index))
-        h = F.relu(self.conv4(h, edge_index))
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_attr: torch.Tensor | None = None,
+        batch: torch.Tensor | None = None,
+        u: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if edge_attr is None:
+            edge_attr = x.new_zeros((edge_index.size(1), self.edge_in_dim))
+
+        if batch is None:
+            batch = x.new_zeros(x.size(0), dtype=torch.long)
+
+        h = F.relu(self.conv1(x, edge_index, edge_attr))
+        h = F.relu(self.conv2(h, edge_index, edge_attr))
+        h = F.relu(self.conv3(h, edge_index, edge_attr))
+        h = F.relu(self.conv4(h, edge_index, edge_attr))
+
+        graph_embedding = global_mean_pool(h, batch)
+
         src, dst = edge_index
-        edge_features = torch.cat([h[src], h[dst]], dim=1)
+        edge_batch = batch[src]
+
+        edge_context = self.edge_attr_encoder(edge_attr)
+
+        if u is not None:
+            if u.dim() == 1:
+                u = u.unsqueeze(0)
+            graph_context = self.global_encoder(u)
+        else:
+            graph_context = self.graph_fallback(graph_embedding)
+
+        graph_context_for_edges = graph_context[edge_batch]
+        node_context = torch.cat([h[src], h[dst]], dim=1)
+        edge_features = torch.cat([node_context, edge_context, graph_context_for_edges], dim=1)
         return self.edge_predictor(edge_features)
 
 
-__all__ = ["TrussEdgeGNN"]
+TrussEdgeGNN = TrussEdgeNNConv
+
+
+__all__ = ["TrussEdgeNNConv", "TrussEdgeGNN"]
