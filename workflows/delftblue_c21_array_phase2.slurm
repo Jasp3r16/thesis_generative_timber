@@ -49,15 +49,13 @@ export C21_TRAIN_SPLIT_RATIO="${train_split_ratio}"
 export C21_RANDOM_SEED="${random_seed}"
 export C21_USE_PRETRAINED="false"
 
+# DelftBlue data storage path (config.py will use this)
+export DELFTBLUE_DATA_BASE="/scratch/${USER}"
+
 echo "Running ${run_id} with lr=${lr}, epochs=${epochs}, batch_size=${batch_size}, hidden_dim=${hidden_dim}, weight_decay=${weight_decay}"
 
 cd "${REPO_DIR}"
 
-python -m jupyter nbconvert \
-  --to notebook \
-  --execute "${NB_FILE}" \
-  --output "c21_surrogate_model_training_${run_id}.ipynb" \
-  --output-dir "${RUN_DIR}" \
-  --ExecutePreprocessor.timeout=-1
+python workflows/c21_slurm_train.py
 
 echo "Finished ${run_id}"
