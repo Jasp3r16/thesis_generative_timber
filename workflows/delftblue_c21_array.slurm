@@ -1,8 +1,8 @@
 #!/bin/bash
 # DelftBlue job policy: account=education-abe-msc-a, partition=gpu, walltime=08:00:00
 #SBATCH --job-name=c21_sweep
-#SBATCH --output=logs/c21_%j.out
-#SBATCH --error=logs/c21_%j.err
+#SBATCH --output=delfblue_logs/phase1/c21_%j.out
+#SBATCH --error=delfblue_logs/phase1/c21_%j.err
 #SBATCH --time=08:00:00
 #SBATCH --partition=gpu
 #SBATCH --ntasks=1
@@ -16,7 +16,7 @@ set -euo pipefail
 REPO_DIR="${SLURM_SUBMIT_DIR}"
 GRID_FILE="${REPO_DIR}/workflows/delftblue_hyperparameter_grid.txt"
 RUN_DIR="${REPO_DIR}/workflows/delftblue_runs"
-mkdir -p "${REPO_DIR}/logs" "${RUN_DIR}"
+mkdir -p "${REPO_DIR}/delfblue_logs" "${REPO_DIR}/delfblue_logs/phase1" "${RUN_DIR}"
 
 # DelftBlue runtime modules
 module purge
