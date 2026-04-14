@@ -74,6 +74,8 @@ export C21_TRAIN_SPLIT_RATIO="${train_split_ratio}"
 export C21_RANDOM_SEED="${random_seed}"
 export C21_USE_PRETRAINED="false"
 export C21_TASK_INDEX="${TASK_INDEX}"
+export C21_EXPORT_EVAL="true"
+export C21_EVAL_STRICT="false"
 
 # DelftBlue data storage path (config.py will use this)
 export DELFTBLUE_DATA_BASE="/scratch/${USER}"

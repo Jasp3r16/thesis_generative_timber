@@ -48,6 +48,13 @@ def load_parameters():
         "weight_decay": float(os.getenv("C21_WEIGHT_DECAY", "0.0")),
         "train_split_ratio": float(os.getenv("C21_TRAIN_SPLIT_RATIO", "0.8")),
         "random_seed": int(os.getenv("C21_RANDOM_SEED", "42")),
+        "num_workers": int(
+            os.getenv(
+                "C21_NUM_WORKERS",
+                "0" if os.name == "nt" else str(min(4, os.cpu_count() or 1)),
+            )
+        ),
+        "eval_every": int(os.getenv("C21_EVAL_EVERY", "10")),
         # Run identity
         "run_id": os.getenv("C21_RUN_ID", build_run_id()),
     }
@@ -152,10 +159,10 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
     # Create data loaders
     loader_kwargs = {
         "batch_size": params["batch_size"],
-        "num_workers": min(4, os.cpu_count() or 1),
+        "num_workers": max(0, int(params.get("num_workers", 0))),
         "pin_memory": torch.cuda.is_available(),
     }
-    if loader_kwargs["num_workers"] > 0:
+    if loader_kwargs["num_workers"] > 0 and os.name != "nt":
         loader_kwargs["persistent_workers"] = True
 
     train_loader = DataLoader(train_dataset, shuffle=True, **loader_kwargs)
@@ -281,7 +288,7 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
     )
     criterion = torch.nn.MSELoss()
 
-    EVAL_EVERY = 10
+    EVAL_EVERY = max(1, int(params.get("eval_every", 10)))
     epoch_history = []
     train_loss_history = []
     final_val_r2 = None

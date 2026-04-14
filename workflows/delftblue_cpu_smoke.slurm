@@ -46,6 +46,8 @@ export C21_LEARNING_RATE="0.0005"
 export C21_WEIGHT_DECAY="0.0"
 export C21_TRAIN_SPLIT_RATIO="0.8"
 export C21_RANDOM_SEED="42"
+export C21_EXPORT_EVAL="true"
+export C21_EVAL_STRICT="false"
 
 cd "${REPO_DIR}"
 python workflows/c21_slurm_train.py
