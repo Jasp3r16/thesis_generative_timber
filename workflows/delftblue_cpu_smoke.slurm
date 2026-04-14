@@ -19,6 +19,10 @@ module purge
 module load 2024r1
 module load python
 module list 2>&1 || true
+echo "PWD=$(pwd)"
+echo "HOST=$(hostname)"
+echo "WHICH_PYTHON=$(command -v python)"
+python --version
 
 DELFTBLUE_VENV="${DELFTBLUE_VENV:-/scratch/${USER}/venvs/thesis_gnn}"
 if [[ ! -f "${DELFTBLUE_VENV}/bin/activate" ]]; then
@@ -26,6 +30,8 @@ if [[ ! -f "${DELFTBLUE_VENV}/bin/activate" ]]; then
   exit 1
 fi
 source "${DELFTBLUE_VENV}/bin/activate"
+echo "VENV_PYTHON=$(command -v python)"
+python --version
 
 export DELFTBLUE_DATA_BASE="${DELFTBLUE_DATA_BASE:-/scratch/${USER}}"
 export C21_RUN_ID="cpu_smoke"

@@ -13,7 +13,7 @@ import joblib
 from pathlib import Path
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-from torch_geometric.data import DataLoader
+from torch_geometric.loader import DataLoader
 
 import config
 from naming import build_run_id, build_model_artifact_stem

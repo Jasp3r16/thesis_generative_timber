@@ -8,6 +8,8 @@ set -euo pipefail
 REPO_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
 GRID_FILE="${REPO_DIR}/workflows/delftblue_hyperparameter_grid.txt"
 
+mkdir -p "${REPO_DIR}/logs"
+
 if [[ ! -f "${GRID_FILE}" ]]; then
   echo "Grid file not found: ${GRID_FILE}" >&2
   exit 1
