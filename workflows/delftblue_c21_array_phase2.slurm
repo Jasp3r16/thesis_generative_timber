@@ -1,4 +1,5 @@
 #!/bin/bash
+# DelftBlue job policy: account=education-abe-msc-a, partition=gpu, walltime=12:00:00
 #SBATCH --job-name=c21_sweep_p2
 #SBATCH --output=logs/c21_p2_%A_%a.out
 #SBATCH --error=logs/c21_p2_%A_%a.err
@@ -8,11 +9,9 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --array=1-24
+#SBATCH --account=education-abe-msc-a
 
 set -euo pipefail
-
-# Update these for your DelftBlue project/account setup if needed.
-# SBATCH --account=<your_account>
 
 REPO_DIR="${SLURM_SUBMIT_DIR}"
 GRID_FILE="${REPO_DIR}/workflows/delftblue_hyperparameter_grid_phase2.txt"
