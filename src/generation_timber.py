@@ -96,14 +96,17 @@ def _mechanical_props_row(mech_props: Dict[str, Any]) -> Dict[str, float]:
 
 def _get_lca_new() -> Dict[str, Any]:
     """Cache LCA properties for new timber."""
-    params = _get_params_module()
-    return getattr(params, "NEW_TIMBER_LCA")
+    return _get_lca_properties("NEW_TIMBER_LCA")
 
 
 def _get_lca_reclaimed() -> Dict[str, Any]:
     """Cache LCA properties for reclaimed timber."""
+    return _get_lca_properties("RECLAIMED_TIMBER_LCA")
+
+
+def _get_lca_properties(attribute_name: str) -> Dict[str, Any]:
     params = _get_params_module()
-    return getattr(params, "RECLAIMED_TIMBER_LCA")
+    return getattr(params, attribute_name)
 
 def assign_transport_distance():
     """

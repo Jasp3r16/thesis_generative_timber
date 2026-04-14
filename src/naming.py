@@ -5,14 +5,18 @@ from __future__ import annotations
 from datetime import datetime
 
 
+def _format_timestamp(dt: datetime | None = None, fmt: str = "%Y%m%d_%H%M%S") -> str:
+    return (dt or datetime.now()).strftime(fmt)
+
+
 def compact_timestamp(dt: datetime | None = None) -> str:
     """Return a sortable timestamp token like 20260402_124110."""
-    return (dt or datetime.now()).strftime("%Y%m%d_%H%M%S")
+    return _format_timestamp(dt, "%Y%m%d_%H%M%S")
 
 
 def human_timestamp(dt: datetime | None = None) -> str:
     """Return a human-readable timestamp token like 2026-04-02_124110."""
-    return (dt or datetime.now()).strftime("%Y-%m-%d_%H%M%S")
+    return _format_timestamp(dt, "%Y-%m-%d_%H%M%S")
 
 
 def format_learning_rate(learning_rate: float) -> str:

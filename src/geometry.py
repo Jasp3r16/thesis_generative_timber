@@ -4,6 +4,53 @@ from typing import Mapping, Optional, Sequence
 
 import c11_params
 
+
+def _build_truss_edges(cells_x, cells_y):
+    nodes_x_top = cells_x + 1
+    nodes_y_top = cells_y + 1
+    num_top_vertices = nodes_x_top * nodes_y_top
+
+    edges = []
+
+    for r in range(nodes_y_top):
+        for c in range(nodes_x_top):
+            current = r * nodes_x_top + c
+
+            if c < cells_x:
+                edges.append((current, current + 1))
+
+            if r < cells_y:
+                edges.append((current, current + nodes_x_top))
+
+    start_idx_bottom = num_top_vertices
+
+    for r in range(cells_y):
+        for c in range(cells_x):
+            current = start_idx_bottom + r * cells_x + c
+
+            if c < cells_x - 1:
+                edges.append((current, current + 1))
+
+            if r < cells_y - 1:
+                edges.append((current, current + cells_x))
+
+    for r in range(cells_y):
+        for c in range(cells_x):
+            bottom_node = start_idx_bottom + r * cells_x + c
+            top_tl = r * nodes_x_top + c
+            top_tr = r * nodes_x_top + (c + 1)
+            top_bl = (r + 1) * nodes_x_top + c
+            top_br = (r + 1) * nodes_x_top + (c + 1)
+
+            edges.extend([
+                (bottom_node, top_tl),
+                (bottom_node, top_tr),
+                (bottom_node, top_bl),
+                (bottom_node, top_br),
+            ])
+
+    return edges
+
 def get_valid_shifts(divisions, edge_length):
     """Calculate the allowed shifts (excluding the extremes)."""
     half_div = divisions // 2
@@ -78,82 +125,17 @@ def generate_edges(num_samples, cells_x, cells_y):
     """
     edges_data = []
 
-    # Compute helper parameters.
-    nodes_x_top = cells_x + 1
-    nodes_y_top = cells_y + 1
-    num_top_vertices = nodes_x_top * nodes_y_top
-
-    # Iterate over each sample to capture the edges per sample.
     for sample_id in range(num_samples):
-
-        edge_counter = 0  # Reset edge counter per sample.
-
-        # Helper to add an edge.
-        def add_edge(u, v):
-            nonlocal edge_counter
+        sample_edges = _build_truss_edges(cells_x, cells_y)
+        for edge_counter, (u, v) in enumerate(sample_edges):
             edges_data.append({
                 "sample_id": sample_id,
                 "edge_id": f"e{edge_counter}",
                 "V1": u,
                 "V2": v,
             })
-            edge_counter += 1
-
-        # --- 1. TOP LAYER GRID ---
-        # Vertices 0 to num_top_vertices-1.
-        for r in range(nodes_y_top):      # iterate rows
-            for c in range(nodes_x_top):  # iterate columns
-                current = r * nodes_x_top + c
-
-                # Horizontal (to the right)
-                if c < cells_x: # while not the last column
-                    add_edge(current, current + 1)
-
-                # Vertical (downwards, or 'up' in matrix indexing)
-                if r < cells_y: # while not the last row
-                    add_edge(current, current + nodes_x_top)
-
-        # --- 2. BOTTOM LAYER GRID ---
-        # Start index comes after the last top vertex.
-        start_idx_bottom = num_top_vertices
-
-        # The bottom grid has as many points as there are cells (cells_x * cells_y).
-        # But the grid connections are one fewer than the number of points.
-        # Bottom points form a grid of width (cells_x) and height (cells_y).
-
-        for r in range(cells_y):
-            for c in range(cells_x):
-                current = start_idx_bottom + r * cells_x + c
-
-                # Horizontal (to the right)
-                if c < cells_x - 1:
-                    add_edge(current, current + 1)
-
-                # Vertical (downwards)
-                if r < cells_y - 1:
-                    add_edge(current, current + cells_x)
-
-        # --- 3. DIAGONALS (Pyramid connections) ---
-        # Connect each bottom vertex with the 4 top vertices above it.
-        for r in range(cells_y):
-            for c in range(cells_x):
-                bottom_node = start_idx_bottom + r * cells_x + c
-
-                # The 4 corresponding points in the top layer.
-                # Top grid width is (cells_x + 1).
-                top_tl = r * nodes_x_top + c               # Top-left (or row i)
-                top_tr = r * nodes_x_top + (c + 1)         # Top-right
-                top_bl = (r + 1) * nodes_x_top + c         # Bottom-left (row i+1)
-                top_br = (r + 1) * nodes_x_top + (c + 1)   # Bottom-right
-
-                add_edge(bottom_node, top_tl)
-                add_edge(bottom_node, top_tr)
-                add_edge(bottom_node, top_bl)
-                add_edge(bottom_node, top_br)
 
     return pd.DataFrame(edges_data)
-
-    # Make sure get_corner_indices, get_valid_shifts, and bilinear_interpolate are also available.
 
 def generate_sample_vertices(
     sample_id: int,

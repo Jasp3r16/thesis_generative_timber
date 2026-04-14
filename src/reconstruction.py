@@ -4,46 +4,15 @@ import json
 import random
 from pathlib import Path
 
+from geometry import _build_truss_edges
+
 def reconstruct_edges(cells_x, cells_y):
     """
     Compute the grid topology (edges) without nested if statements.
     Faster and shorter thanks to list comprehensions.
     """
-    nodes_x_top = cells_x + 1
-    nodes_y_top = cells_y + 1
-    num_top = nodes_x_top * nodes_y_top
-    
-    edges = []
+    edges = _build_truss_edges(cells_x, cells_y)
 
-    # --- 1. TOP LAYER EDGES ---
-    # Horizontal connections
-    edges.extend([(r * nodes_x_top + c, r * nodes_x_top + c + 1) 
-                  for r in range(nodes_y_top) for c in range(cells_x)])
-    # Vertical connections
-    edges.extend([(r * nodes_x_top + c, (r + 1) * nodes_x_top + c) 
-                  for r in range(cells_y) for c in range(nodes_x_top)])
-
-    # --- 2. BOTTOM LAYER EDGES ---
-    start_bot = num_top
-    # Horizontal connections
-    edges.extend([(start_bot + r * cells_x + c, start_bot + r * cells_x + c + 1) 
-                  for r in range(cells_y) for c in range(cells_x - 1)])
-    # Vertical connections
-    edges.extend([(start_bot + r * cells_x + c, start_bot + (r + 1) * cells_x + c) 
-                  for r in range(cells_y - 1) for c in range(cells_x)])
-
-    # --- 3. DIAGONALS (PYRAMID) ---
-    for r in range(cells_y):
-        for c in range(cells_x):
-            current_bot = start_bot + r * cells_x + c
-            tl, tr = r * nodes_x_top + c, r * nodes_x_top + (c + 1)
-            bl, br = (r + 1) * nodes_x_top + c, (r + 1) * nodes_x_top + (c + 1)
-            
-            # Add all four diagonals directly for this bottom point.
-            edges.extend([(current_bot, tl), (current_bot, tr), 
-                          (current_bot, bl), (current_bot, br)])
-
-    # Build the DataFrame in one go.
     df_edges = pd.DataFrame(edges, columns=["V1", "V2"])
     
     # Add edge_id as prefix.
