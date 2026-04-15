@@ -27,6 +27,71 @@ from c21_data_pipeline import (
 from c21_surrogate_model import TrussEdgeNNConv
 
 
+class EdgeWiseStandardScaler:
+    """Per-edge standardization using a fixed edge order for inverse transforms."""
+
+    def __init__(self, edge_order, edge_mean_map, edge_std_map):
+        self.edge_order = list(edge_order)
+        self.edge_count = len(self.edge_order)
+        self.mean_map = {str(k): float(v) for k, v in edge_mean_map.items()}
+        self.std_map = {str(k): float(max(v, 1e-8)) for k, v in edge_std_map.items()}
+
+        self._mean_vector = np.array([self.mean_map[eid] for eid in self.edge_order], dtype=np.float32).reshape(-1, 1)
+        self._std_vector = np.array([self.std_map[eid] for eid in self.edge_order], dtype=np.float32).reshape(-1, 1)
+
+    def transform_df(self, edge_df: pd.DataFrame, target_col: str, edge_id_col: str = "Edge_ID") -> pd.DataFrame:
+        edge_ids = edge_df[edge_id_col].astype(str)
+        means = edge_ids.map(self.mean_map).to_numpy(dtype=np.float32).reshape(-1, 1)
+        stds = edge_ids.map(self.std_map).to_numpy(dtype=np.float32).reshape(-1, 1)
+        values = edge_df[[target_col]].to_numpy(dtype=np.float32)
+        scaled = (values - means) / np.maximum(stds, 1e-8)
+        return pd.DataFrame(scaled, index=edge_df.index, columns=[target_col])
+
+    def inverse_transform(self, values: np.ndarray) -> np.ndarray:
+        arr = np.asarray(values, dtype=np.float32)
+        if arr.ndim == 1:
+            arr = arr.reshape(-1, 1)
+        if arr.shape[1] != 1:
+            raise ValueError(f"Expected shape (N, 1), got {arr.shape}")
+        if arr.shape[0] % self.edge_count != 0:
+            raise ValueError(
+                f"Input length {arr.shape[0]} is not divisible by edge_count={self.edge_count}. "
+                "Cannot apply edge-wise inverse transform safely."
+            )
+
+        repeats = arr.shape[0] // self.edge_count
+        means = np.tile(self._mean_vector, (repeats, 1))
+        stds = np.tile(self._std_vector, (repeats, 1))
+        return arr * stds + means
+
+
+def _resolve_artifact_dir(artifact_prefix: str) -> Path:
+    """Resolve the artifact directory for a given prefix, supporting flat legacy layout."""
+    nested_dir = config.SM_EXPORT_PATH / artifact_prefix
+    if nested_dir.exists() and nested_dir.is_dir():
+        return nested_dir
+    return config.SM_EXPORT_PATH
+
+
+def _resolve_checkpoint_path(artifact_prefix: str) -> Path:
+    """Resolve checkpoint path from nested or legacy flat layout."""
+    artifact_dir = _resolve_artifact_dir(artifact_prefix)
+
+    nested_candidate = artifact_dir / f"{artifact_prefix}_surrogate_model.pt"
+    if nested_candidate.exists():
+        return nested_candidate
+
+    nested_legacy = artifact_dir / f"truss_edge_gnn_{artifact_prefix}.pt"
+    if nested_legacy.exists():
+        return nested_legacy
+
+    flat_candidate = config.SM_EXPORT_PATH / f"{artifact_prefix}_surrogate_model.pt"
+    if flat_candidate.exists():
+        return flat_candidate
+
+    return config.SM_EXPORT_PATH / f"truss_edge_gnn_{artifact_prefix}.pt"
+
+
 def load_parameters(device: torch.device | None = None):
     """Load and validate all hyperparameters from environment variables."""
     fast_mode_env = os.getenv("C21_FAST_MODE")
@@ -54,6 +119,14 @@ def load_parameters(device: torch.device | None = None):
         "batch_size": int(os.getenv("C21_BATCH_SIZE", "16")),
         "hidden_dim": int(os.getenv("C21_HIDDEN_DIM", "128")),
         "weight_decay": float(os.getenv("C21_WEIGHT_DECAY", "0.0")),
+        "loss_type": os.getenv("C21_LOSS_TYPE", "mse").lower(),
+        "huber_beta": float(os.getenv("C21_HUBER_BETA", "1.0")),
+        "use_lr_scheduler": os.getenv("C21_USE_LR_SCHEDULER", "false").lower() == "true",
+        "lr_scheduler_factor": float(os.getenv("C21_LR_SCHEDULER_FACTOR", "0.5")),
+        "lr_scheduler_patience": int(os.getenv("C21_LR_SCHEDULER_PATIENCE", "2")),
+        "lr_scheduler_metric": os.getenv("C21_LR_SCHEDULER_METRIC", "r2").lower(),
+        "lr_scheduler_min_lr": float(os.getenv("C21_LR_SCHEDULER_MIN_LR", "1e-6")),
+        "edge_wise_target_scaling": os.getenv("C21_EDGE_WISE_TARGET_SCALING", "false").lower() == "true",
         "train_split_ratio": float(os.getenv("C21_TRAIN_SPLIT_RATIO", "0.8")),
         "random_seed": int(os.getenv("C21_RANDOM_SEED", "42")),
         "num_workers": int(
@@ -63,6 +136,10 @@ def load_parameters(device: torch.device | None = None):
             )
         ),
         "eval_every": int(os.getenv("C21_EVAL_EVERY", "10")),
+        "use_early_stopping": os.getenv("C21_USE_EARLY_STOPPING", "false").lower() == "true",
+        "early_stopping_patience": int(os.getenv("C21_EARLY_STOPPING_PATIENCE", "5")),
+        "early_stopping_metric": os.getenv("C21_EARLY_STOPPING_METRIC", "r2"),
+        "skip_export": os.getenv("C21_SKIP_EXPORT", "false").lower() == "true",
         "fast_mode": fast_mode,
         "fast_mode_source": fast_mode_source,
         # Run identity
@@ -140,7 +217,14 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
     # Fit scalers only on training split
     node_continuous_scaler = StandardScaler().fit(train_node_df[NODE_CONTINUOUS_COLS])
     edge_feature_scaler = StandardScaler().fit(train_edge_df[EDGE_FEATURE_COLS])
-    edge_target_scaler = StandardScaler().fit(train_edge_df[[TARGET_COL]])
+    if params.get("edge_wise_target_scaling", False):
+        edge_order = sorted(df_edge["Edge_ID"].astype(str).unique().tolist(), key=lambda v: int("".join(ch for ch in v if ch.isdigit()) or "0"))
+        grouped = train_edge_df.groupby(train_edge_df["Edge_ID"].astype(str))[TARGET_COL]
+        edge_mean_map = grouped.mean().to_dict()
+        edge_std_map = grouped.std(ddof=0).fillna(1.0).replace(0.0, 1.0).to_dict()
+        edge_target_scaler = EdgeWiseStandardScaler(edge_order=edge_order, edge_mean_map=edge_mean_map, edge_std_map=edge_std_map)
+    else:
+        edge_target_scaler = StandardScaler().fit(train_edge_df[[TARGET_COL]])
     global_feature_scaler = StandardScaler().fit(train_global_df[GLOBAL_FEATURE_COLS])
 
     # Transform full dataset
@@ -155,11 +239,14 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
         index=df_edge.index,
         columns=EDGE_FEATURE_COLS,
     )
-    edge_target_scaled = pd.DataFrame(
-        edge_target_scaler.transform(df_edge[[TARGET_COL]]),
-        index=df_edge.index,
-        columns=[TARGET_COL],
-    )
+    if params.get("edge_wise_target_scaling", False):
+        edge_target_scaled = edge_target_scaler.transform_df(df_edge, TARGET_COL, edge_id_col="Edge_ID")
+    else:
+        edge_target_scaled = pd.DataFrame(
+            edge_target_scaler.transform(df_edge[[TARGET_COL]]),
+            index=df_edge.index,
+            columns=[TARGET_COL],
+        )
     global_feature_scaled = pd.DataFrame(
         global_feature_scaler.transform(df_global[GLOBAL_FEATURE_COLS]),
         index=df_global.index,
@@ -217,9 +304,7 @@ def setup_model(params, schema, device):
 
     if params["use_pretrained"]:
         print(f"🔄 Loading pretrained model: {params['pretrained_model_prefix']}")
-        checkpoint_path = config.SM_EXPORT_PATH / f"{params['pretrained_model_prefix']}_surrogate_model.pt"
-        if not checkpoint_path.exists():
-            checkpoint_path = config.SM_EXPORT_PATH / f"truss_edge_gnn_{params['pretrained_model_prefix']}.pt"
+        checkpoint_path = _resolve_checkpoint_path(params["pretrained_model_prefix"])
         
         checkpoint = torch.load(checkpoint_path, map_location=device)
 
@@ -314,13 +399,36 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
         lr=params["learning_rate"],
         weight_decay=params["weight_decay"],
     )
-    criterion = torch.nn.MSELoss()
+    if params.get("loss_type", "mse") == "huber":
+        criterion = torch.nn.SmoothL1Loss(beta=float(params.get("huber_beta", 1.0)))
+    else:
+        criterion = torch.nn.MSELoss()
+
+    scheduler = None
+    if params.get("use_lr_scheduler", False):
+        scheduler_metric = params.get("lr_scheduler_metric", "r2")
+        scheduler_mode = "max" if scheduler_metric == "r2" else "min"
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode=scheduler_mode,
+            factor=float(params.get("lr_scheduler_factor", 0.5)),
+            patience=int(params.get("lr_scheduler_patience", 2)),
+            min_lr=float(params.get("lr_scheduler_min_lr", 1e-6)),
+        )
 
     EVAL_EVERY = max(1, int(params.get("eval_every", 10)))
     epoch_history = []
     train_loss_history = []
     final_val_r2 = None
     train_start_time = time.time()
+    
+    # Early stopping tracking
+    best_val_r2 = -float('inf')
+    best_val_loss = float('inf')
+    epochs_no_improve = 0
+    early_stopping_metric = params.get("early_stopping_metric", "r2")
+    early_stopping_patience = params.get("early_stopping_patience", 5)
+    use_early_stopping = params.get("use_early_stopping", False)
 
     for epoch in range(params["epochs"]):
         if params["use_training_time_limit"]:
@@ -374,12 +482,49 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
             preds_scaled = torch.cat(pred_batches, dim=0).numpy()
             trues_scaled = torch.cat(true_batches, dim=0).numpy()
 
+            eval_loss = float(
+                criterion(
+                    torch.from_numpy(preds_scaled),
+                    torch.from_numpy(trues_scaled),
+                ).item()
+            )
+
             preds_original = edge_target_scaler.inverse_transform(preds_scaled)
             trues_original = edge_target_scaler.inverse_transform(trues_scaled)
 
             r2 = r2_score(trues_original, preds_original)
             final_val_r2 = float(r2)
-            print(f"Epoch {epoch+1:03d}/{params['epochs']} | Train Loss: {avg_train_loss:.4f} | Test R2: {r2:.4f}")
+            current_lr = optimizer.param_groups[0]["lr"]
+            print(
+                f"Epoch {epoch+1:03d}/{params['epochs']} | "
+                f"Train Loss: {avg_train_loss:.4f} | Val Loss: {eval_loss:.4f} | "
+                f"Test R2: {r2:.4f} | LR: {current_lr:.6g}"
+            )
+
+            if scheduler is not None:
+                if params.get("lr_scheduler_metric", "r2") == "r2":
+                    scheduler.step(float(r2))
+                else:
+                    scheduler.step(float(eval_loss))
+            
+            # Early stopping check
+            if use_early_stopping:
+                if early_stopping_metric == "r2":
+                    if r2 > best_val_r2:
+                        best_val_r2 = r2
+                        epochs_no_improve = 0
+                    else:
+                        epochs_no_improve += 1
+                else:  # val_loss
+                    if eval_loss < best_val_loss:
+                        best_val_loss = eval_loss
+                        epochs_no_improve = 0
+                    else:
+                        epochs_no_improve += 1
+                
+                if epochs_no_improve >= early_stopping_patience:
+                    print(f"\n⏸️  Early stopping: no improvement for {early_stopping_patience} evaluations.")
+                    break
 
     train_metrics = _collect_eval_metrics(model, train_loader, edge_target_scaler, device)
     test_metrics = _collect_eval_metrics(model, test_loader, edge_target_scaler, device)
@@ -412,6 +557,9 @@ def export_model(model, scalers, schema, params, run_metrics):
     if params["use_pretrained"]:
         print("⏭️  Skipping export (using pretrained model)\n")
         return
+    if params.get("skip_export", False):
+        print("⏭️  Skipping export (C21_SKIP_EXPORT=true)\n")
+        return
 
     print("💾 Exporting model and scalers...\n")
 
@@ -421,6 +569,8 @@ def export_model(model, scalers, schema, params, run_metrics):
         params["epochs"],
         run_metrics["final_val_r2"],
     )
+    artifact_dir = config.SM_EXPORT_PATH / artifact_stem
+    artifact_dir.mkdir(parents=True, exist_ok=True)
 
     # Save prefix for downstream
     with open(config.SM_EXPORT_PATH / "prefix_sm.txt", "w", encoding="utf-8") as f:
@@ -439,6 +589,14 @@ def export_model(model, scalers, schema, params, run_metrics):
         "batch_size": params["batch_size"],
         "hidden_dim": params["hidden_dim"],
         "weight_decay": params["weight_decay"],
+        "loss_type": params.get("loss_type", "mse"),
+        "huber_beta": params.get("huber_beta", 1.0),
+        "use_lr_scheduler": params.get("use_lr_scheduler", False),
+        "lr_scheduler_factor": params.get("lr_scheduler_factor", 0.5),
+        "lr_scheduler_patience": params.get("lr_scheduler_patience", 2),
+        "lr_scheduler_metric": params.get("lr_scheduler_metric", "r2"),
+        "lr_scheduler_min_lr": params.get("lr_scheduler_min_lr", 1e-6),
+        "edge_wise_target_scaling": params.get("edge_wise_target_scaling", False),
         "final_val_r2": run_metrics["final_val_r2"],
         "test_r2": run_metrics["test_r2"],
         "train_r2": run_metrics["train_r2"],
@@ -463,10 +621,10 @@ def export_model(model, scalers, schema, params, run_metrics):
     }
 
     # Export scalers
-    node_scaler_path = config.SM_EXPORT_PATH / f"{artifact_stem}_node_scaler.pkl"
-    edge_feature_scaler_path = config.SM_EXPORT_PATH / f"{artifact_stem}_edge_feature_scaler.pkl"
-    edge_target_scaler_path = config.SM_EXPORT_PATH / f"{artifact_stem}_edge_target_scaler.pkl"
-    global_feature_scaler_path = config.SM_EXPORT_PATH / f"{artifact_stem}_global_feature_scaler.pkl"
+    node_scaler_path = artifact_dir / f"{artifact_stem}_node_scaler.pkl"
+    edge_feature_scaler_path = artifact_dir / f"{artifact_stem}_edge_feature_scaler.pkl"
+    edge_target_scaler_path = artifact_dir / f"{artifact_stem}_edge_target_scaler.pkl"
+    global_feature_scaler_path = artifact_dir / f"{artifact_stem}_global_feature_scaler.pkl"
 
     joblib.dump(scalers["node"], node_scaler_path)
     joblib.dump(scalers["edge_feature"], edge_feature_scaler_path)
@@ -476,7 +634,7 @@ def export_model(model, scalers, schema, params, run_metrics):
     print(f"Scalers saved to:\n- {node_scaler_path}\n- {edge_feature_scaler_path}\n- {edge_target_scaler_path}\n- {global_feature_scaler_path}")
 
     # Export model checkpoint
-    model_path = config.SM_EXPORT_PATH / f"{artifact_stem}_surrogate_model.pt"
+    model_path = artifact_dir / f"{artifact_stem}_surrogate_model.pt"
     torch.save(
         {
             "model_state_dict": model.state_dict(),
@@ -501,10 +659,11 @@ def export_model(model, scalers, schema, params, run_metrics):
         model_path
     )
 
-    manifest_path = config.SM_EXPORT_PATH / f"{artifact_stem}_run_manifest.json"
+    manifest_path = artifact_dir / f"{artifact_stem}_run_manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(
             run_manifest | {
+                "artifact_dir": artifact_dir.name,
                 "model_path": model_path.name,
                 "node_scaler_path": node_scaler_path.name,
                 "edge_feature_scaler_path": edge_feature_scaler_path.name,
@@ -535,9 +694,21 @@ def main():
     print(f"- fast_mode={params['fast_mode']} ({params['fast_mode_source']})")
     print(f"- lr={params['learning_rate']}, epochs={params['epochs']}, batch={params['batch_size']}")
     print(f"- hidden_dim={params['hidden_dim']}, weight_decay={params['weight_decay']}")
+    print(f"- loss_type={params['loss_type']}, huber_beta={params['huber_beta']}")
     print(f"- eval_every={params['eval_every']}, num_workers={params['num_workers']}")
+    if params["use_lr_scheduler"]:
+        print(
+            f"- lr_scheduler: metric={params['lr_scheduler_metric']}, factor={params['lr_scheduler_factor']}, "
+            f"patience={params['lr_scheduler_patience']}, min_lr={params['lr_scheduler_min_lr']}"
+        )
+    if params["edge_wise_target_scaling"]:
+        print("- edge_wise_target_scaling=True")
     if params["use_training_time_limit"]:
         print(f"- training_time_limit_seconds={params['training_time_limit_seconds']}")
+    if params["use_early_stopping"]:
+        print(f"- early_stopping: patience={params['early_stopping_patience']}, metric={params['early_stopping_metric']}")
+    if params["skip_export"]:
+        print("- skip_export=True")
     print(f"- Run ID: {params['run_id']}\n")
 
     # Data loading

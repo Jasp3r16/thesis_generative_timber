@@ -10,6 +10,14 @@ import config
 from c21_surrogate_model import TrussEdgeGNN
 
 
+def _resolve_surrogate_artifact_dir(prefix_sm: str) -> Path:
+    """Resolve nested artifact directory if present, else use legacy root."""
+    nested = config.SM_EXPORT_PATH / prefix_sm
+    if nested.exists() and nested.is_dir():
+        return nested
+    return config.SM_EXPORT_PATH
+
+
 def load_edge_index(edge_index_path: Path) -> torch.Tensor:
     """Load edge topology from JSON and return tensor of shape [2, num_edges]."""
     with open(edge_index_path, "r", encoding="utf-8") as f:
@@ -41,7 +49,7 @@ def load_surrogate_bundle(prefix_sm: str | None = None, device: str | None = Non
             prefix_sm = prefix_path.read_text(encoding="utf-8").strip()
         else:
             checkpoint_candidates = sorted(
-                config.SM_EXPORT_PATH.glob("*_surrogate_model.pt"),
+                config.SM_EXPORT_PATH.rglob("*_surrogate_model.pt"),
                 key=lambda path: path.stat().st_mtime,
                 reverse=True,
             )
@@ -49,9 +57,10 @@ def load_surrogate_bundle(prefix_sm: str | None = None, device: str | None = Non
                 raise FileNotFoundError("No surrogate model checkpoint found in SM_EXPORT_PATH.")
             prefix_sm = checkpoint_candidates[0].stem.removesuffix("_surrogate_model")
 
-    model_path = config.SM_EXPORT_PATH / f"{prefix_sm}_surrogate_model.pt"
-    node_scaler_path = config.SM_EXPORT_PATH / f"{prefix_sm}_node_scaler.pkl"
-    edge_scaler_path = config.SM_EXPORT_PATH / f"{prefix_sm}_edge_scaler.pkl"
+    artifact_dir = _resolve_surrogate_artifact_dir(prefix_sm)
+    model_path = artifact_dir / f"{prefix_sm}_surrogate_model.pt"
+    node_scaler_path = artifact_dir / f"{prefix_sm}_node_scaler.pkl"
+    edge_scaler_path = artifact_dir / f"{prefix_sm}_edge_scaler.pkl"
 
     if not model_path.exists():
         legacy_model_path = config.SM_EXPORT_PATH / f"truss_edge_gnn_{prefix_sm}.pt"

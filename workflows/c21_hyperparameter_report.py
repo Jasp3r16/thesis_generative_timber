@@ -27,7 +27,7 @@ def _configure_delftblue_default() -> None:
 
 def _load_manifests(manifest_dir: Path) -> list[dict]:
     records: list[dict] = []
-    for manifest_path in sorted(manifest_dir.glob("*_run_manifest.json")):
+    for manifest_path in sorted(manifest_dir.rglob("*_run_manifest.json")):
         try:
             with open(manifest_path, "r", encoding="utf-8") as f:
                 run = json.load(f)
