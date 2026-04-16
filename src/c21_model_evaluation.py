@@ -16,6 +16,28 @@ import numpy as np
 
 from c00_naming import build_run_folder_name
 
+try:
+    from config import PLOT_COLORS, PLOT_STYLE
+except ImportError:
+    PLOT_COLORS = {
+        "primary": "#61788C",
+        "secondary": "#9CA5A6",
+        "accent": "#F2994B",
+        "danger": "#D9653B",
+        "neutral": "#D7D9D9",
+        "black": "#000000",
+        "white": "#FFFFFF",
+    }
+    PLOT_STYLE = {
+        "figsize_small": (8, 5),
+        "figsize_medium": (12, 7),
+        "figsize_large": (16, 10),
+        "dpi": 100,
+        "grid_alpha": 0.3,
+        "line_width": 2.0,
+        "marker_size": 5,
+    }
+
 
 def _safe_package_version(package_name: str) -> str | None:
     try:
@@ -65,11 +87,17 @@ def build_training_visuals_figure(epoch_history, train_loss_history, test_trues_
 
     ax = axes[0]
     if len(epoch_history) > 0 and len(train_loss_history) > 0:
-        ax.plot(epoch_history, train_loss_history, color="tab:blue", linewidth=2, label="Train Loss")
+        ax.plot(
+            epoch_history,
+            train_loss_history,
+            color=PLOT_COLORS["primary"],
+            linewidth=PLOT_STYLE["line_width"],
+            label="Train Loss",
+        )
         ax.set_title("Training Loss vs Epochs")
         ax.set_xlabel("Epoch")
         ax.set_ylabel("Loss (MSE, normalized)")
-        ax.grid(True, alpha=0.3)
+        ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], color=PLOT_COLORS["neutral"])
         ax.legend()
     else:
         ax.text(0.5, 0.5, "No training history available", ha="center", va="center", transform=ax.transAxes)
@@ -83,13 +111,26 @@ def build_training_visuals_figure(epoch_history, train_loss_history, test_trues_
 
         band_min = float(pred_values.min())
         band_max = float(pred_values.max())
-        ax.axhspan(band_min, band_max, color="orange", alpha=0.16, zorder=0, label="Predicted range")
-        ax.scatter(sample_idx, pred_values, s=10, alpha=0.35, color="tab:orange", label="Prediction (normalized)")
-        ax.plot(sample_idx, np.sort(target_values), color="tab:blue", linewidth=2, label="Sorted target values")
+        ax.axhspan(band_min, band_max, color=PLOT_COLORS["neutral"], alpha=0.25, zorder=0, label="Predicted range")
+        ax.scatter(
+            sample_idx,
+            pred_values,
+            s=PLOT_STYLE["marker_size"] * 2,
+            alpha=0.35,
+            color=PLOT_COLORS["accent"],
+            label="Prediction (normalized)",
+        )
+        ax.plot(
+            sample_idx,
+            np.sort(target_values),
+            color=PLOT_COLORS["secondary"],
+            linewidth=PLOT_STYLE["line_width"],
+            label="Sorted target values",
+        )
         ax.set_title("Normalized Target Values on Test Set")
         ax.set_xlabel("Test samples (flattened edges)")
         ax.set_ylabel("Normalized target value")
-        ax.grid(True, alpha=0.3)
+        ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], color=PLOT_COLORS["neutral"])
         ax.legend()
     else:
         ax.text(0.5, 0.5, "No test batches available", ha="center", va="center", transform=ax.transAxes)
@@ -112,38 +153,82 @@ def build_pred_residual_figure(train_trues, train_preds, test_trues, test_preds,
     lim_high = max(all_trues.max(), all_preds.max())
 
     ax = axes[0, 0]
-    ax.scatter(train_trues, train_preds, s=14, alpha=0.55, color="tab:blue", edgecolors="none", label="Train")
-    ax.plot([lim_low, lim_high], [lim_low, lim_high], "r--", linewidth=1.8, label="Perfect Prediction")
+    ax.scatter(
+        train_trues,
+        train_preds,
+        s=PLOT_STYLE["marker_size"] * 3,
+        alpha=0.55,
+        color=PLOT_COLORS["primary"],
+        edgecolors="none",
+        label="Train",
+    )
+    ax.plot(
+        [lim_low, lim_high],
+        [lim_low, lim_high],
+        linestyle="--",
+        color=PLOT_COLORS["black"],
+        linewidth=PLOT_STYLE["line_width"],
+        label="Perfect Prediction",
+    )
     ax.set_title(f"Train Set: Predictions vs Actual\nR2 = {train_r2:.4f}")
     ax.set_xlabel("Actual Force (kN)")
     ax.set_ylabel("Predicted Force (kN)")
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], color=PLOT_COLORS["neutral"])
     ax.legend(loc="upper left")
 
     ax = axes[0, 1]
-    ax.scatter(test_trues, test_preds, s=14, alpha=0.60, color="orange", edgecolors="none", label="Test")
-    ax.plot([lim_low, lim_high], [lim_low, lim_high], "r--", linewidth=1.8, label="Perfect Prediction")
+    ax.scatter(
+        test_trues,
+        test_preds,
+        s=PLOT_STYLE["marker_size"] * 3,
+        alpha=0.60,
+        color=PLOT_COLORS["accent"],
+        edgecolors="none",
+        label="Test",
+    )
+    ax.plot(
+        [lim_low, lim_high],
+        [lim_low, lim_high],
+        linestyle="--",
+        color=PLOT_COLORS["black"],
+        linewidth=PLOT_STYLE["line_width"],
+        label="Perfect Prediction",
+    )
     ax.set_title(f"Test Set: Predictions vs Actual\nR2 = {test_r2:.4f}")
     ax.set_xlabel("Actual Force (kN)")
     ax.set_ylabel("Predicted Force (kN)")
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], color=PLOT_COLORS["neutral"])
     ax.legend(loc="upper left")
 
     ax = axes[1, 0]
-    ax.scatter(train_preds, train_residuals, s=14, alpha=0.55, color="tab:blue", edgecolors="none")
-    ax.axhline(0, color="red", linestyle="--", linewidth=1.8)
+    ax.scatter(
+        train_preds,
+        train_residuals,
+        s=PLOT_STYLE["marker_size"] * 3,
+        alpha=0.55,
+        color=PLOT_COLORS["primary"],
+        edgecolors="none",
+    )
+    ax.axhline(0, color=PLOT_COLORS["black"], linestyle="--", linewidth=PLOT_STYLE["line_width"])
     ax.set_title(f"Train Set: Residuals Plot\nMean Residual: {np.mean(train_residuals):.4f}")
     ax.set_xlabel("Predicted Force (kN)")
     ax.set_ylabel("Residuals (kN)")
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], color=PLOT_COLORS["neutral"])
 
     ax = axes[1, 1]
-    ax.scatter(test_preds, test_residuals, s=14, alpha=0.60, color="orange", edgecolors="none")
-    ax.axhline(0, color="red", linestyle="--", linewidth=1.8)
+    ax.scatter(
+        test_preds,
+        test_residuals,
+        s=PLOT_STYLE["marker_size"] * 3,
+        alpha=0.60,
+        color=PLOT_COLORS["accent"],
+        edgecolors="none",
+    )
+    ax.axhline(0, color=PLOT_COLORS["black"], linestyle="--", linewidth=PLOT_STYLE["line_width"])
     ax.set_title(f"Test Set: Residuals Plot\nMean Residual: {np.mean(test_residuals):.4f}")
     ax.set_xlabel("Predicted Force (kN)")
     ax.set_ylabel("Residuals (kN)")
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], color=PLOT_COLORS["neutral"])
 
     plt.tight_layout()
     return fig
@@ -155,23 +240,49 @@ def build_error_distribution_figure(train_residuals, test_residuals, train_mae, 
 
     ax = axes[0]
     train_errors = np.abs(train_residuals)
-    ax.hist(train_errors, bins=50, alpha=0.7, edgecolor="black", color="blue", label="Train")
-    ax.axvline(train_mae, color="blue", linestyle="--", lw=2, label=f"Mean MAE: {train_mae:.4f}")
+    ax.hist(
+        train_errors,
+        bins=50,
+        alpha=0.7,
+        edgecolor=PLOT_COLORS["black"],
+        color=PLOT_COLORS["primary"],
+        label="Train",
+    )
+    ax.axvline(
+        train_mae,
+        color=PLOT_COLORS["primary"],
+        linestyle="--",
+        lw=PLOT_STYLE["line_width"],
+        label=f"Mean MAE: {train_mae:.4f}",
+    )
     ax.set_xlabel("Absolute Error (kN)")
     ax.set_ylabel("Frequency")
     ax.set_title("Train Set: Error Distribution")
     ax.legend()
-    ax.grid(True, alpha=0.3, axis="y")
+    ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], axis="y", color=PLOT_COLORS["neutral"])
 
     ax = axes[1]
     test_errors = np.abs(test_residuals)
-    ax.hist(test_errors, bins=50, alpha=0.7, edgecolor="black", color="orange", label="Test")
-    ax.axvline(test_mae, color="orange", linestyle="--", lw=2, label=f"Mean MAE: {test_mae:.4f}")
+    ax.hist(
+        test_errors,
+        bins=50,
+        alpha=0.7,
+        edgecolor=PLOT_COLORS["black"],
+        color=PLOT_COLORS["accent"],
+        label="Test",
+    )
+    ax.axvline(
+        test_mae,
+        color=PLOT_COLORS["accent"],
+        linestyle="--",
+        lw=PLOT_STYLE["line_width"],
+        label=f"Mean MAE: {test_mae:.4f}",
+    )
     ax.set_xlabel("Absolute Error (kN)")
     ax.set_ylabel("Frequency")
     ax.set_title("Test Set: Error Distribution")
     ax.legend()
-    ax.grid(True, alpha=0.3, axis="y")
+    ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], axis="y", color=PLOT_COLORS["neutral"])
 
     plt.tight_layout()
     return fig

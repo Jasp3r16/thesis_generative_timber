@@ -47,6 +47,8 @@ EXPECTED_INPUTS = (
 # Decimal precision for exported mechanical-property values.
 # Small values below 0.0001 keep at least two significant digits.
 MECH_PROP_DECIMALS = 4
+# Decimal precision for exported E values.
+E_DECIMALS = 0
 # Decimal precision for exported Length and Axial_Force values.
 # Set to None to disable rounding.
 LENGTH_DECIMALS = 4
@@ -325,7 +327,7 @@ else:
 			if L_value != 0.0:
 				ea_over_l = (E_value * A_value) / L_value
 			A = _format_fixed_number(A_value, MECH_PROP_DECIMALS)
-			E = _format_fixed_number(E_value, MECH_PROP_DECIMALS)
+			E = _format_fixed_number(E_value, E_DECIMALS, min_significant_digits=None)
 			L = _format_fixed_number(L_display_value, LENGTH_DECIMALS, min_significant_digits=None)
 			axial_force_value = _format_fixed_number(axial_force_display_value, AXIAL_FORCE_DECIMALS, min_significant_digits=None)
 			ea_over_l = _format_fixed_number(ea_over_l, MECH_PROP_DECIMALS)

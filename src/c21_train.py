@@ -111,11 +111,13 @@ def load_parameters(device: torch.device | None = None):
         fast_mode = fast_mode_env.lower() == "true"
         fast_mode_source = "env"
 
+    prefix="S19999_D20260416"
+
     params = {
         # Data
-        "node_csv": os.getenv("C21_NODE_CSV", "v4_node_C12_S9999_D20260409.csv"),
-        "edge_csv": os.getenv("C21_EDGE_CSV", "v4_edge_C12_S9999_D20260409.csv"),
-        "global_csv": os.getenv("C21_GLOBAL_CSV", "v4_global_C4_S9999_D20260409.csv"),
+        "node_csv": os.getenv("C21_NODE_CSV", f"v4_node_C12_{prefix}.csv"),
+        "edge_csv": os.getenv("C21_EDGE_CSV", f"v4_edge_C12_{prefix}.csv"),
+        "global_csv": os.getenv("C21_GLOBAL_CSV", f"v4_global_C4_{prefix}.csv"),
         # Workflow
         "use_pretrained": os.getenv("C21_USE_PRETRAINED", "false").lower() == "true",
         "pretrained_model_prefix": os.getenv("C21_PRETRAINED_MODEL_PREFIX", "data_4_0000"),
@@ -345,10 +347,10 @@ def setup_model(params, schema, device):
             )
 
         model_kwargs = {
-            node_in_dim=node_in_dim,
-            edge_in_dim=edge_in_dim,
-            global_in_dim=global_in_dim,
-            hidden_dim=hidden_dim,
+            "node_in_dim": node_in_dim,
+            "edge_in_dim": edge_in_dim,
+            "global_in_dim": global_in_dim,
+            "hidden_dim": hidden_dim,
         }
         if resolved_variant == "v2":
             model_kwargs["dropout_p"] = float(dropout_p)
@@ -363,10 +365,10 @@ def setup_model(params, schema, device):
         print("Training from scratch.")
         model_class, resolved_variant = _select_model_class(params.get("model_variant", "v1"))
         model_kwargs = {
-            node_in_dim=NODE_FEATURE_DIM,
-            edge_in_dim=EDGE_FEATURE_DIM,
-            global_in_dim=GLOBAL_FEATURE_DIM,
-            hidden_dim=params["hidden_dim"],
+            "node_in_dim": NODE_FEATURE_DIM,
+            "edge_in_dim": EDGE_FEATURE_DIM,
+            "global_in_dim": GLOBAL_FEATURE_DIM,
+            "hidden_dim": params["hidden_dim"],
         }
         if resolved_variant == "v2":
             model_kwargs["dropout_p"] = float(params.get("dropout_p", 0.1))
@@ -403,6 +405,18 @@ def _collect_eval_metrics(model, loader, edge_target_scaler, device):
     trues_scaled = np.concatenate(true_batches, axis=0)
     preds_original = edge_target_scaler.inverse_transform(preds_scaled).reshape(-1)
     trues_original = edge_target_scaler.inverse_transform(trues_scaled).reshape(-1)
+
+    finite_mask = np.isfinite(trues_original) & np.isfinite(preds_original)
+    trues_original = trues_original[finite_mask]
+    preds_original = preds_original[finite_mask]
+
+    if trues_original.size == 0:
+        return {
+            "r2": float("nan"),
+            "mae": float("nan"),
+            "rmse": float("nan"),
+            "n_edges": 0,
+        }
 
     r2 = float(r2_score(trues_original, preds_original))
     mae = float(mean_absolute_error(trues_original, preds_original))
@@ -549,7 +563,29 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
             preds_original = edge_target_scaler.inverse_transform(preds_scaled)
             trues_original = edge_target_scaler.inverse_transform(trues_scaled)
 
-            r2 = r2_score(trues_original, preds_original)
+            preds_flat = preds_original.reshape(-1)
+            trues_flat = trues_original.reshape(-1)
+            finite_mask = np.isfinite(trues_flat) & np.isfinite(preds_flat)
+
+            if not np.any(finite_mask):
+                print(
+                    f"Epoch {epoch+1:03d}/{params['epochs']} | "
+                    f"Train Loss: {avg_train_loss:.4f} | Val Loss: {eval_loss:.4f} | "
+                    "Test R2: nan (no finite eval pairs)"
+                )
+                final_val_r2 = float("nan")
+                continue
+
+            preds_eval = preds_flat[finite_mask]
+            trues_eval = trues_flat[finite_mask]
+
+            dropped_non_finite = int(finite_mask.size - finite_mask.sum())
+            if dropped_non_finite > 0:
+                print(
+                    f"Filtered {dropped_non_finite} non-finite validation pairs before metric computation."
+                )
+
+            r2 = r2_score(trues_eval, preds_eval)
             final_val_r2 = float(r2)
             current_lr = optimizer.param_groups[0]["lr"]
             print(

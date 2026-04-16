@@ -39,10 +39,22 @@ EXPECTED_INPUTS = (
 ENABLE_FX_FY = False
 # Number of decimals for exported coordinates. Set to None to disable rounding.
 COORD_DECIMALS = 4
+# Enable runtime debug prints/status details in Grasshopper.
+DEBUG_LOG = True
 
 import csv
 import os
 import re
+
+try:
+	import rhinoscriptsyntax as rs  # type: ignore
+except ImportError:
+	rs = None
+
+try:
+	import System  # type: ignore
+except ImportError:
+	System = None
 
 try:
 	import scriptcontext as sc  # type: ignore
@@ -73,12 +85,62 @@ def _as_list(data):
 
 
 def _point_xyz(pt):
-	"""Extract xyz from Rhino Point3d-like objects or coordinate tuples/lists."""
+	"""Extract xyz from Rhino/Grasshopper point-like values, dicts, tuples, or strings."""
 	if pt is None:
+		return (None, None, None)
+
+	def _guid_to_xyz(guid_like):
+		"""Resolve Rhino object GUIDs to point coordinates when possible."""
+		# First try rhinoscriptsyntax coercion.
+		if rs is not None:
+			try:
+				coerced = rs.coerce3dpoint(guid_like, raise_if_missing=False)
+				if coerced is not None and hasattr(coerced, "X") and hasattr(coerced, "Y") and hasattr(coerced, "Z"):
+					return (coerced.X, coerced.Y, coerced.Z)
+			except Exception:
+				pass
+
+		# Fallback: find object in current Rhino document and inspect geometry.
+		if hasattr(sc, "doc") and getattr(sc, "doc", None) is not None and hasattr(sc.doc, "Objects"):
+			try:
+				guid_value = guid_like
+				if isinstance(guid_like, str) and System is not None:
+					guid_value = System.Guid(guid_like)
+				obj = sc.doc.Objects.FindId(guid_value)
+				if obj is not None:
+					geo = obj.Geometry
+					if hasattr(geo, "Location"):
+						loc = geo.Location
+						if hasattr(loc, "X") and hasattr(loc, "Y") and hasattr(loc, "Z"):
+							return (loc.X, loc.Y, loc.Z)
+			except Exception:
+				pass
+
 		return (None, None, None)
 
 	if hasattr(pt, "X") and hasattr(pt, "Y") and hasattr(pt, "Z"):
 		return (pt.X, pt.Y, pt.Z)
+
+	# Grasshopper may pass Rhino object references as GUIDs.
+	if type(pt).__name__ == "Guid":
+		return _guid_to_xyz(pt)
+
+	# Some GH wrappers expose a Location Point3d.
+	if hasattr(pt, "Location"):
+		loc = pt.Location
+		if hasattr(loc, "X") and hasattr(loc, "Y") and hasattr(loc, "Z"):
+			return (loc.X, loc.Y, loc.Z)
+
+	# Accept dictionary-like payloads from intermediate scripts.
+	if isinstance(pt, dict):
+		x = pt.get("x", pt.get("X"))
+		y = pt.get("y", pt.get("Y"))
+		z = pt.get("z", pt.get("Z"))
+		if x is not None and y is not None and z is not None:
+			try:
+				return (float(x), float(y), float(z))
+			except Exception:
+				return (None, None, None)
 
 	if isinstance(pt, (list, tuple)) and len(pt) >= 3:
 		return (pt[0], pt[1], pt[2])
@@ -86,6 +148,12 @@ def _point_xyz(pt):
 	# Accept GH panel-style strings like:
 	# "0. {-3,-3,0.9375}" or "{-3,-3,0.9375}"
 	if isinstance(pt, str):
+		# Resolve GUID-like strings to point coordinates.
+		if re.match(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", pt.strip()):
+			gx, gy, gz = _guid_to_xyz(pt.strip())
+			if gx is not None and gy is not None and gz is not None:
+				return (gx, gy, gz)
+
 		# Prefer the content inside braces when present.
 		match = re.search(r"\{([^{}]+)\}", pt)
 		coord_text = match.group(1) if match else pt
@@ -93,6 +161,14 @@ def _point_xyz(pt):
 		if len(parts) >= 3:
 			try:
 				return (float(parts[0]), float(parts[1]), float(parts[2]))
+			except Exception:
+				pass
+
+		# Fallback for formats like "Point3d(1,2,3)" or indexed panel text.
+		nums = re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", pt)
+		if len(nums) >= 3:
+			try:
+				return (float(nums[-3]), float(nums[-2]), float(nums[-1]))
 			except Exception:
 				return (None, None, None)
 
@@ -198,6 +274,17 @@ def _round_if_number(value, decimals=None):
 		return value
 
 
+def _short_text(value, max_len=160):
+	"""Short, safe string representation for debug output."""
+	try:
+		text = str(value)
+	except Exception:
+		text = "<unprintable>"
+	if len(text) > max_len:
+		return text[: max_len - 3] + "..."
+	return text
+
+
 rows_written = 0
 status = "Idle"
 
@@ -247,10 +334,22 @@ elif not node_list:
 
 else:
 	_ensure_parent_dir(csv_file)
+	skipped_invalid_coords = 0
+	invalid_examples = []
 
 	file_exists = os.path.exists(csv_file) and os.path.getsize(csv_file) > 0
 	header_written = bool(sc.sticky.get(header_key, False))
 	should_write_header = header_enabled and (not file_exists) and (not header_written)
+
+	if DEBUG_LOG:
+		print(
+			"[v40_node] sample={} nodes={} coords_type={} first_item_type={}".format(
+				sample,
+				len(node_list),
+				type(_in.get("coords_list")).__name__ if _in.get("coords_list") is not None else "None",
+				type(node_list[0]).__name__ if node_list else "None",
+			)
+		)
 
 	with open(csv_file, "a", newline="") as f:
 		writer = csv.writer(f)
@@ -279,6 +378,17 @@ else:
 		for i, node in enumerate(node_list):
 			node_id = id_list[i] if i < len(id_list) else i
 			x, y, z = _point_xyz(node)
+			if x is None or y is None or z is None:
+				skipped_invalid_coords += 1
+				if len(invalid_examples) < 5:
+					invalid_examples.append(
+						"idx={} type={} value={}".format(
+							i,
+							type(node).__name__,
+							_short_text(node),
+						)
+					)
+				continue
 			x = _round_if_number(x, COORD_DECIMALS)
 			y = _round_if_number(y, COORD_DECIMALS)
 			z = _round_if_number(z, COORD_DECIMALS)
@@ -331,7 +441,28 @@ else:
 			writer.writerow(row)
 			rows_written += 1
 
-	written_samples.add(sample)
-	sc.sticky[samples_key] = written_samples
-	status = "Wrote {} node rows for sample {}".format(rows_written, sample)
+	if rows_written > 0:
+		written_samples.add(sample)
+		sc.sticky[samples_key] = written_samples
+
+	if rows_written == 0:
+		status = "Wrote 0 node rows for sample {} (all {} coords failed parsing)".format(
+			sample,
+			skipped_invalid_coords,
+		)
+	else:
+		status = "Wrote {} node rows for sample {} (skipped {} invalid coords)".format(
+			rows_written,
+			sample,
+			skipped_invalid_coords,
+		)
+
+	if invalid_examples:
+		detail = " | parse_fail_examples: " + " || ".join(invalid_examples)
+		status = status + detail
+
+	if DEBUG_LOG and invalid_examples:
+		print("[v40_node] parse failures:")
+		for item in invalid_examples:
+			print("  - " + item)
 
