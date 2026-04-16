@@ -8,7 +8,16 @@ import pandas as pd
 import torch
 
 import config
-from c21_surrogate_model import TrussEdgeGNN
+from c21_surrogate_model import TrussEdgeGNN, TrussEdgeGNNV2
+
+
+def _select_model_class(model_variant: str):
+    variant = str(model_variant).strip().lower()
+    if variant in {"v1", "baseline", "trussedgennconv"}:
+        return TrussEdgeGNN, "v1"
+    if variant in {"v2", "enhanced", "trussedgennconvv2"}:
+        return TrussEdgeGNNV2, "v2"
+    return TrussEdgeGNN, "v1"
 
 
 def _resolve_surrogate_artifact_dir(prefix_sm: str) -> Path:
@@ -181,6 +190,11 @@ def load_surrogate_bundle(prefix_sm: str | None = None, device: str | None = Non
     edge_in_dim = checkpoint.get("edge_in_dim", 7) if isinstance(checkpoint, dict) else 7
     global_in_dim = checkpoint.get("global_in_dim", 3) if isinstance(checkpoint, dict) else 3
     hidden_dim = checkpoint.get("hidden_dim", 128) if isinstance(checkpoint, dict) else 128
+    model_variant = checkpoint.get("model_variant", "v1") if isinstance(checkpoint, dict) else "v1"
+    dropout_p = checkpoint.get("dropout_p", 0.1) if isinstance(checkpoint, dict) else 0.1
+    if run_manifest is not None:
+        model_variant = run_manifest.get("model_variant", model_variant)
+        dropout_p = run_manifest.get("dropout_p", dropout_p)
 
     continuous_dim = int(getattr(node_scaler, "n_features_in_", 3))
     extra_node_dim = int(node_in_dim) - continuous_dim
@@ -188,12 +202,18 @@ def load_surrogate_bundle(prefix_sm: str | None = None, device: str | None = Non
     if run_manifest is not None:
         use_virtual_node = bool(run_manifest.get("use_virtual_node", use_virtual_node))
 
-    model = TrussEdgeGNN(
-        node_in_dim=node_in_dim,
-        edge_in_dim=edge_in_dim,
-        global_in_dim=global_in_dim,
-        hidden_dim=hidden_dim,
-    ).to(device_obj)
+    model_class, resolved_variant = _select_model_class(model_variant)
+    model_kwargs = {
+        "node_in_dim": node_in_dim,
+        "edge_in_dim": edge_in_dim,
+        "global_in_dim": global_in_dim,
+        "hidden_dim": hidden_dim,
+    }
+    
+    if resolved_variant == "v2":
+        model_kwargs["dropout_p"] = float(dropout_p)
+
+    model = model_class(**model_kwargs).to(device_obj)
     model.load_state_dict(state_dict)
     model.eval()
 
@@ -202,6 +222,7 @@ def load_surrogate_bundle(prefix_sm: str | None = None, device: str | None = Non
     print(f"Loaded surrogate prefix: {prefix_sm}")
     print(f"Device: {device_obj}")
     print(f"Model: {model_path.name}")
+    print(f"Model variant: {resolved_variant}")
 
     return {
         "prefix_sm": prefix_sm,
@@ -214,6 +235,8 @@ def load_surrogate_bundle(prefix_sm: str | None = None, device: str | None = Non
         "node_in_dim": int(node_in_dim),
         "edge_in_dim": int(edge_in_dim),
         "global_in_dim": int(global_in_dim),
+        "model_variant": resolved_variant,
+        "dropout_p": float(dropout_p),
         "use_virtual_node": use_virtual_node,
         "run_manifest": run_manifest,
         "edge_index": edge_index,

@@ -51,6 +51,7 @@ TIMBER_STOCK_PATH = DATA_PATH / "03_timber_data"
 # Subfolders inside the research exports
 SM_EXPORT_PATH = EXPORT_PATH / "01_surrogate_models"
 SM_DATA_PATH = EXPORT_PATH / "02_surrogate_model_data"
+GA_DATA_PATH = EXPORT_PATH / "03_ga_data"
 
 # ==========================================
 # 3. INITIALIZATION
@@ -60,6 +61,7 @@ EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 DATA_PATH.mkdir(parents=True, exist_ok=True)
 SM_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 SM_DATA_PATH.mkdir(parents=True, exist_ok=True)
+GA_DATA_PATH.mkdir(parents=True, exist_ok=True)
 
 print("System loaded successfully (DelftBlue mode).\n")
 print(f"Code is running locally from: {REPO_ROOT.name}")

@@ -256,7 +256,7 @@ def analyze_and_export_slot_logs(
     print(f"DETAILED ANALYSIS: ALL FACTORS FOR SLOT {target_slot_for_analysis}")
     print("=" * 80)
 
-    analysis_export_path = export_dir / f"diepte_analyse_{target_slot_for_analysis}.csv"
+    analysis_export_path = export_dir / f"depth_analysis_{target_slot_for_analysis}.csv"
 
     if df_logs.empty:
         print("No log data found.")
@@ -274,12 +274,12 @@ def analyze_and_export_slot_logs(
     if 'Slot_ID' in df_logs_slot.columns:
         df_logs_slot['Slot_ID'] = df_logs_slot['Slot_ID'].fillna(target_slot_for_analysis)
     if 'Status' in df_logs_slot.columns:
-        df_logs_slot['Status'] = df_logs_slot['Status'].fillna('⚠️ ontbreekt in log')
+        df_logs_slot['Status'] = df_logs_slot['Status'].fillna('is not in logs')
 
     rs_mask = df_logs_slot['Stock_ID'].astype(str).str.contains('RS', case=False, na=False)
     df_logs_slot_rs = df_logs_slot.loc[rs_mask].copy()
 
-    print(f"\nAantal RS-items voor {target_slot_for_analysis}: {len(df_logs_slot_rs)}")
+    print(f"\nAmount of RS-items for {target_slot_for_analysis}: {len(df_logs_slot_rs)}")
     if not df_logs_slot_rs.empty:
         with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', None):
             if display_fn is not None:

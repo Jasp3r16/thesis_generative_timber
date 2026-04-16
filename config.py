@@ -53,12 +53,14 @@ else:
     # Subfolders inside the research exports.
     SM_EXPORT_PATH = EXPORT_PATH / "01_surrogate_models"
     SM_DATA_PATH = EXPORT_PATH / "02_surrogate_model_data"
+    GA_DATA_PATH = EXPORT_PATH / "03_ga_data"
 
     # ==========================================
     # 3. INITIALIZATION
     # ==========================================
     # Create the export folder automatically on OneDrive if it does not exist yet.
     EXPORT_PATH.mkdir(parents=True, exist_ok=True)
+    GA_DATA_PATH.mkdir(parents=True, exist_ok=True)
 
     print("System loaded successfully.\n")
     print(f"Code is running locally from: {REPO_ROOT.name}")

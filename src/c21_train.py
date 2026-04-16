@@ -24,7 +24,16 @@ from c21_data_pipeline import (
     validate_sample_coverage,
     build_graph_dataset,
 )
-from c21_surrogate_model import TrussEdgeNNConv
+from c21_surrogate_model import TrussEdgeNNConv, TrussEdgeNNConvV2
+
+
+def _select_model_class(model_variant: str):
+    variant = str(model_variant).strip().lower()
+    if variant in {"v1", "baseline", "trussedgennconv"}:
+        return TrussEdgeNNConv, "v1"
+    if variant in {"v2", "enhanced", "trussedgennconvv2"}:
+        return TrussEdgeNNConvV2, "v2"
+    raise ValueError(f"Unsupported C21_MODEL_VARIANT='{model_variant}'. Use 'v1' or 'v2'.")
 
 
 class EdgeWiseStandardScaler:
@@ -118,6 +127,8 @@ def load_parameters(device: torch.device | None = None):
         "epochs": int(os.getenv("C21_EPOCHS", "100")),
         "batch_size": int(os.getenv("C21_BATCH_SIZE", "16")),
         "hidden_dim": int(os.getenv("C21_HIDDEN_DIM", "128")),
+        "model_variant": os.getenv("C21_MODEL_VARIANT", "v1").lower(),
+        "dropout_p": float(os.getenv("C21_DROPOUT_P", "0.1")),
         "weight_decay": float(os.getenv("C21_WEIGHT_DECAY", "0.0")),
         "loss_type": os.getenv("C21_LOSS_TYPE", "mse").lower(),
         "huber_beta": float(os.getenv("C21_HUBER_BETA", "1.0")),
@@ -322,6 +333,9 @@ def setup_model(params, schema, device):
         edge_in_dim = checkpoint.get("edge_in_dim", EDGE_FEATURE_DIM) if isinstance(checkpoint, dict) else EDGE_FEATURE_DIM
         global_in_dim = checkpoint.get("global_in_dim", GLOBAL_FEATURE_DIM) if isinstance(checkpoint, dict) else GLOBAL_FEATURE_DIM
         hidden_dim = checkpoint.get("hidden_dim", params["hidden_dim"]) if isinstance(checkpoint, dict) else params["hidden_dim"]
+        checkpoint_variant = checkpoint.get("model_variant", params.get("model_variant", "v1")) if isinstance(checkpoint, dict) else params.get("model_variant", "v1")
+        model_class, resolved_variant = _select_model_class(checkpoint_variant)
+        dropout_p = checkpoint.get("dropout_p", params.get("dropout_p", 0.1)) if isinstance(checkpoint, dict) else params.get("dropout_p", 0.1)
 
         if node_in_dim != NODE_FEATURE_DIM or edge_in_dim != EDGE_FEATURE_DIM or global_in_dim != GLOBAL_FEATURE_DIM:
             raise ValueError(
@@ -330,24 +344,34 @@ def setup_model(params, schema, device):
                 f"current=({NODE_FEATURE_DIM}, {EDGE_FEATURE_DIM}, {GLOBAL_FEATURE_DIM})"
             )
 
-        model = TrussEdgeNNConv(
+        model_kwargs = {
             node_in_dim=node_in_dim,
             edge_in_dim=edge_in_dim,
             global_in_dim=global_in_dim,
             hidden_dim=hidden_dim,
-        ).to(device)
+        }
+        if resolved_variant == "v2":
+            model_kwargs["dropout_p"] = float(dropout_p)
+        model = model_class(**model_kwargs).to(device)
         
         state_dict = checkpoint["model_state_dict"] if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint else checkpoint
         model.load_state_dict(state_dict)
+        params["model_variant"] = resolved_variant
+        params["dropout_p"] = float(dropout_p)
         print("Pretrained model loaded.\n")
     else:
         print("Training from scratch.")
-        model = TrussEdgeNNConv(
+        model_class, resolved_variant = _select_model_class(params.get("model_variant", "v1"))
+        model_kwargs = {
             node_in_dim=NODE_FEATURE_DIM,
             edge_in_dim=EDGE_FEATURE_DIM,
             global_in_dim=GLOBAL_FEATURE_DIM,
             hidden_dim=params["hidden_dim"],
-        ).to(device)
+        }
+        if resolved_variant == "v2":
+            model_kwargs["dropout_p"] = float(params.get("dropout_p", 0.1))
+        model = model_class(**model_kwargs).to(device)
+        params["model_variant"] = resolved_variant
 
     return model
 
@@ -621,6 +645,8 @@ def export_model(model, scalers, schema, params, run_metrics):
         "epochs": params["epochs"],
         "batch_size": params["batch_size"],
         "hidden_dim": params["hidden_dim"],
+        "model_variant": params.get("model_variant", "v1"),
+        "dropout_p": params.get("dropout_p", 0.1),
         "weight_decay": params["weight_decay"],
         "loss_type": params.get("loss_type", "mse"),
         "huber_beta": params.get("huber_beta", 1.0),
@@ -676,6 +702,8 @@ def export_model(model, scalers, schema, params, run_metrics):
             "edge_in_dim": run_manifest["edge_feature_dim"],
             "global_in_dim": run_manifest["global_feature_dim"],
             "hidden_dim": params["hidden_dim"],
+            "model_variant": params.get("model_variant", "v1"),
+            "dropout_p": params.get("dropout_p", 0.1),
             "edge_count": schema.edge_count,
             "checkpoint_prefix": artifact_stem,
             "run_id": params["run_id"],
@@ -728,6 +756,7 @@ def main():
     print(f"- fast_mode={params['fast_mode']} ({params['fast_mode_source']})")
     print(f"- lr={params['learning_rate']}, epochs={params['epochs']}, batch={params['batch_size']}")
     print(f"- hidden_dim={params['hidden_dim']}, weight_decay={params['weight_decay']}")
+    print(f"- model_variant={params['model_variant']}, dropout_p={params['dropout_p']}")
     print(f"- loss_type={params['loss_type']}, huber_beta={params['huber_beta']}")
     print(f"- eval_every={params['eval_every']}, num_workers={params['num_workers']}")
     if params["use_lr_scheduler"]:
@@ -755,7 +784,7 @@ def main():
 
     # Model setup
     model = setup_model(params, schema, device)
-    print(f"Model: TrussEdgeNNConv on {device}\n")
+    print(f"Model: {model.__class__.__name__} on {device}\n")
 
     # Training
     epoch_history, train_loss_history, run_metrics = train_model(
