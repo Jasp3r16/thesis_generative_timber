@@ -21,7 +21,7 @@ from c21_model_evaluation import (
     build_training_visuals_figure,
     save_evaluation,
 )
-from naming import build_model_artifact_stem
+from c00_naming import build_model_artifact_stem
 
 
 def _collect_scaled_preds_trues(model, loader, device):

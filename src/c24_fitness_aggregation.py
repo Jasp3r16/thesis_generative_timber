@@ -22,7 +22,7 @@ Key insight: The formula subtracts reuse rate (negative slope) because:
 
 import pandas as pd
 import numpy as np
-from normalization_constants import get_normalization_constants
+from c24_normalization_constants import get_normalization_constants
 
 
 # ==========================================

@@ -14,7 +14,7 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 import matplotlib.pyplot as plt
 import numpy as np
 
-from naming import build_run_folder_name
+from c00_naming import build_run_folder_name
 
 
 def _safe_package_version(package_name: str) -> str | None:

@@ -1,0 +1,112 @@
+{
+  "n_nodes": 130000,
+  "n_edges": 320000,
+  "n_samples": 10000,
+  "edge_feature_corr_abs_sorted": [
+    {
+      "feature": "Iy",
+      "pearson_r": -0.15616423727728437,
+      "abs_r": 0.15616423727728437
+    },
+    {
+      "feature": "Area",
+      "pearson_r": -0.13832585368883663,
+      "abs_r": 0.13832585368883663
+    },
+    {
+      "feature": "J",
+      "pearson_r": -0.11040287858863411,
+      "abs_r": 0.11040287858863411
+    },
+    {
+      "feature": "Iz",
+      "pearson_r": -0.1056200696798766,
+      "abs_r": 0.1056200696798766
+    },
+    {
+      "feature": "Length",
+      "pearson_r": -0.09248252518897286,
+      "abs_r": 0.09248252518897286
+    },
+    {
+      "feature": "EA/L",
+      "pearson_r": -0.06130021544024849,
+      "abs_r": 0.06130021544024849
+    },
+    {
+      "feature": "E",
+      "pearson_r": -0.025608986213493917,
+      "abs_r": 0.025608986213493917
+    }
+  ],
+  "endpoint_feature_corr_abs_sorted": [
+    {
+      "feature": "Fz_sum_endpoints",
+      "pearson_r": 0.33674812719088715,
+      "abs_r": 0.33674812719088715
+    },
+    {
+      "feature": "Fz_abs_sum_endpoints",
+      "pearson_r": -0.33674812719088715,
+      "abs_r": 0.33674812719088715
+    },
+    {
+      "feature": "support_count_dst",
+      "pearson_r": 0.2694374282932309,
+      "abs_r": 0.2694374282932309
+    },
+    {
+      "feature": "Fz_diff_endpoints",
+      "pearson_r": -0.25597381595581353,
+      "abs_r": 0.25597381595581353
+    },
+    {
+      "feature": "support_count_diff",
+      "pearson_r": -0.24071704885519046,
+      "abs_r": 0.24071704885519046
+    },
+    {
+      "feature": "support_count_src",
+      "pearson_r": -0.08356030275590393,
+      "abs_r": 0.08356030275590393
+    },
+    {
+      "feature": "support_overlap_count",
+      "pearson_r": 0,
+      "abs_r": 0
+    },
+    {
+      "feature": "support_count_total",
+      "pearson_r": 0.18390960824999375,
+      "abs_r": 0.18390960824999375
+    }
+  ],
+  "global_effects": [
+    {
+      "feature": "Global_Load_Sum",
+      "corr_with_mean_abs_force": -0.5370796742920443,
+      "corr_with_mean_force": -0.678045706580815,
+      "corr_with_std_force": -0.5353007003881001,
+      "corr_with_q95_abs_force": -0.557442709085638
+    },
+    {
+      "feature": "Total_Structural_Volume",
+      "corr_with_mean_abs_force": -0.53707969056345,
+      "corr_with_mean_force": -0.6780457205037247,
+      "corr_with_std_force": -0.5353007098749412,
+      "corr_with_q95_abs_force": -0.5574427209665239
+    },
+    {
+      "feature": "Average_Connectivity",
+      "corr_with_mean_abs_force": 3.8322155936968195e-16,
+      "corr_with_mean_force": 3.626258900813841e-16,
+      "corr_with_std_force": -4.089393169428321e-18,
+      "corr_with_q95_abs_force": 6.035070895197572e-17
+    }
+  ],
+  "group_linear_r2": {
+    "edge_only_linear_r2": 0.02851798228928104,
+    "endpoint_linear_r2": 0.13092687719286422,
+    "edge_plus_endpoint_linear_r2": 0.1584019828158887
+  }
+}
