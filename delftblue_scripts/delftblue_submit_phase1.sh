@@ -10,6 +10,11 @@ GRID_FILE="${REPO_DIR}/delftblue_scripts/delftblue_hyperparameter_grid.txt"
 SLURM_FILE="${REPO_DIR}/delftblue_scripts/delftblue_c21_array.slurm"
 DELFTBLUE_VENV="${DELFTBLUE_VENV:-/scratch/${USER}/venvs/thesis_gnn}"
 GH_DATA_DIR="${DELFTBLUE_DATA_BASE:-/scratch/${USER}}/data/01_grasshopper_data"
+REPORT_PARTITION="${REPORT_PARTITION:-compute}"
+REPORT_TIME="${REPORT_TIME:-00:30:00}"
+REPORT_CPUS="${REPORT_CPUS:-2}"
+REPORT_MEM_PER_CPU="${REPORT_MEM_PER_CPU:-2G}"
+REPORT_ACCOUNT="${REPORT_ACCOUNT:-education-abe-msc-a}"
 
 mkdir -p "${REPO_DIR}/delfblue_logs"
 mkdir -p "${REPO_DIR}/delfblue_logs/phase1" "${REPO_DIR}/delfblue_logs/reports"
@@ -87,6 +92,12 @@ dep_ids=$(IFS=:; echo "${job_ids[*]}")
 report_job_id=$(sbatch \
   --dependency="afterany:${dep_ids}" \
   --job-name="c21_phase1_report" \
+  --partition="${REPORT_PARTITION}" \
+  --ntasks=1 \
+  --cpus-per-task="${REPORT_CPUS}" \
+  --mem-per-cpu="${REPORT_MEM_PER_CPU}" \
+  --time="${REPORT_TIME}" \
+  --account="${REPORT_ACCOUNT}" \
   --output="${REPO_DIR}/delfblue_logs/reports/c21_phase1_report_%j.out" \
   --error="${REPO_DIR}/delfblue_logs/reports/c21_phase1_report_%j.err" \
   --wrap="cd '${REPO_DIR}' && bash delftblue_scripts/delftblue_generate_c21_report.sh" \
