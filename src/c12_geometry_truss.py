@@ -183,30 +183,13 @@ def bilinear_interpolate(p00, p10, p01, p11, u, v):
 
 
 def _normalize_vertices_pca(vertices):
-    """Center a sample at its centroid and align its principal axes to XYZ."""
+    """Center a sample at its centroid while keeping its original orientation."""
     coords = np.array([[v["x"], v["y"], v["z"]] for v in vertices], dtype=np.float64)
     if coords.size == 0:
         return vertices
 
     centered = coords - coords.mean(axis=0, keepdims=True)
-    if centered.shape[0] < 2 or np.allclose(centered, 0.0):
-        normalized = centered
-    else:
-        cov = np.cov(centered, rowvar=False)
-        eigvals, eigvecs = np.linalg.eigh(cov)
-        order = np.argsort(eigvals)[::-1]
-        basis = eigvecs[:, order]
-
-        # Keep the basis right-handed and deterministic.
-        if np.linalg.det(basis) < 0:
-            basis[:, -1] *= -1.0
-
-        for col in range(basis.shape[1]):
-            dominant_axis = int(np.argmax(np.abs(basis[:, col])))
-            if basis[dominant_axis, col] < 0:
-                basis[:, col] *= -1.0
-
-        normalized = centered @ basis
+    normalized = centered
 
     normalized_vertices = []
     for vertex, (x, y, z) in zip(vertices, normalized):
