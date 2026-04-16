@@ -29,6 +29,10 @@ def generate_length_tuple_from_average(
 
     Lengths are created in fixed increments around the rounded mean and returned
     as sorted, unique, rounded integers.
+
+    For odd n_lengths, the rounded mean is included as the center value.
+    For even n_lengths, values are generated symmetrically around the center
+    using half-step offsets (e.g. center +/- 0.5 * increment).
     """
     if mean_length_mm <= 0:
         raise ValueError("mean_length_mm must be > 0")
@@ -44,12 +48,18 @@ def generate_length_tuple_from_average(
     center = int(round(mean_length_mm / round_to_mm) * round_to_mm)
 
     values = set()
-    offset = 0
     max_attempts = 10000
 
-    while len(values) < n_lengths and offset < max_attempts:
-        candidates = [center] if offset == 0 else [center - offset * increment_mm, center + offset * increment_mm]
-        for candidate in candidates:
+    for radius in range(max_attempts):
+        if n_lengths % 2 == 1:
+            multipliers = [0.0] if radius == 0 else [-float(radius), float(radius)]
+        else:
+            # For even-sized libraries, keep symmetry around the center point.
+            step = radius + 0.5
+            multipliers = [-step, step]
+
+        for multiplier in multipliers:
+            candidate = center + multiplier * increment_mm
             rounded = int(round(candidate / round_to_mm) * round_to_mm)
             if min_length_mm is not None and rounded < min_length_mm:
                 continue
@@ -58,7 +68,8 @@ def generate_length_tuple_from_average(
             values.add(rounded)
             if len(values) >= n_lengths:
                 break
-        offset += 1
+        if len(values) >= n_lengths:
+            break
 
     if len(values) < n_lengths:
         raise ValueError(
@@ -144,7 +155,7 @@ def assign_transport_distance():
     return chosen_country, round(final_distance, 2)
 
 
-def generate_new_timber_catalog() -> pd.DataFrame:
+def generate_new_stock() -> pd.DataFrame:
     """
     Generate catalog of new timber members with all length/depth/width combinations.
     
@@ -189,6 +200,7 @@ def generate_new_timber_catalog() -> pd.DataFrame:
         })
     
     df_new = pd.DataFrame(data)
+    print(f"Generated length tuple (mm): {params.TUPLE_LENGTHS}, with average used: {params.STRUCTURE_AVERAGE_LENGTH_MM}")
     print(f"New stock generated successfully! ({len(df_new)} elements)")
     return df_new
 
@@ -272,6 +284,9 @@ def generate_reclaimed_stock() -> pd.DataFrame:
         })
     
     df_reclaimed = pd.DataFrame(inventory_list)
+    min_length = int(df_reclaimed['Length'].min())
+    max_length = int(df_reclaimed['Length'].max())
+    print(f"Reclaimed length range (mm): {min_length} to {max_length}")
     print(f"Reclaimed stock generated successfully! ({len(df_reclaimed)} elements)")
     return df_reclaimed
 

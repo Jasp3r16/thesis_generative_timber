@@ -1,4 +1,3 @@
-import random
 import json
 import config
 from c22_generation_timber import generate_length_tuple_from_average
@@ -19,7 +18,7 @@ RECLAIMED_CROSS_SECTION_LIBRARY_MM = [
 ]
 
 # Finite reclaimed inventory size and stochastic length model.
-RECLAIMED_STOCK_COUNT = 18
+RECLAIMED_STOCK_COUNT = 38
 RECLAIMED_LENGTH_DISTRIBUTION = "normal"  # supported: "normal"
 RECLAIMED_LENGTH_MIN_MM = 1400
 RECLAIMED_LENGTH_MAX_MM = 5200
@@ -38,7 +37,7 @@ RECLAIMED_TIMBER_LCA = {
 }
 
 # --- PARAMETERS NEW STOCK (CATALOGUS) ---
-DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM = 3600
+DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM = 3000
 
 json_path = config.DATA_IO_PATH / 'representative_beam_length.json'
 with open(json_path, "r", encoding="utf-8") as f:
@@ -50,7 +49,7 @@ if value == 0:
 
 STRUCTURE_AVERAGE_LENGTH_MM = value
 LENGTH_INCREMENT_MM = 300
-LENGTH_LIBRARY_SIZE = 9
+LENGTH_LIBRARY_SIZE = 13
 LENGTH_ROUND_TO_MM = 50
 MIN_LENGTH_MM = 1400
 MAX_LENGTH_MM = 5200
@@ -63,7 +62,6 @@ TUPLE_LENGTHS = generate_length_tuple_from_average(
     min_length_mm=MIN_LENGTH_MM,
     max_length_mm=MAX_LENGTH_MM
 )
-print("Generated length tuple (mm):", TUPLE_LENGTHS)
 
 # DEPTH_WIDTH_MAPPING: For each depth, which widths are valid.
 DEPTH_WIDTH_MAPPING = {
