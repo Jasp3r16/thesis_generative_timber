@@ -3,6 +3,8 @@ import random
 import warnings
 from typing import Mapping, Optional, Sequence
 
+import numpy as np
+
 import c11_params
 
 
@@ -179,6 +181,43 @@ def bilinear_interpolate(p00, p10, p01, p11, u, v):
 
     return final_x, final_y
 
+
+def _normalize_vertices_pca(vertices):
+    """Center a sample at its centroid and align its principal axes to XYZ."""
+    coords = np.array([[v["x"], v["y"], v["z"]] for v in vertices], dtype=np.float64)
+    if coords.size == 0:
+        return vertices
+
+    centered = coords - coords.mean(axis=0, keepdims=True)
+    if centered.shape[0] < 2 or np.allclose(centered, 0.0):
+        normalized = centered
+    else:
+        cov = np.cov(centered, rowvar=False)
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        order = np.argsort(eigvals)[::-1]
+        basis = eigvecs[:, order]
+
+        # Keep the basis right-handed and deterministic.
+        if np.linalg.det(basis) < 0:
+            basis[:, -1] *= -1.0
+
+        for col in range(basis.shape[1]):
+            dominant_axis = int(np.argmax(np.abs(basis[:, col])))
+            if basis[dominant_axis, col] < 0:
+                basis[:, col] *= -1.0
+
+        normalized = centered @ basis
+
+    normalized_vertices = []
+    for vertex, (x, y, z) in zip(vertices, normalized):
+        updated_vertex = dict(vertex)
+        updated_vertex["x"] = round(float(x), 3)
+        updated_vertex["y"] = round(float(y), 3)
+        updated_vertex["z"] = round(float(z), 3)
+        normalized_vertices.append(updated_vertex)
+
+    return normalized_vertices
+
 def generate_edges(num_samples, cells_x, cells_y):
     """
     Generate a topological edge list for a double-layer spatial truss.
@@ -324,7 +363,7 @@ def generate_sample_vertices(
             })
             vertex_idx += 1
 
-    return all_vertices
+            return _normalize_vertices_pca(all_vertices)
 
 def generate_vertices(num_samples, round_decimals=2):
     """

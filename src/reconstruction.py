@@ -4,7 +4,7 @@ import json
 import random
 from pathlib import Path
 
-from geometry import _build_truss_edges
+from geometry_truss import _build_truss_edges
 
 def reconstruct_edges(cells_x, cells_y):
     """

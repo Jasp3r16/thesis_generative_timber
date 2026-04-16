@@ -24,10 +24,11 @@ checkpoint_*.ipynb
 ~$*.xlsx
 ~$*.xls
 *.csv
+
 # Als je per ongeluk een data-map binnen je repo maakt:
 data/
 temp/
-*context/
+.context/
 
 # === Rhino & Grasshopper ===
 *.bak

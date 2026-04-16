@@ -90,7 +90,9 @@ def build_edge_index(df_edge: pd.DataFrame) -> torch.Tensor:
     )
     sources = edge_reference["Source"].astype(int).tolist()
     targets = edge_reference["Target"].astype(int).tolist()
-    return torch.tensor([sources, targets], dtype=torch.long)
+    bidirectional_sources = sources + targets
+    bidirectional_targets = targets + sources
+    return torch.tensor([bidirectional_sources, bidirectional_targets], dtype=torch.long)
 
 
 def build_graph_dataset(
@@ -123,6 +125,8 @@ def build_graph_dataset(
 
         edge_attr = torch.tensor(edge_feature_scaled.loc[edge_sample.index].to_numpy(), dtype=torch.float32)
         y_edge = torch.tensor(edge_target_scaled.loc[edge_sample.index].to_numpy(), dtype=torch.float32)
+        edge_attr = torch.cat([edge_attr, edge_attr], dim=0)
+        y_edge = torch.cat([y_edge, y_edge], dim=0)
         u = torch.tensor(global_feature_scaled.loc[global_sample.index].to_numpy().reshape(1, -1), dtype=torch.float32)
 
         dataset.append(
