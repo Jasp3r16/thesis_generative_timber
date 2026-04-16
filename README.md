@@ -38,7 +38,7 @@ To reduce code duplication across notebooks, the surrogate model and inference u
 
 ### Shared Surrogate Model Class
 - `c21_surrogate_model.py`
-- Contains `TrussEdgeGNN`.
+- Contains `TrussEdgeNNConv` (with `TrussEdgeGNN` kept as a compatibility alias).
 - Used by training notebooks (e.g., `c21_surrogate_model_training.ipynb`) and inference notebooks.
 
 ### Shared Surrogate I/O + Inference Utilities
@@ -71,10 +71,19 @@ thesis_generative_timber/
 ### 1) In Training Notebook (c21)
 
 ```python
-from c21_surrogate_model import TrussEdgeGNN
+from c21_surrogate_model import TrussEdgeNNConv
 
-model = TrussEdgeGNN(node_in_dim=3, hidden_dim=128).to(device)
+model = TrussEdgeNNConv(
+    node_in_dim=node_feature_dim,
+    edge_in_dim=edge_feature_dim,
+    global_in_dim=global_feature_dim,
+    hidden_dim=128,
+).to(device)
 ```
+
+Current c21 defaults:
+- Node loads are `Fz`-based from Grasshopper exports (with optional `Fx/Fy/Fz` support if available).
+- Virtual-node augmentation is enabled by default in training (`C21_USE_VIRTUAL_NODE=true`) and virtual edges are masked out of the supervised loss.
 
 ### 2) In Structural Check / Inference Notebook (c25)
 

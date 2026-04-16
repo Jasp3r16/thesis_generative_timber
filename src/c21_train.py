@@ -127,6 +127,7 @@ def load_parameters(device: torch.device | None = None):
         "lr_scheduler_metric": os.getenv("C21_LR_SCHEDULER_METRIC", "r2").lower(),
         "lr_scheduler_min_lr": float(os.getenv("C21_LR_SCHEDULER_MIN_LR", "1e-6")),
         "edge_wise_target_scaling": os.getenv("C21_EDGE_WISE_TARGET_SCALING", "false").lower() == "true",
+        "use_virtual_node": os.getenv("C21_USE_VIRTUAL_NODE", "true").lower() == "true",
         "train_split_ratio": float(os.getenv("C21_TRAIN_SPLIT_RATIO", "0.8")),
         "random_seed": int(os.getenv("C21_RANDOM_SEED", "42")),
         "num_workers": int(
@@ -175,7 +176,7 @@ def load_data(params):
     global_path = config.GH_DATA_PATH / params["global_csv"]
 
     df_node, df_edge, df_global = load_v4_sources(node_path, edge_path, global_path)
-    schema = infer_v4_schema(df_node, df_edge, df_global)
+    schema = infer_v4_schema(df_node, df_edge, df_global, use_virtual_node=params.get("use_virtual_node", False))
     sample_ids = validate_sample_coverage(df_node, df_edge, df_global)
     edge_index = build_edge_index(df_edge)
 
@@ -199,9 +200,15 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
     NODE_CSV = params["node_csv"]
     NODE_CONTINUOUS_COLS = list(schema.node_continuous_cols)
     NODE_MASK_COLS = list(schema.node_mask_cols)
+    NODE_LOAD_COLS = list(schema.node_load_cols)
+    NODE_VIRTUAL_COLS = list(schema.node_virtual_cols)
     EDGE_FEATURE_COLS = list(schema.edge_feature_cols)
     GLOBAL_FEATURE_COLS = list(schema.global_feature_cols)
     TARGET_COL = "Axial_Force"
+
+    for load_col in NODE_LOAD_COLS:
+        if load_col not in df_node.columns:
+            df_node[load_col] = 0.0
 
     # Split at graph level
     rng = np.random.default_rng(params["random_seed"])
@@ -253,6 +260,8 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
         columns=GLOBAL_FEATURE_COLS,
     )
 
+    use_virtual_node = params.get("use_virtual_node", False)
+
     # Build graph dataset
     graph_dataset = build_graph_dataset(
         df_node=df_node,
@@ -265,6 +274,7 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
         edge_target_scaled=edge_target_scaled,
         global_feature_scaled=global_feature_scaled,
         edge_index=edge_index,
+        use_virtual_node=use_virtual_node,
     )
 
     sample_to_graph = {int(data.sample_id): data for data in graph_dataset}
@@ -298,7 +308,7 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
 
 def setup_model(params, schema, device):
     """Initialize or load pretrained model."""
-    NODE_FEATURE_DIM = len(schema.node_continuous_cols) + len(schema.node_mask_cols)
+    NODE_FEATURE_DIM = len(schema.node_continuous_cols) + len(schema.node_mask_cols) + len(schema.node_virtual_cols)
     EDGE_FEATURE_DIM = len(schema.edge_feature_cols)
     GLOBAL_FEATURE_DIM = len(schema.global_feature_cols)
 
@@ -312,6 +322,13 @@ def setup_model(params, schema, device):
         edge_in_dim = checkpoint.get("edge_in_dim", EDGE_FEATURE_DIM) if isinstance(checkpoint, dict) else EDGE_FEATURE_DIM
         global_in_dim = checkpoint.get("global_in_dim", GLOBAL_FEATURE_DIM) if isinstance(checkpoint, dict) else GLOBAL_FEATURE_DIM
         hidden_dim = checkpoint.get("hidden_dim", params["hidden_dim"]) if isinstance(checkpoint, dict) else params["hidden_dim"]
+
+        if node_in_dim != NODE_FEATURE_DIM or edge_in_dim != EDGE_FEATURE_DIM or global_in_dim != GLOBAL_FEATURE_DIM:
+            raise ValueError(
+                "Pretrained checkpoint dimensions do not match the current schema. "
+                f"checkpoint=({node_in_dim}, {edge_in_dim}, {global_in_dim}), "
+                f"current=({NODE_FEATURE_DIM}, {EDGE_FEATURE_DIM}, {GLOBAL_FEATURE_DIM})"
+            )
 
         model = TrussEdgeNNConv(
             node_in_dim=node_in_dim,
@@ -351,8 +368,12 @@ def _collect_eval_metrics(model, loader, edge_target_scaler, device):
                 batch=batch.batch,
                 u=batch.u,
             )
-            pred_batches.append(out.detach().cpu().numpy())
-            true_batches.append(batch.y_edge.detach().cpu().numpy())
+            mask = getattr(batch, "edge_loss_mask", None)
+            if mask is None:
+                mask = torch.ones_like(batch.y_edge)
+            keep = mask.view(-1) > 0.5
+            pred_batches.append(out.detach().cpu()[keep].numpy())
+            true_batches.append(batch.y_edge.detach().cpu()[keep].numpy())
 
     preds_scaled = np.concatenate(pred_batches, axis=0)
     trues_scaled = np.concatenate(true_batches, axis=0)
@@ -368,6 +389,17 @@ def _collect_eval_metrics(model, loader, edge_target_scaler, device):
         "rmse": rmse,
         "n_edges": int(trues_original.shape[0]),
     }
+
+
+def _masked_edge_loss(predictions, targets, mask, criterion):
+    if mask is None:
+        mask = torch.ones_like(targets)
+    per_edge_loss = criterion(predictions, targets)
+    if per_edge_loss.dim() > 1:
+        per_edge_loss = per_edge_loss.view(per_edge_loss.size(0), -1).mean(dim=1)
+    mask_values = mask.view(-1).to(per_edge_loss.dtype)
+    denom = mask_values.sum().clamp_min(1.0)
+    return (per_edge_loss * mask_values).sum() / denom
 
 
 def train_model(model, train_loader, test_loader, edge_target_scaler, schema, params, device):
@@ -400,9 +432,9 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
         weight_decay=params["weight_decay"],
     )
     if params.get("loss_type", "mse") == "huber":
-        criterion = torch.nn.SmoothL1Loss(beta=float(params.get("huber_beta", 1.0)))
+        criterion = torch.nn.SmoothL1Loss(beta=float(params.get("huber_beta", 1.0)), reduction="none")
     else:
-        criterion = torch.nn.MSELoss()
+        criterion = torch.nn.MSELoss(reduction="none")
 
     scheduler = None
     if params.get("use_lr_scheduler", False):
@@ -451,7 +483,7 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
                 batch=batch.batch,
                 u=batch.u,
             )
-            loss = criterion(out, batch.y_edge)
+            loss = _masked_edge_loss(out, batch.y_edge, getattr(batch, "edge_loss_mask", None), criterion)
             loss.backward()
             optimizer.step()
             total_loss += loss.item() * batch.num_graphs
@@ -467,6 +499,7 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
             true_batches = []
 
             with torch.no_grad():
+                mask_batches = []
                 for batch in test_loader:
                     batch = batch.to(device, non_blocking=True)
                     out = model(
@@ -478,16 +511,16 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
                     )
                     pred_batches.append(out.detach().cpu())
                     true_batches.append(batch.y_edge.detach().cpu())
+                    mask_batches.append(getattr(batch, "edge_loss_mask", torch.ones_like(batch.y_edge)).detach().cpu())
 
-            preds_scaled = torch.cat(pred_batches, dim=0).numpy()
-            trues_scaled = torch.cat(true_batches, dim=0).numpy()
+            preds_tensor = torch.cat(pred_batches, dim=0)
+            trues_tensor = torch.cat(true_batches, dim=0)
+            mask_tensor = torch.cat(mask_batches, dim=0)
 
-            eval_loss = float(
-                criterion(
-                    torch.from_numpy(preds_scaled),
-                    torch.from_numpy(trues_scaled),
-                ).item()
-            )
+            eval_loss = float(_masked_edge_loss(preds_tensor, trues_tensor, mask_tensor, criterion).item())
+            keep = mask_tensor.view(-1) > 0.5
+            preds_scaled = preds_tensor[keep].numpy()
+            trues_scaled = trues_tensor[keep].numpy()
 
             preds_original = edge_target_scaler.inverse_transform(preds_scaled)
             trues_original = edge_target_scaler.inverse_transform(trues_scaled)
@@ -597,6 +630,7 @@ def export_model(model, scalers, schema, params, run_metrics):
         "lr_scheduler_metric": params.get("lr_scheduler_metric", "r2"),
         "lr_scheduler_min_lr": params.get("lr_scheduler_min_lr", 1e-6),
         "edge_wise_target_scaling": params.get("edge_wise_target_scaling", False),
+        "use_virtual_node": params.get("use_virtual_node", False),
         "final_val_r2": run_metrics["final_val_r2"],
         "test_r2": run_metrics["test_r2"],
         "train_r2": run_metrics["train_r2"],

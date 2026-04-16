@@ -363,7 +363,7 @@ def generate_sample_vertices(
             })
             vertex_idx += 1
 
-            return _normalize_vertices_pca(all_vertices)
+    return _normalize_vertices_pca(all_vertices)
 
 def generate_vertices(num_samples, round_decimals=2):
     """

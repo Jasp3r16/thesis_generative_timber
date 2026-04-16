@@ -15,7 +15,7 @@ import torch
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 import config
-from model_evaluation import (
+from c21_model_evaluation import (
     build_error_distribution_figure,
     build_pred_residual_figure,
     build_training_visuals_figure,
