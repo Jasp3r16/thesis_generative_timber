@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Generate aggregated hyperparameter report after a sweep.
 # Usage:
-#   bash workflows/delftblue_generate_c21_report.sh
+#   bash delftblue_scripts/delftblue_generate_c21_report.sh
 # Optional overrides:
 #   DELFTBLUE_VENV=/scratch/$USER/venvs/thesis_gnn
 #   DELFTBLUE_DATA_BASE=/scratch/$USER

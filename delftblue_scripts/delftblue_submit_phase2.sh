@@ -3,11 +3,11 @@ set -euo pipefail
 
 # Submit phase 2 as individual jobs (no array), compatible with strict assoc limits.
 # Usage:
-#   bash workflows/delftblue_submit_phase2.sh
+#   bash delftblue_scripts/delftblue_submit_phase2.sh
 
 REPO_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
-GRID_FILE="${REPO_DIR}/workflows/delftblue_hyperparameter_grid_phase2.txt"
-SLURM_FILE="${REPO_DIR}/workflows/delftblue_c21_array_phase2.slurm"
+GRID_FILE="${REPO_DIR}/delftblue_scripts/delftblue_hyperparameter_grid_phase2.txt"
+SLURM_FILE="${REPO_DIR}/delftblue_scripts/delftblue_c21_array_phase2.slurm"
 DELFTBLUE_VENV="${DELFTBLUE_VENV:-/scratch/${USER}/venvs/thesis_gnn}"
 GH_DATA_DIR="${DELFTBLUE_DATA_BASE:-/scratch/${USER}}/data/01_grasshopper_data"
 
@@ -26,7 +26,7 @@ fi
 
 if [[ ! -f "${DELFTBLUE_VENV}/bin/activate" ]]; then
   echo "Missing virtual environment: ${DELFTBLUE_VENV}" >&2
-  echo "Run: bash workflows/delftblue_phase1_setup.sh" >&2
+  echo "Run: bash delftblue_scripts/delftblue_phase1_setup.sh" >&2
   exit 1
 fi
 
@@ -88,7 +88,7 @@ report_job_id=$(sbatch \
   --job-name="c21_phase2_report" \
   --output="${REPO_DIR}/delfblue_logs/reports/c21_phase2_report_%j.out" \
   --error="${REPO_DIR}/delfblue_logs/reports/c21_phase2_report_%j.err" \
-  --wrap="cd '${REPO_DIR}' && bash workflows/delftblue_generate_c21_report.sh" \
+  --wrap="cd '${REPO_DIR}' && bash delftblue_scripts/delftblue_generate_c21_report.sh" \
   | awk '{print $4}')
 
 echo "Queued report job_id=${report_job_id} (runs after all submitted jobs finish)."

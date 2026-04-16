@@ -14,8 +14,8 @@
 set -euo pipefail
 
 REPO_DIR="${SLURM_SUBMIT_DIR}"
-GRID_FILE="${REPO_DIR}/workflows/delftblue_hyperparameter_grid.txt"
-RUN_DIR="${REPO_DIR}/workflows/delftblue_runs"
+GRID_FILE="${REPO_DIR}/delftblue_scripts/delftblue_hyperparameter_grid.txt"
+RUN_DIR="${REPO_DIR}/delftblue_scripts/delftblue_runs"
 mkdir -p "${REPO_DIR}/delfblue_logs" "${REPO_DIR}/delfblue_logs/phase1" "${RUN_DIR}"
 
 # DelftBlue runtime modules
@@ -33,7 +33,7 @@ module list 2>&1 || true
 DELFTBLUE_VENV="${DELFTBLUE_VENV:-/scratch/${USER}/venvs/thesis_gnn}"
 if [[ ! -f "${DELFTBLUE_VENV}/bin/activate" ]]; then
   echo "Missing virtual environment: ${DELFTBLUE_VENV}" >&2
-  echo "Create it first with workflows/delftblue_phase1_setup.sh" >&2
+  echo "Create it first with delftblue_scripts/delftblue_phase1_setup.sh" >&2
   exit 1
 fi
 source "${DELFTBLUE_VENV}/bin/activate"

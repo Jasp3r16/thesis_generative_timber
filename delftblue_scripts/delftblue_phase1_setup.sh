@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage:
-#   bash workflows/delftblue_phase1_setup.sh
+#   bash delftblue_scripts/delftblue_phase1_setup.sh
 # Optional overrides:
 #   DELFTBLUE_VENV=/scratch/$USER/venvs/thesis_gnn
 #   REPO_DIR=/path/to/thesis_generative_timber
@@ -35,4 +35,4 @@ PY
 echo "Setup complete"
 echo "Repo: ${REPO_DIR}"
 echo "Venv: ${DELFTBLUE_VENV}"
-echo "Submit phase 1 with: sbatch workflows/delftblue_c21_array.slurm"
+echo "Submit phase 1 with: sbatch delftblue_scripts/delftblue_c21_array.slurm"

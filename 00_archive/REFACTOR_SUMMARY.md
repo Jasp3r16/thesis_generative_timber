@@ -97,7 +97,7 @@ python c21_train.py
 ### DelftBlue (SLURM) - Current
 ```bash
 # Still works but slow:
-sbatch workflows/delftblue_c21_array.slurm
+sbatch delftblue_scripts/delftblue_c21_array.slurm
 ```
 
 ### DelftBlue (SLURM) - Recommended
@@ -145,10 +145,11 @@ thesis_generative_timber/
 ├── src/                                   (all code modules)
 ├── 02_data_io/                            (JSON schema files)
 ├── workflows/
-│   ├── delftblue_c21_array.slurm          (optional: update jupyter→python call)
-│   ├── delftblue_c21_array_phase2.slurm   (optional: update jupyter→python call)
 │   ├── delftblue_hyperparameter_grid.txt
 │   └── delftblue_hyperparameter_grid_phase2.txt
+├── delftblue_scripts/
+│   ├── delftblue_c21_array.slurm          (optional: update jupyter→python call)
+│   └── delftblue_c21_array_phase2.slurm   (optional: update jupyter→python call)
 └── data/                                  (your training data - upload separately)
     ├── v4_node_*.csv
     ├── v4_edge_*.csv
@@ -161,7 +162,7 @@ thesis_generative_timber/
 - [ ] Local: `jupyter notebook` runs visualization cells successfully
 - [ ] DelftBlue: Upload all files, set DELFTBLUE_DATA_BASE=/scratch/$USER
 - [ ] DelftBlue: Run `python c21_slurm_train.py` manually on login node (test 1 task)
-- [ ] DelftBlue: Submit Phase 1: `sbatch workflows/delftblue_c21_array.slurm`
+- [ ] DelftBlue: Submit Phase 1: `sbatch delftblue_scripts/delftblue_c21_array.slurm`
 - [ ] Verify results in `/scratch/$USER/results/01_surrogate_models/`
 
 ## Backwards Compatibility
