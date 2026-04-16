@@ -1,8 +1,8 @@
 #!/bin/bash
 # DelftBlue CPU smoke test for c21 pipeline while GPU entitlement is pending
 #SBATCH --job-name=c21_cpu_smoke
-#SBATCH --output=delfblue_logs/smoke/c21_cpu_smoke_%j.out
-#SBATCH --error=delfblue_logs/smoke/c21_cpu_smoke_%j.err
+#SBATCH --output=delftblue_logs/smoke/c21_cpu_smoke_%j.out
+#SBATCH --error=delftblue_logs/smoke/c21_cpu_smoke_%j.err
 #SBATCH --time=01:00:00
 #SBATCH --partition=compute
 #SBATCH --ntasks=1
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO_DIR="${SLURM_SUBMIT_DIR}"
-mkdir -p "${REPO_DIR}/delfblue_logs" "${REPO_DIR}/delfblue_logs/smoke"
+mkdir -p "${REPO_DIR}/delftblue_logs" "${REPO_DIR}/delftblue_logs/smoke"
 
 module purge
 module load 2024r1

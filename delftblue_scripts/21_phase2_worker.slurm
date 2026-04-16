@@ -1,9 +1,9 @@
 #!/bin/bash
-# DelftBlue job policy: account=education-abe-msc-a, partition=gpu, walltime=08:00:00
-#SBATCH --job-name=c21_sweep
-#SBATCH --output=delfblue_logs/phase1/c21_%j.out
-#SBATCH --error=delfblue_logs/phase1/c21_%j.err
-#SBATCH --time=08:00:00
+# DelftBlue job policy: account=education-abe-msc-a, partition=gpu, walltime=12:00:00
+#SBATCH --job-name=c21_phase2
+#SBATCH --output=delftblue_logs/phase2/c21_phase2_%A_%a.out
+#SBATCH --error=delftblue_logs/phase2/c21_phase2_%A_%a.err
+#SBATCH --time=12:00:00
 #SBATCH --partition=gpu
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
@@ -14,9 +14,9 @@
 set -euo pipefail
 
 REPO_DIR="${SLURM_SUBMIT_DIR}"
-GRID_FILE="${REPO_DIR}/delftblue_scripts/delftblue_hyperparameter_grid.txt"
-RUN_DIR="${REPO_DIR}/delftblue_scripts/delftblue_runs"
-mkdir -p "${REPO_DIR}/delfblue_logs" "${REPO_DIR}/delfblue_logs/phase1" "${RUN_DIR}"
+GRID_FILE="${REPO_DIR}/delftblue_scripts/delftblue_hyperparameter_grid_phase2.txt"
+RUN_DIR="${REPO_DIR}/delftblue_scripts/delftblue_runs_phase2"
+mkdir -p "${REPO_DIR}/delftblue_logs" "${REPO_DIR}/delftblue_logs/phase2" "${RUN_DIR}"
 
 # DelftBlue runtime modules
 module purge
@@ -26,14 +26,14 @@ module try-load cuda/12.2.0
 module try-load cuda
 module try-load cudnn/8.9.5-cuda-12.2
 module try-load cudnn
-echo "Loaded modules:" 
+echo "Loaded modules:"
 module list 2>&1 || true
 
 # Default venv location; can be overridden before sbatch
 DELFTBLUE_VENV="${DELFTBLUE_VENV:-/scratch/${USER}/venvs/thesis_gnn}"
 if [[ ! -f "${DELFTBLUE_VENV}/bin/activate" ]]; then
   echo "Missing virtual environment: ${DELFTBLUE_VENV}" >&2
-  echo "Create it first with delftblue_scripts/delftblue_phase1_setup.sh" >&2
+  echo "Create it first with delftblue_scripts/01_setup_environment.sh" >&2
   exit 1
 fi
 source "${DELFTBLUE_VENV}/bin/activate"
@@ -49,7 +49,7 @@ if [[ -z "${TASK_INDEX}" ]]; then
   exit 1
 fi
 
-line=$(grep '^RUN_' "${GRID_FILE}" | sed -n "${TASK_INDEX}p")
+line=$(grep '^RUN2_' "${GRID_FILE}" | sed -n "${TASK_INDEX}p")
 if [[ -z "${line}" ]]; then
   echo "No run config for index ${TASK_INDEX}" >&2
   exit 1
