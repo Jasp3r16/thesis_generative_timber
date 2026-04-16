@@ -69,3 +69,27 @@ else:
 print(f"GH data directory: {GH_DATA_PATH}")
 print(f"Raw data directory: {RAW_DATA_PATH}")
 print(f"Export directory: {EXPORT_PATH}\n")
+
+# ==========================================
+# 4. VISUALIZATION THEME (Centralized Color Palette)
+# ==========================================
+# Color scheme for all plots and visualizations
+PLOT_COLORS = {
+    "primary": "#61788C",       # Dark blue (convergence best, primary lines)
+    "secondary": "#9CA5A6",     # Sage/light blue-green (mean, secondary)
+    "accent": "#F2994B",        # Orange (warnings, thresholds)
+    "danger": "#D9653B",        # Red-orange (worst, failures)
+    "neutral": "#D7D9D9",       # Light gray (background, grids)
+    "black": "#000000",         # Black (text, axes)
+    "white": "#FFFFFF",         # White (background)
+}
+
+PLOT_STYLE = {
+    "figsize_small": (8, 5),
+    "figsize_medium": (12, 7),
+    "figsize_large": (16, 10),
+    "dpi": 100,
+    "grid_alpha": 0.3,
+    "line_width": 2.0,
+    "marker_size": 5,
+}
