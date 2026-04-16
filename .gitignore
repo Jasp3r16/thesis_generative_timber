@@ -27,6 +27,7 @@ checkpoint_*.ipynb
 # Als je per ongeluk een data-map binnen je repo maakt:
 data/
 temp/
+*context/
 
 # === Rhino & Grasshopper ===
 *.bak
