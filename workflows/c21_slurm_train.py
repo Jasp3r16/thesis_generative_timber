@@ -32,7 +32,7 @@ if __name__ == "__main__":
 
         sys.exit(0)
     except Exception as e:
-        print(f"\n❌ Training failed with error:\n{e}", file=sys.stderr)
+        print(f"\nTraining failed with error:\n{e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
         sys.exit(1)

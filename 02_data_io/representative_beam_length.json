@@ -2,44 +2,44 @@
   "aggregated_metric": "median_of_sample_means",
   "sample_count": 5,
   "selected_sample_ids": [
-    3648,
-    819,
-    9012,
-    8024,
-    7314
+    1824,
+    409,
+    4506,
+    4012,
+    3657
   ],
   "per_sample_results": [
     {
-      "sample_id": 3648,
-      "average_length_m": 2.766910969140075,
-      "average_length_mm": 2766.910969140075,
+      "sample_id": 1824,
+      "average_length_m": 2.9282916013750087,
+      "average_length_mm": 2928.2916013750087,
       "edge_count": 32
     },
     {
-      "sample_id": 819,
-      "average_length_m": 3.006901647844652,
-      "average_length_mm": 3006.9016478446524,
+      "sample_id": 409,
+      "average_length_m": 3.069665609159746,
+      "average_length_mm": 3069.665609159746,
       "edge_count": 32
     },
     {
-      "sample_id": 9012,
-      "average_length_m": 2.916683757888859,
-      "average_length_mm": 2916.683757888859,
+      "sample_id": 4506,
+      "average_length_m": 2.807548944562986,
+      "average_length_mm": 2807.548944562986,
       "edge_count": 32
     },
     {
-      "sample_id": 8024,
-      "average_length_m": 2.9300442824626565,
-      "average_length_mm": 2930.0442824626566,
+      "sample_id": 4012,
+      "average_length_m": 3.069050501152137,
+      "average_length_mm": 3069.050501152137,
       "edge_count": 32
     },
     {
-      "sample_id": 7314,
-      "average_length_m": 2.8999446785051743,
-      "average_length_mm": 2899.944678505174,
+      "sample_id": 3657,
+      "average_length_m": 2.9443997535418385,
+      "average_length_mm": 2944.3997535418384,
       "edge_count": 32
     }
   ],
-  "representative_length_m": 2.916683757888859,
-  "representative_length_mm": 2916.683757888859
+  "representative_length_m": 2.9443997535418385,
+  "representative_length_mm": 2944.3997535418384
 }
