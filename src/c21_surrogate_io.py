@@ -186,10 +186,46 @@ def load_surrogate_bundle(prefix_sm: str | None = None, device: str | None = Non
     edge_target_scaler = joblib.load(edge_target_scaler_path)
     global_feature_scaler = joblib.load(global_feature_scaler_path) if global_feature_scaler_path is not None else None
 
-    node_in_dim = checkpoint.get("node_in_dim", getattr(node_scaler, "n_features_in_", 3)) if isinstance(checkpoint, dict) else getattr(node_scaler, "n_features_in_", 3)
-    edge_in_dim = checkpoint.get("edge_in_dim", 7) if isinstance(checkpoint, dict) else 7
-    global_in_dim = checkpoint.get("global_in_dim", 3) if isinstance(checkpoint, dict) else 3
-    hidden_dim = checkpoint.get("hidden_dim", 128) if isinstance(checkpoint, dict) else 128
+    # Prefer inferring dimensions from state_dict to avoid metadata drift between
+    # checkpoint/run-manifest and architecture changes.
+    inferred_node_in_dim = None
+    inferred_edge_in_dim = None
+    inferred_global_in_dim = None
+    inferred_hidden_dim = None
+
+    conv1_lin_weight = state_dict.get("conv1.lin.weight")
+    if conv1_lin_weight is not None and conv1_lin_weight.ndim == 2:
+        inferred_hidden_dim = int(conv1_lin_weight.shape[0])
+        inferred_node_in_dim = int(conv1_lin_weight.shape[1])
+
+    edge_attr_encoder_weight = state_dict.get("edge_attr_encoder.0.weight")
+    if edge_attr_encoder_weight is not None and edge_attr_encoder_weight.ndim == 2:
+        inferred_edge_in_dim = int(edge_attr_encoder_weight.shape[1])
+
+    global_encoder_weight = state_dict.get("global_encoder.0.weight")
+    if global_encoder_weight is not None and global_encoder_weight.ndim == 2:
+        inferred_global_in_dim = int(global_encoder_weight.shape[1])
+
+    node_in_dim = (
+        inferred_node_in_dim
+        or (checkpoint.get("node_in_dim") if isinstance(checkpoint, dict) else None)
+        or int(getattr(node_scaler, "n_features_in_", 3))
+    )
+    edge_in_dim = (
+        inferred_edge_in_dim
+        or (checkpoint.get("edge_in_dim") if isinstance(checkpoint, dict) else None)
+        or 7
+    )
+    global_in_dim = (
+        inferred_global_in_dim
+        or (checkpoint.get("global_in_dim") if isinstance(checkpoint, dict) else None)
+        or 3
+    )
+    hidden_dim = (
+        inferred_hidden_dim
+        or (checkpoint.get("hidden_dim") if isinstance(checkpoint, dict) else None)
+        or 128
+    )
     model_variant = checkpoint.get("model_variant", "v1") if isinstance(checkpoint, dict) else "v1"
     dropout_p = checkpoint.get("dropout_p", 0.1) if isinstance(checkpoint, dict) else 0.1
     if run_manifest is not None:
