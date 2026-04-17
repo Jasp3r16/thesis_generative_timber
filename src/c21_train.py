@@ -397,9 +397,11 @@ def _collect_eval_metrics(model, loader, edge_target_scaler, device):
             mask = getattr(batch, "edge_loss_mask", None)
             if mask is None:
                 mask = torch.ones_like(batch.y_edge)
-            keep = mask.view(-1) > 0.5
-            pred_batches.append(out.detach().cpu()[keep].numpy())
-            true_batches.append(batch.y_edge.detach().cpu()[keep].numpy())
+            keep = (mask.view(-1) > 0.5).detach().cpu()
+            out_cpu = out.detach().cpu()
+            y_cpu = batch.y_edge.detach().cpu()
+            pred_batches.append(out_cpu[keep].numpy())
+            true_batches.append(y_cpu[keep].numpy())
 
     preds_scaled = np.concatenate(pred_batches, axis=0)
     trues_scaled = np.concatenate(true_batches, axis=0)
@@ -489,6 +491,7 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
     EVAL_EVERY = max(1, int(params.get("eval_every", 10)))
     epoch_history = []
     train_loss_history = []
+    epoch_metrics_history = []  # Collect per-epoch eval metrics for export
     final_val_r2 = None
     train_start_time = time.time()
     
@@ -593,6 +596,14 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
                 f"Train Loss: {avg_train_loss:.4f} | Val Loss: {eval_loss:.4f} | "
                 f"Test R2: {r2:.4f} | LR: {current_lr:.6g}"
             )
+            # Collect epoch metrics for export
+            epoch_metrics_history.append({
+                "epoch": epoch + 1,
+                "train_loss": float(avg_train_loss),
+                "val_loss": float(eval_loss),
+                "test_r2": float(r2),
+                "learning_rate": float(current_lr),
+            })
 
             if scheduler is not None:
                 if params.get("lr_scheduler_metric", "r2") == "r2":
@@ -642,7 +653,7 @@ def train_model(model, train_loader, test_loader, edge_target_scaler, schema, pa
     }
 
     print(f"\nTraining completed! Test R2: {run_metrics['test_r2']:.4f} | Test RMSE: {run_metrics['test_rmse']:.4f} | Test MAE: {run_metrics['test_mae']:.4f}\n")
-    return epoch_history, train_loss_history, run_metrics
+    return epoch_history, train_loss_history, run_metrics, epoch_metrics_history
 
 
 def export_model(model, scalers, schema, params, run_metrics):
@@ -823,7 +834,7 @@ def main():
     print(f"Model: {model.__class__.__name__} on {device}\n")
 
     # Training
-    epoch_history, train_loss_history, run_metrics = train_model(
+    epoch_history, train_loss_history, run_metrics, epoch_metrics_history = train_model(
         model, train_loader, test_loader, edge_target_scaler, schema, params, device
     )
 
@@ -847,6 +858,7 @@ def main():
         "train_loss_history": train_loss_history,
         "final_val_r2": run_metrics["final_val_r2"],
         "run_metrics": run_metrics,
+        "epoch_metrics_history": epoch_metrics_history,
         "scalers": scalers,
         "schema": schema,
         "train_loader": train_loader,

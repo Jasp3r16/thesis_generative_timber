@@ -355,6 +355,7 @@ def save_evaluation(
     artifact_stem: str | None = None,
     learning_rate: float | None = None,
     epochs: int | None = None,
+    eval_every: int | None = None,
     final_val_r2: float | None = None,
     strict_dataset_label: str | None = None,
     source_dataset_path: str | None = None,
@@ -364,6 +365,7 @@ def save_evaluation(
     random_seed: int | None = None,
     source_notebook: str | None = None,
     environment_snapshot: dict | None = None,
+    epoch_metrics_history: list | None = None,
 ):
     """
     Save all evaluation results (metrics + plots) to organized folder structure.
@@ -421,6 +423,7 @@ def save_evaluation(
         "strict_dataset_label": strict_dataset_label,
         "learning_rate": learning_rate,
         "epochs": epochs,
+        "eval_every": eval_every,
         "final_val_r2": final_val_r2,
         "train_split_ratio": train_split_ratio,
         "random_seed": random_seed,
@@ -472,6 +475,15 @@ def save_evaluation(
         saved_files['training_diagnostics_plot'] = training_plot_path
         print(f"Training diagnostics saved: 03_training_diagnostics_{timestamp}.png")
     
+    # 4b. Save epoch-by-epoch metrics as CSV (for reviewing training progress)
+    if epoch_metrics_history:
+        import pandas as pd
+        epoch_csv_path = eval_dir / f"epoch_history_{timestamp}.csv"
+        df_epochs = pd.DataFrame(epoch_metrics_history)
+        df_epochs.to_csv(epoch_csv_path, index=False)
+        saved_files['epoch_history_csv'] = epoch_csv_path
+        print(f"Epoch history saved: epoch_history_{timestamp}.csv")
+    
     # 5. Save architecture summary
     architecture_path = eval_dir / f"model_architecture_{timestamp}.txt"
     architecture_text_block = f"""# Model Architecture Summary
@@ -482,6 +494,7 @@ Dataset: {dataset_name}
 Strict dataset label: {strict_dataset_label or 'n/a'}
 Learning rate: {learning_rate if learning_rate is not None else 'n/a'}
 Epochs: {epochs if epochs is not None else 'n/a'}
+Eval every: {eval_every if eval_every is not None else 'n/a'}
 Final validation R²: {final_val_r2 if final_val_r2 is not None else 'n/a'}
 Graph: {node_count} nodes x {edge_count} edges
 
@@ -504,6 +517,7 @@ Graph: {node_count} nodes x {edge_count} edges
                 "source_dataset_path": source_dataset_path,
                 "learning_rate": learning_rate,
                 "epochs": epochs,
+                "eval_every": eval_every,
                 "final_val_r2": final_val_r2,
                 "status": status,
                 "node_count": node_count,

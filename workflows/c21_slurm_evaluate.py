@@ -161,6 +161,7 @@ def export_slurm_evaluation(results: dict) -> dict:
         artifact_stem=artifact_stem,
         learning_rate=params["learning_rate"],
         epochs=params["epochs"],
+        eval_every=params.get("eval_every"),
         final_val_r2=final_val_r2,
         strict_dataset_label=f"{params['node_csv']} | {params['edge_csv']} | {params['global_csv']}",
         source_dataset_path=str(config.GH_DATA_PATH / params["edge_csv"]),
