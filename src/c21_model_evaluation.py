@@ -288,6 +288,35 @@ def build_error_distribution_figure(train_residuals, test_residuals, train_mae, 
     return fig
 
 
+def drop_non_finite_pairs(trues: np.ndarray, preds: np.ndarray, split_name: str) -> tuple[np.ndarray, np.ndarray]:
+    """Remove NaN/Inf pairs so downstream sklearn metrics are stable."""
+    mask = np.isfinite(trues) & np.isfinite(preds)
+    kept = int(mask.sum())
+    dropped = int(mask.size - kept)
+
+    if kept == 0:
+        raise ValueError(
+            f"No finite {split_name} pairs available after filtering NaN/Inf values. "
+            "Inspect model outputs and target scaling."
+        )
+
+    if dropped > 0:
+        print(f"Filtered {dropped} non-finite {split_name} pairs before metric computation.")
+
+    return trues[mask], preds[mask]
+
+
+def compute_split_metrics(trues: np.ndarray, preds: np.ndarray) -> dict[str, float]:
+    """Compute standard regression metrics for one split."""
+    from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+    return {
+        "r2": float(r2_score(trues, preds)),
+        "mae": float(mean_absolute_error(trues, preds)),
+        "rmse": float(np.sqrt(mean_squared_error(trues, preds))),
+    }
+
+
 def print_evaluation_metrics(metrics: dict, status: str = "unknown"):
     """
     Print formatted performance metrics and interpretation.
