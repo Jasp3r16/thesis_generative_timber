@@ -37,6 +37,20 @@ if [[ ! -f "${DELFTBLUE_VENV}/bin/activate" ]]; then
   exit 1
 fi
 source "${DELFTBLUE_VENV}/bin/activate"
+echo "Activated venv: ${DELFTBLUE_VENV}"
+echo "VENV_PYTHON=$(command -v python)"
+echo "VENV_PIP=$(command -v pip)"
+python -m pip --version
+python - <<'PY'
+import sys
+print("python_executable=", sys.executable)
+try:
+    import numpy as np
+    print("numpy_version=", np.__version__)
+except Exception as exc:
+    print("numpy_import_failed=", repr(exc))
+    raise
+PY
 
 if [[ ! -f "${GRID_FILE}" ]]; then
   echo "Grid file not found: ${GRID_FILE}" >&2

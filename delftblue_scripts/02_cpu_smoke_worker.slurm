@@ -3,11 +3,11 @@
 #SBATCH --job-name=c21_cpu_smoke
 #SBATCH --output=delftblue_logs/smoke/c21_cpu_smoke_%j.out
 #SBATCH --error=delftblue_logs/smoke/c21_cpu_smoke_%j.err
-#SBATCH --time=01:00:00
+#SBATCH --time=00:20:00
 #SBATCH --partition=compute
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem-per-cpu=3900M
+#SBATCH --cpus-per-task=2
+#SBATCH --mem-per-cpu=2G
 #SBATCH --account=education-abe-msc-a
 
 set -euo pipefail
@@ -31,7 +31,19 @@ if [[ ! -f "${DELFTBLUE_VENV}/bin/activate" ]]; then
 fi
 source "${DELFTBLUE_VENV}/bin/activate"
 echo "VENV_PYTHON=$(command -v python)"
+echo "VENV_PIP=$(command -v pip)"
+python -m pip --version
 python --version
+python - <<'PY'
+import sys
+print("python_executable=", sys.executable)
+try:
+  import numpy as np
+  print("numpy_version=", np.__version__)
+except Exception as exc:
+  print("numpy_import_failed=", repr(exc))
+  raise
+PY
 
 export DELFTBLUE_DATA_BASE="${DELFTBLUE_DATA_BASE:-/scratch/${USER}}"
 export C21_RUN_ID="cpu_smoke"
