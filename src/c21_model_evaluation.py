@@ -619,6 +619,7 @@ Graph: {node_count} nodes x {edge_count} edges
     print(f"Experiment card saved: {experiment_card_path.name}")
 
     # 8. Create summary README
+    contextual_notes = f"## Contextual Notes\n\n{experiment_notes}\n" if experiment_notes else ""
     summary_text = f"""# Evaluation Results: {artifact_stem or model_prefix}
 
 **Run ID**: {run_id or model_prefix}  
@@ -658,7 +659,7 @@ Graph: {node_count} nodes x {edge_count} edges
 - Validation folder: {eval_dir.name}
 - Hyperparameter provenance is captured in the filename stem and manifest.
 
-{f'## Contextual Notes\n\n{experiment_notes}\n' if experiment_notes else ''}
+{contextual_notes}
 
 ## Files in This Folder
 
