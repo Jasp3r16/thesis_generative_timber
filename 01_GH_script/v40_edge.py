@@ -18,8 +18,7 @@ Expected inputs:
 - J_list: optional list/tree of J per edge
 - write_header: optional bool, default True
 
-Missing mechanical-property inputs are exported as 0.0.
-CSV columns always include Area, Length, E, Iy, Iz, J, EA/L, and Axial_Force.
+Mechanical-property columns are only exported when their inputs are provided.
 
 Outputs:
 - status: human-readable status message
@@ -249,6 +248,11 @@ Iy_list = _as_list(_in.get("Iy_list"))
 Iz_list = _as_list(_in.get("Iz_list"))
 J_list = _as_list(_in.get("J_list"))
 
+has_E_input = _in.get("E_list") is not None and len(E_list) > 0
+has_Iy_input = _in.get("Iy_list") is not None and len(Iy_list) > 0
+has_Iz_input = _in.get("Iz_list") is not None and len(Iz_list) > 0
+has_J_input = _in.get("J_list") is not None and len(J_list) > 0
+
 csv_file = _resolve_csv_file(_in.get("file_path"), _in.get("file_name"))
 header_enabled = True if _in.get("write_header") is None else bool(_in.get("write_header"))
 run_flag = bool(_in.get("write"))
@@ -300,13 +304,24 @@ else:
 				"Target",
 				"Area",
 				"Length",
-				"E",
-				"Iy",
-				"Iz",
-				"J",
-				"EA/L",
 				"Axial_Force",
 			]
+
+			insert_idx = header.index("Axial_Force")
+			if has_E_input:
+				header.insert(insert_idx, "E")
+				insert_idx += 1
+			if has_Iy_input:
+				header.insert(insert_idx, "Iy")
+				insert_idx += 1
+			if has_Iz_input:
+				header.insert(insert_idx, "Iz")
+				insert_idx += 1
+			if has_J_input:
+				header.insert(insert_idx, "J")
+				insert_idx += 1
+			if has_E_input:
+				header.insert(insert_idx, "EA/L")
 
 			writer.writerow(header)
 			sc.sticky[header_key] = True
@@ -338,20 +353,33 @@ else:
 			Iz = _format_fixed_number(Iz, MECH_PROP_DECIMALS)
 			J = _format_fixed_number(J, MECH_PROP_DECIMALS)
 
-			writer.writerow([
+			row = [
 				sample,
 				edge_id,
 				source,
 				target,
 				A,
 				L,
-				E,
-				Iy,
-				Iz,
-				J,
-				ea_over_l,
 				axial_force_value,
-			])
+			]
+
+			insert_idx = len(row) - 1
+			if has_E_input:
+				row.insert(insert_idx, E)
+				insert_idx += 1
+			if has_Iy_input:
+				row.insert(insert_idx, Iy)
+				insert_idx += 1
+			if has_Iz_input:
+				row.insert(insert_idx, Iz)
+				insert_idx += 1
+			if has_J_input:
+				row.insert(insert_idx, J)
+				insert_idx += 1
+			if has_E_input:
+				row.insert(insert_idx, ea_over_l)
+
+			writer.writerow(row)
 
 			rows_written += 1
 

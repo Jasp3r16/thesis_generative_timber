@@ -293,6 +293,7 @@ sample = _sample_scalar(_in.get("sample_id"))
 node_list = _as_list(_in.get("coords_list"))
 id_list = _as_list(_in.get("node_ids"))
 support_list = _as_list(_in.get("is_support_list"))
+has_support_input = _in.get("is_support_list") is not None and len(support_list) > 0
 fx_input = _in.get("load_x_list")
 fy_input = _in.get("load_y_list")
 fz_input = _in.get("load_z_list")
@@ -361,14 +362,10 @@ else:
 				"x",
 				"y",
 				"z",
-				"Tx",
-				"Ty",
-				"Tz",
-				"Rx",
-				"Ry",
-				"Rz",
 				"Fz",
 			]
+			if has_support_input:
+				header[5:5] = ["Tx", "Ty", "Tz", "Rx", "Ry", "Rz"]
 			if ENABLE_FX_FY:
 				header.insert(-1, "Fx")
 				header.insert(-1, "Fy")
@@ -393,15 +390,16 @@ else:
 			y = _round_if_number(y, COORD_DECIMALS)
 			z = _round_if_number(z, COORD_DECIMALS)
 
-			support_val = _value_by_index_or_scalar(support_list, i, default_value=0)
-			is_support = _to_bool01(support_val)
+			if has_support_input:
+				support_val = _value_by_index_or_scalar(support_list, i, default_value=0)
+				is_support = _to_bool01(support_val)
 
-			if is_support == 1:
-				tx, ty, tz = 1, 1, 1
-				rx, ry, rz = 0, 0, 0
-			else:
-				tx, ty, tz = 0, 0, 0
-				rx, ry, rz = 0, 0, 0
+				if is_support == 1:
+					tx, ty, tz = 1, 1, 1
+					rx, ry, rz = 0, 0, 0
+				else:
+					tx, ty, tz = 0, 0, 0
+					rx, ry, rz = 0, 0, 0
 
 			fz = _value_by_index_or_scalar(fz_list, i, default_value=0.0)
 			try:
@@ -415,14 +413,10 @@ else:
 				x,
 				y,
 				z,
-				tx,
-				ty,
-				tz,
-				rx,
-				ry,
-				rz,
 				fz,
 			]
+			if has_support_input:
+				row[5:5] = [tx, ty, tz, rx, ry, rz]
 
 			if ENABLE_FX_FY:
 				fx = _value_by_index_or_scalar(fx_list, i, default_value=0.0)
