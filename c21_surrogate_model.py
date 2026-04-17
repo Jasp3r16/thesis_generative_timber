@@ -8,7 +8,7 @@ class TrussEdgeNNConv(torch.nn.Module):
     """
     Baseline edge-aware surrogate model used by the c21 pipeline.
 
-    Plain-language architecture:
+    Architecture:
     - Four NNConv message-passing layers update node features using edge features.
     - Edge attributes are encoded with a small MLP.
     - Global graph features are encoded with another MLP (or a pooled-node fallback).
@@ -129,7 +129,7 @@ class TrussEdgeNNConvV2(torch.nn.Module):
     """
     Enhanced edge-aware surrogate model with residuals, LayerNorm, and dropout.
 
-    Plain-language architecture:
+    Architecture:
     - Four NNConv message-passing blocks process the graph.
     - Each block uses: NNConv -> LayerNorm -> ReLU -> Dropout.
     - Residual skip connections are applied across all four blocks to stabilize training.

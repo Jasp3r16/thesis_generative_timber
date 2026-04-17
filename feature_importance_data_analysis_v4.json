@@ -72,8 +72,8 @@
     },
     {
       "feature": "support_overlap_count",
-      "pearson_r": NaN,
-      "abs_r": NaN
+      "pearson_r": 0.0,
+      "abs_r": 0.0
     },
     {
       "feature": "support_count_total",
