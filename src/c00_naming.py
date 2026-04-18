@@ -90,10 +90,18 @@ def build_run_folder_name(run_id: str, dt: datetime | None = None) -> str:
     return f"{run_id}_{human_timestamp(dt)}"
 
 
+def build_evaluation_folder_name(base_name: str, feature_count: int | None = None) -> str:
+    """Build the output folder name for exported surrogate evaluation data."""
+    if feature_count is None:
+        return base_name
+    return f"{base_name}_F{feature_count}"
+
+
 __all__ = [
     "build_dataset_filename",
     "build_dataset_label",
     "build_model_artifact_stem",
+    "build_evaluation_folder_name",
     "build_run_folder_name",
     "build_run_id",
     "compact_timestamp",

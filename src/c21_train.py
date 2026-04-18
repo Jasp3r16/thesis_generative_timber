@@ -101,6 +101,17 @@ def _resolve_checkpoint_path(artifact_prefix: str) -> Path:
     return config.SM_EXPORT_PATH / f"truss_edge_gnn_{artifact_prefix}.pt"
 
 
+def _parse_csv_columns_env(var_name: str) -> tuple[str, ...] | None:
+    """Parse comma-separated env var into a tuple, or None when unset/auto."""
+    raw = os.getenv(var_name)
+    if raw is None:
+        return None
+    cleaned = [item.strip() for item in raw.split(",") if item.strip()]
+    if not cleaned:
+        return None
+    return tuple(cleaned)
+
+
 def load_parameters(device: torch.device | None = None):
     """Load and validate all hyperparameters from environment variables."""
     fast_mode_env = os.getenv("C21_FAST_MODE")
@@ -111,13 +122,19 @@ def load_parameters(device: torch.device | None = None):
         fast_mode = fast_mode_env.lower() == "true"
         fast_mode_source = "env"
 
-    prefix="S19999_D20260416"
+    data_prefix = os.getenv("C21_DATA_PREFIX", "S19999_D20260418")
 
     params = {
         # Data
-        "node_csv": os.getenv("C21_NODE_CSV", f"v4_node_C12_{prefix}.csv"),
-        "edge_csv": os.getenv("C21_EDGE_CSV", f"v4_edge_C12_{prefix}.csv"),
-        "global_csv": os.getenv("C21_GLOBAL_CSV", f"v4_global_C4_{prefix}.csv"),
+        "data_prefix": data_prefix,
+        "node_csv": os.getenv("C21_NODE_CSV", f"v4_node_C6_{data_prefix}.csv"),
+        "edge_csv": os.getenv("C21_EDGE_CSV", f"v4_edge_C7_{data_prefix}.csv"),
+        "global_csv": os.getenv("C21_GLOBAL_CSV", f"v4_global_C4_{data_prefix}.csv"),
+        "use_global_csv": os.getenv("C21_USE_GLOBAL_CSV", "false").lower() == "true",
+        "selected_node_continuous_cols": _parse_csv_columns_env("C21_NODE_CONTINUOUS_COLS"),
+        "selected_node_mask_cols": _parse_csv_columns_env("C21_NODE_MASK_COLS"),
+        "selected_edge_feature_cols": _parse_csv_columns_env("C21_EDGE_FEATURE_COLS"),
+        "selected_global_feature_cols": _parse_csv_columns_env("C21_GLOBAL_FEATURE_COLS"),
         # Workflow
         "use_pretrained": os.getenv("C21_USE_PRETRAINED", "false").lower() == "true",
         "pretrained_model_prefix": os.getenv("C21_PRETRAINED_MODEL_PREFIX", "data_4_0000"),
@@ -186,20 +203,51 @@ def load_data(params):
     
     node_path = config.GH_DATA_PATH / params["node_csv"]
     edge_path = config.GH_DATA_PATH / params["edge_csv"]
-    global_path = config.GH_DATA_PATH / params["global_csv"]
+    use_global = params.get("use_global_csv", True)
+    selected_node_continuous_cols = params.get("selected_node_continuous_cols")
+    selected_node_mask_cols = params.get("selected_node_mask_cols")
+    selected_edge_feature_cols = params.get("selected_edge_feature_cols")
+    selected_global_feature_cols = params.get("selected_global_feature_cols")
 
-    df_node, df_edge, df_global = load_v4_sources(node_path, edge_path, global_path)
-    schema = infer_v4_schema(df_node, df_edge, df_global, use_virtual_node=params.get("use_virtual_node", False))
-    sample_ids = validate_sample_coverage(df_node, df_edge, df_global)
+    schema_kwargs = {
+        "use_virtual_node": params.get("use_virtual_node", False),
+        "use_global_csv": use_global,
+        "selected_node_continuous_cols": selected_node_continuous_cols,
+        "selected_node_mask_cols": selected_node_mask_cols,
+        "selected_edge_feature_cols": selected_edge_feature_cols,
+        "selected_global_feature_cols": selected_global_feature_cols,
+    }
+
+    if use_global:
+        global_path = config.GH_DATA_PATH / params["global_csv"]
+        df_node, df_edge, df_global = load_v4_sources(node_path, edge_path, global_path)
+        schema = infer_v4_schema(df_node, df_edge, df_global, **schema_kwargs)
+        sample_ids = validate_sample_coverage(df_node, df_edge, df_global)
+    else:
+        import pandas as pd
+        df_node = pd.read_csv(node_path)
+        df_edge = pd.read_csv(edge_path)
+        df_global = None
+        schema = infer_v4_schema(df_node, df_edge, None, **schema_kwargs)
+        # Only check node/edge sample coverage
+        node_samples = set(df_node["sample_id"].unique().tolist())
+        edge_samples = set(df_edge["Sample_ID"].unique().tolist())
+        if node_samples != edge_samples:
+            raise ValueError(f"sample_id coverage mismatch: node={len(node_samples)}, edge={len(edge_samples)}")
+        sample_ids = sorted(node_samples)
     edge_index = build_edge_index(df_edge)
 
     print(f"\n--- DATA VALIDATION ---")
     print(f"Node rows:         {len(df_node)}")
     print(f"Edge rows:         {len(df_edge)}")
-    print(f"Global rows:       {len(df_global)}")
+    if use_global:
+        print(f"Global rows:       {len(df_global)}")
     print(f"Samples:           {len(sample_ids)}")
     print(f"Node count:        {schema.node_count}")
     print(f"Edge count:        {schema.edge_count}")
+    print(f"Node features:     {schema.node_continuous_cols + schema.node_mask_cols + schema.node_virtual_cols}")
+    print(f"Edge features:     {schema.edge_feature_cols}")
+    print(f"Global features:   {schema.global_feature_cols}")
     print(f"edge_index shape:  {tuple(edge_index.shape)}")
     print("Validation successful. Multi-source data loaded correctly.\n")
 
@@ -216,7 +264,7 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
     NODE_LOAD_COLS = list(schema.node_load_cols)
     NODE_VIRTUAL_COLS = list(schema.node_virtual_cols)
     EDGE_FEATURE_COLS = list(schema.edge_feature_cols)
-    GLOBAL_FEATURE_COLS = list(schema.global_feature_cols)
+    GLOBAL_FEATURE_COLS = list(schema.global_feature_cols) if schema.global_feature_cols else []
     TARGET_COL = "Axial_Force"
 
     for load_col in NODE_LOAD_COLS:
@@ -232,7 +280,7 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
 
     train_node_df = df_node[df_node["sample_id"].isin(train_sample_ids)].copy()
     train_edge_df = df_edge[df_edge["Sample_ID"].isin(train_sample_ids)].copy()
-    train_global_df = df_global[df_global["sample_id"].isin(train_sample_ids)].copy()
+    train_global_df = df_global[df_global["sample_id"].isin(train_sample_ids)].copy() if (df_global is not None and hasattr(df_global, '__getitem__')) else None
 
     # Fit scalers only on training split
     node_continuous_scaler = StandardScaler().fit(train_node_df[NODE_CONTINUOUS_COLS])
@@ -245,7 +293,10 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
         edge_target_scaler = EdgeWiseStandardScaler(edge_order=edge_order, edge_mean_map=edge_mean_map, edge_std_map=edge_std_map)
     else:
         edge_target_scaler = StandardScaler().fit(train_edge_df[[TARGET_COL]])
-    global_feature_scaler = StandardScaler().fit(train_global_df[GLOBAL_FEATURE_COLS])
+    if train_global_df is not None and GLOBAL_FEATURE_COLS:
+        global_feature_scaler = StandardScaler().fit(train_global_df[GLOBAL_FEATURE_COLS])
+    else:
+        global_feature_scaler = None
 
     # Transform full dataset
     node_continuous_scaled = pd.DataFrame(
@@ -267,11 +318,14 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
             index=df_edge.index,
             columns=[TARGET_COL],
         )
-    global_feature_scaled = pd.DataFrame(
-        global_feature_scaler.transform(df_global[GLOBAL_FEATURE_COLS]),
-        index=df_global.index,
-        columns=GLOBAL_FEATURE_COLS,
-    )
+    if global_feature_scaler is not None and df_global is not None and GLOBAL_FEATURE_COLS:
+        global_feature_scaled = pd.DataFrame(
+            global_feature_scaler.transform(df_global[GLOBAL_FEATURE_COLS]),
+            index=df_global.index,
+            columns=GLOBAL_FEATURE_COLS,
+        )
+    else:
+        global_feature_scaled = None
 
     use_virtual_node = params.get("use_virtual_node", False)
 
@@ -279,13 +333,13 @@ def process_data(df_node, df_edge, df_global, schema, sample_ids, edge_index, pa
     graph_dataset = build_graph_dataset(
         df_node=df_node,
         df_edge=df_edge,
-        df_global=df_global,
+        df_global=df_global if df_global is not None else None,
         schema=schema,
         node_continuous_scaled=node_continuous_scaled,
         node_mask_values=node_mask_values,
         edge_feature_scaled=edge_feature_scaled,
         edge_target_scaled=edge_target_scaled,
-        global_feature_scaled=global_feature_scaled,
+        global_feature_scaled=global_feature_scaled if global_feature_scaled is not None else None,
         edge_index=edge_index,
         use_virtual_node=use_virtual_node,
     )
@@ -686,8 +740,14 @@ def export_model(model, scalers, schema, params, run_metrics):
         "dataset_sources": {
             "node": params["node_csv"],
             "edge": params["edge_csv"],
-            "global": params["global_csv"],
+            "global": params["global_csv"] if params.get("use_global_csv", True) else None,
         },
+        "use_global_csv": params.get("use_global_csv", True),
+        "selected_node_continuous_cols": list(schema.node_continuous_cols),
+        "selected_node_mask_cols": list(schema.node_mask_cols),
+        "selected_node_virtual_cols": list(getattr(schema, "node_virtual_cols", ())),
+        "selected_edge_feature_cols": list(schema.edge_feature_cols),
+        "selected_global_feature_cols": list(schema.global_feature_cols),
         "learning_rate": params["learning_rate"],
         "epochs": params["epochs"],
         "batch_size": params["batch_size"],
@@ -802,6 +862,10 @@ def main():
     print("Parameters loaded:")
     print(f"- fast_mode={params['fast_mode']} ({params['fast_mode_source']})")
     print(f"- lr={params['learning_rate']}, epochs={params['epochs']}, batch={params['batch_size']}")
+    print(
+        f"- data: node={params['node_csv']}, edge={params['edge_csv']}, "
+        f"global={params['global_csv']} (enabled={params['use_global_csv']})"
+    )
     print(f"- hidden_dim={params['hidden_dim']}, weight_decay={params['weight_decay']}")
     print(f"- model_variant={params['model_variant']}, dropout_p={params['dropout_p']}")
     print(f"- loss_type={params['loss_type']}, huber_beta={params['huber_beta']}")

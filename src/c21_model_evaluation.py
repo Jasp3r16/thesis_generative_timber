@@ -14,7 +14,7 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 import matplotlib.pyplot as plt
 import numpy as np
 
-from c00_naming import build_run_folder_name
+from c00_naming import build_evaluation_folder_name
 
 try:
     from config import PLOT_COLORS, PLOT_STYLE
@@ -44,6 +44,16 @@ def _safe_package_version(package_name: str) -> str | None:
         return package_version(package_name)
     except PackageNotFoundError:
         return None
+
+
+def _format_feature_line(label: str, values) -> str:
+    if values is None:
+        return f"- {label}: n/a"
+    if isinstance(values, tuple):
+        return f"- {label}: {values}"
+    if isinstance(values, list):
+        return f"- {label}: {tuple(values)}"
+    return f"- {label}: {values}"
 
 
 def collect_environment_snapshot() -> dict:
@@ -389,6 +399,7 @@ def save_evaluation(
     strict_dataset_label: str | None = None,
     source_dataset_path: str | None = None,
     architecture_summary: dict | str | None = None,
+    feature_count: int | None = None,
     experiment_notes: str | None = None,
     train_split_ratio: float | None = None,
     random_seed: int | None = None,
@@ -428,8 +439,17 @@ def save_evaluation(
     """
     
     # Create directory structure
-    run_folder_id = run_id or model_prefix
-    eval_dir = export_path / build_run_folder_name(run_folder_id)
+    base_folder_name = artifact_stem or model_prefix
+    resolved_feature_count = feature_count
+    if resolved_feature_count is None and isinstance(architecture_summary, dict):
+        node_features = architecture_summary.get("node_in_dim")
+        edge_features = architecture_summary.get("edge_in_dim")
+        global_features = architecture_summary.get("global_in_dim")
+        if all(isinstance(value, (int, float)) for value in (node_features, edge_features, global_features)):
+            resolved_feature_count = int(node_features) + int(edge_features) + int(global_features)
+
+    eval_dir_name = build_evaluation_folder_name(base_folder_name, resolved_feature_count)
+    eval_dir = export_path / eval_dir_name
     eval_dir.mkdir(parents=True, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -440,71 +460,36 @@ def save_evaluation(
     print(f"{'='*60}\n")
 
     architecture_text = pformat(architecture_summary, sort_dicts=False) if architecture_summary is not None else "Not provided"
+    if isinstance(architecture_summary, dict):
+        feature_lines = []
+        if any(key in architecture_summary for key in ("node_features", "edge_features", "global_features")):
+            feature_lines.append("Feature selection:")
+            feature_lines.append(_format_feature_line("Node features", architecture_summary.get("node_features")))
+            feature_lines.append(_format_feature_line("Edge features", architecture_summary.get("edge_features")))
+            feature_lines.append(_format_feature_line("Global features", architecture_summary.get("global_features")))
+            architecture_text = architecture_text + "\n\n" + "\n".join(feature_lines)
     environment_data = environment_snapshot or collect_environment_snapshot()
     
-    # 1. Save metrics as JSON
-    metrics_data = {
-        "run_id": run_id or model_prefix,
-        "artifact_stem": artifact_stem or model_prefix,
-        "model_prefix": model_prefix,
-        "dataset": dataset_name,
-        "source_dataset_path": source_dataset_path,
-        "strict_dataset_label": strict_dataset_label,
-        "learning_rate": learning_rate,
-        "epochs": epochs,
-        "eval_every": eval_every,
-        "final_val_r2": final_val_r2,
-        "train_split_ratio": train_split_ratio,
-        "random_seed": random_seed,
-        "source_notebook": source_notebook,
-        "timestamp": timestamp,
-        "node_count": node_count,
-        "edge_count": edge_count,
-        "architecture_summary": architecture_summary,
-        "experiment_notes": experiment_notes,
-        "environment_snapshot": environment_data,
-        "metrics": {
-            "train": {
-                "r2": float(metrics['train_r2']),
-                "mae": float(metrics['train_mae']),
-                "rmse": float(metrics['train_rmse'])
-            },
-            "test": {
-                "r2": float(metrics['test_r2']),
-                "mae": float(metrics['test_mae']),
-                "rmse": float(metrics['test_rmse'])
-            },
-            "r2_gap": float(metrics['r2_gap']),
-            "status": status
-        }
-    }
-    
-    metrics_path = eval_dir / f"metrics_{timestamp}.json"
-    with open(metrics_path, 'w') as f:
-        json.dump(metrics_data, f, indent=2)
-    saved_files['metrics'] = metrics_path
-    print(f"Metrics saved: metrics_{timestamp}.json")
-    
-    # 2. Save predictions vs actual + residuals plot
+    # 1. Save predictions vs actual + residuals plot
     pred_plot_path = eval_dir / f"01_predictions_residuals_{timestamp}.png"
     pred_residuals_fig.savefig(pred_plot_path, dpi=150, bbox_inches='tight')
     saved_files['pred_residuals_plot'] = pred_plot_path
     print(f"Predictions plot saved: 01_predictions_residuals_{timestamp}.png")
     
-    # 3. Save error distribution plot
+    # 2. Save error distribution plot
     error_plot_path = eval_dir / f"02_error_distribution_{timestamp}.png"
     error_dist_fig.savefig(error_plot_path, dpi=150, bbox_inches='tight')
     saved_files['error_dist_plot'] = error_plot_path
     print(f"Error distribution saved: 02_error_distribution_{timestamp}.png")
 
-    # 4. Save training diagnostics plot (optional)
+    # 3. Save training diagnostics plot (optional)
     if training_visuals_fig is not None:
         training_plot_path = eval_dir / f"03_training_diagnostics_{timestamp}.png"
         training_visuals_fig.savefig(training_plot_path, dpi=150, bbox_inches='tight')
         saved_files['training_diagnostics_plot'] = training_plot_path
         print(f"Training diagnostics saved: 03_training_diagnostics_{timestamp}.png")
     
-    # 4b. Save epoch-by-epoch metrics as CSV (for reviewing training progress)
+    # 3b. Save epoch-by-epoch metrics as CSV (for reviewing training progress)
     if epoch_metrics_history:
         import pandas as pd
         epoch_csv_path = eval_dir / f"epoch_history_{timestamp}.csv"
@@ -513,7 +498,7 @@ def save_evaluation(
         saved_files['epoch_history_csv'] = epoch_csv_path
         print(f"Epoch history saved: epoch_history_{timestamp}.csv")
     
-    # 5. Save architecture summary
+    # 4. Save architecture summary
     architecture_path = eval_dir / f"model_architecture_{timestamp}.txt"
     architecture_text_block = f"""# Model Architecture Summary
 
@@ -534,7 +519,7 @@ Graph: {node_count} nodes x {edge_count} edges
     saved_files['architecture_summary'] = architecture_path
     print(f"Architecture summary saved: {architecture_path.name}")
 
-    # 6. Save manifest for downstream tooling
+    # 5. Save combined manifest + metrics for downstream tooling
     manifest_path = eval_dir / f"run_manifest_{timestamp}.json"
     with open(manifest_path, 'w', encoding='utf-8') as f:
         json.dump(
@@ -542,8 +527,32 @@ Graph: {node_count} nodes x {edge_count} edges
                 "run_id": run_id or model_prefix,
                 "artifact_stem": artifact_stem or model_prefix,
                 "dataset": dataset_name,
+                "dataset_sources": architecture_summary.get("dataset_sources") if isinstance(architecture_summary, dict) else None,
                 "strict_dataset_label": strict_dataset_label,
                 "source_dataset_path": source_dataset_path,
+                "node_features": architecture_summary.get("node_features") if isinstance(architecture_summary, dict) else None,
+                "edge_features": architecture_summary.get("edge_features") if isinstance(architecture_summary, dict) else None,
+                "global_features": architecture_summary.get("global_features") if isinstance(architecture_summary, dict) else None,
+                "selected_node_continuous_cols": architecture_summary.get("selected_node_continuous_cols") if isinstance(architecture_summary, dict) else None,
+                "selected_node_mask_cols": architecture_summary.get("selected_node_mask_cols") if isinstance(architecture_summary, dict) else None,
+                "selected_node_virtual_cols": architecture_summary.get("selected_node_virtual_cols") if isinstance(architecture_summary, dict) else None,
+                "selected_edge_feature_cols": architecture_summary.get("selected_edge_feature_cols") if isinstance(architecture_summary, dict) else None,
+                "selected_global_feature_cols": architecture_summary.get("selected_global_feature_cols") if isinstance(architecture_summary, dict) else None,
+                "feature_count": resolved_feature_count,
+                "metrics": {
+                    "train": {
+                        "r2": float(metrics['train_r2']),
+                        "mae": float(metrics['train_mae']),
+                        "rmse": float(metrics['train_rmse'])
+                    },
+                    "test": {
+                        "r2": float(metrics['test_r2']),
+                        "mae": float(metrics['test_mae']),
+                        "rmse": float(metrics['test_rmse'])
+                    },
+                    "r2_gap": float(metrics['r2_gap']),
+                    "status": status
+                },
                 "learning_rate": learning_rate,
                 "epochs": epochs,
                 "eval_every": eval_every,
@@ -559,7 +568,7 @@ Graph: {node_count} nodes x {edge_count} edges
     saved_files['manifest'] = manifest_path
     print(f"Manifest saved: {manifest_path.name}")
 
-    # 7. Save experiment card for reproducibility audits
+    # 6. Save experiment card for reproducibility audits
     experiment_card_path = eval_dir / f"experiment_card_{timestamp}.md"
     experiment_card = f"""# Experiment Card
 
@@ -618,7 +627,7 @@ Graph: {node_count} nodes x {edge_count} edges
     saved_files['experiment_card'] = experiment_card_path
     print(f"Experiment card saved: {experiment_card_path.name}")
 
-    # 8. Create summary README
+    # 7. Create summary README
     contextual_notes = f"## Contextual Notes\n\n{experiment_notes}\n" if experiment_notes else ""
     summary_text = f"""# Evaluation Results: {artifact_stem or model_prefix}
 
@@ -663,14 +672,13 @@ Graph: {node_count} nodes x {edge_count} edges
 
 ## Files in This Folder
 
-1. `metrics_{timestamp}.json` — Raw metrics (machine-readable)
-2. `01_predictions_residuals_{timestamp}.png` — 4-panel: predictions vs actual + residual plots (train & test)
-3. `02_error_distribution_{timestamp}.png` — Error histograms for train & test
-4. `03_training_diagnostics_{timestamp}.png` — Training loss curve + normalized target profile (if available)
-5. `model_architecture_{timestamp}.txt` — Text summary of the trained model
-6. `run_manifest_{timestamp}.json` — Machine-readable run manifest
-7. `experiment_card_{timestamp}.md` — Reproducibility snapshot for the run
-8. `README.md` — This summary
+1. `01_predictions_residuals_{timestamp}.png` — 4-panel: predictions vs actual + residual plots (train & test)
+2. `02_error_distribution_{timestamp}.png` — Error histograms for train & test
+3. `03_training_diagnostics_{timestamp}.png` — Training loss curve + normalized target profile (if available)
+4. `model_architecture_{timestamp}.txt` — Text summary of the trained model
+5. `run_manifest_{timestamp}.json` — Combined manifest, metrics, feature selection, and environment snapshot
+6. `experiment_card_{timestamp}.md` — Reproducibility snapshot for the run
+7. `README.md` — This summary
 
 ## Model Files
 

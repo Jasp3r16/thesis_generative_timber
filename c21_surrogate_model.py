@@ -66,20 +66,25 @@ class TrussEdgeNNConv(torch.nn.Module):
             ReLU(),
         )
 
-        self.global_encoder = Sequential(
-            Linear(global_in_dim, hidden_dim),
-            ReLU(),
-            Linear(hidden_dim, hidden_dim),
-            ReLU(),
-        )
+        if global_in_dim > 0:
+            self.global_encoder = Sequential(
+                Linear(global_in_dim, hidden_dim),
+                ReLU(),
+                Linear(hidden_dim, hidden_dim),
+                ReLU(),
+            )
+        else:
+            self.global_encoder = None
 
         self.graph_fallback = Sequential(
             Linear(hidden_dim, hidden_dim),
             ReLU(),
         )
 
+        # If no global features, edge_predictor input is hidden_dim*3
+        edge_predictor_in_dim = hidden_dim * (4 if global_in_dim > 0 else 3)
         self.edge_predictor = Sequential(
-            Linear(hidden_dim * 4, hidden_dim),
+            Linear(edge_predictor_in_dim, hidden_dim),
             ReLU(),
             Linear(hidden_dim, hidden_dim // 2),
             ReLU(),
@@ -112,16 +117,17 @@ class TrussEdgeNNConv(torch.nn.Module):
 
         edge_context = self.edge_attr_encoder(edge_attr)
 
-        if u is not None:
+        if self.global_in_dim > 0 and u is not None:
             if u.dim() == 1:
                 u = u.unsqueeze(0)
             graph_context = self.global_encoder(u)
+            graph_context_for_edges = graph_context[edge_batch]
+            node_context = torch.cat([h[src], h[dst]], dim=1)
+            edge_features = torch.cat([node_context, edge_context, graph_context_for_edges], dim=1)
         else:
-            graph_context = self.graph_fallback(graph_embedding)
-
-        graph_context_for_edges = graph_context[edge_batch]
-        node_context = torch.cat([h[src], h[dst]], dim=1)
-        edge_features = torch.cat([node_context, edge_context, graph_context_for_edges], dim=1)
+            # No global features: skip global context
+            node_context = torch.cat([h[src], h[dst]], dim=1)
+            edge_features = torch.cat([node_context, edge_context], dim=1)
         return self.edge_predictor(edge_features)
 
 
@@ -198,13 +204,16 @@ class TrussEdgeNNConvV2(torch.nn.Module):
             ReLU(),
         )
 
-        self.global_encoder = Sequential(
-            Linear(global_in_dim, hidden_dim),
-            ReLU(),
-            Dropout(p=dropout_p),
-            Linear(hidden_dim, hidden_dim),
-            ReLU(),
-        )
+        if global_in_dim > 0:
+            self.global_encoder = Sequential(
+                Linear(global_in_dim, hidden_dim),
+                ReLU(),
+                Dropout(p=dropout_p),
+                Linear(hidden_dim, hidden_dim),
+                ReLU(),
+            )
+        else:
+            self.global_encoder = None
 
         self.graph_fallback = Sequential(
             Linear(hidden_dim, hidden_dim),
@@ -212,8 +221,9 @@ class TrussEdgeNNConvV2(torch.nn.Module):
             Dropout(p=dropout_p),
         )
 
+        edge_predictor_in_dim = hidden_dim * (4 if global_in_dim > 0 else 3)
         self.edge_predictor = Sequential(
-            Linear(hidden_dim * 4, hidden_dim),
+            Linear(edge_predictor_in_dim, hidden_dim),
             ReLU(),
             Dropout(p=dropout_p),
             Linear(hidden_dim, hidden_dim // 2),
@@ -268,16 +278,16 @@ class TrussEdgeNNConvV2(torch.nn.Module):
 
         edge_context = self.edge_attr_encoder(edge_attr)
 
-        if u is not None:
+        if self.global_in_dim > 0 and u is not None:
             if u.dim() == 1:
                 u = u.unsqueeze(0)
             graph_context = self.global_encoder(u)
+            graph_context_for_edges = graph_context[edge_batch]
+            node_context = torch.cat([h[src], h[dst]], dim=1)
+            edge_features = torch.cat([node_context, edge_context, graph_context_for_edges], dim=1)
         else:
-            graph_context = self.graph_fallback(graph_embedding)
-
-        graph_context_for_edges = graph_context[edge_batch]
-        node_context = torch.cat([h[src], h[dst]], dim=1)
-        edge_features = torch.cat([node_context, edge_context, graph_context_for_edges], dim=1)
+            node_context = torch.cat([h[src], h[dst]], dim=1)
+            edge_features = torch.cat([node_context, edge_context], dim=1)
         return self.edge_predictor(edge_features)
 
 

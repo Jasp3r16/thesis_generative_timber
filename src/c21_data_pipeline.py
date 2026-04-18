@@ -34,6 +34,37 @@ def _check_columns(df: pd.DataFrame, required: Iterable[str], label: str) -> Non
         raise ValueError(f"Missing columns in {label}: {', '.join(missing)}")
 
 
+def _resolve_selected_columns(
+    df: pd.DataFrame,
+    candidates: tuple[str, ...],
+    selected: tuple[str, ...] | None,
+    label: str,
+) -> tuple[str, ...]:
+    """Resolve selected columns with strict validation and stable ordering.
+
+    - If selected is None: keep all candidate columns that exist in the dataframe.
+    - If selected is provided: require each selected column to exist in both candidates and dataframe.
+    """
+    if selected is None:
+        return tuple(column for column in candidates if column in df.columns)
+
+    selected_clean = tuple(column for column in selected if column)
+    invalid = [column for column in selected_clean if column not in candidates]
+    if invalid:
+        raise ValueError(
+            f"Invalid {label} column(s): {', '.join(invalid)}. "
+            f"Allowed: {', '.join(candidates)}"
+        )
+
+    missing = [column for column in selected_clean if column not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Requested {label} column(s) not found in CSV: {', '.join(missing)}"
+        )
+
+    return selected_clean
+
+
 def load_v4_sources(node_csv: Path, edge_csv: Path, global_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df_node = pd.read_csv(node_csv)
     df_edge = pd.read_csv(edge_csv)
@@ -62,15 +93,55 @@ def _resolve_node_load_cols(df_node: pd.DataFrame) -> tuple[str, ...]:
 def infer_v4_schema(
     df_node: pd.DataFrame,
     df_edge: pd.DataFrame,
-    df_global: pd.DataFrame,
+    df_global: pd.DataFrame = None,
     use_virtual_node: bool = False,
+    use_global_csv: bool = True,
+    selected_node_continuous_cols: tuple[str, ...] | None = None,
+    selected_node_mask_cols: tuple[str, ...] | None = None,
+    selected_edge_feature_cols: tuple[str, ...] | None = None,
+    selected_global_feature_cols: tuple[str, ...] | None = None,
 ) -> V4Schema:
-    node_load_cols = _resolve_node_load_cols(df_node)
-    node_continuous_cols = ("x", "y", "z", *node_load_cols)
-    node_mask_cols = ("Tx", "Ty", "Tz", "Rx", "Ry", "Rz")
+    node_continuous_candidates = ("x", "y", "z", "Fx", "Fy", "Fz")
+    node_continuous_cols = _resolve_selected_columns(
+        df=df_node,
+        candidates=node_continuous_candidates,
+        selected=selected_node_continuous_cols,
+        label="node continuous",
+    )
+    node_mask_candidates = ("Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "is_support")
+    node_mask_cols = _resolve_selected_columns(
+        df=df_node,
+        candidates=node_mask_candidates,
+        selected=selected_node_mask_cols,
+        label="node mask",
+    )
+    node_load_cols = tuple(col for col in ("Fx", "Fy", "Fz") if col in node_continuous_cols)
+    # Virtual node augmentation adds an extra indicator feature at graph-build time,
+    # independent of whether the raw CSV already contains `is_virtual`.
     node_virtual_cols = ("is_virtual",) if use_virtual_node else ()
-    edge_feature_cols = ("Area", "Length", "E", "Iy", "Iz", "J", "EA/L")
-    global_feature_cols = ("Global_Load_Sum", "Total_Structural_Volume", "Average_Connectivity")
+
+    if not node_continuous_cols:
+        raise ValueError("No node continuous feature columns were selected/found.")
+    edge_feature_candidates = ("Area", "Length", "E", "Iy", "Iz", "J", "EA/L")
+    edge_feature_cols = _resolve_selected_columns(
+        df=df_edge,
+        candidates=edge_feature_candidates,
+        selected=selected_edge_feature_cols,
+        label="edge feature",
+    )
+    if not edge_feature_cols:
+        raise ValueError("No edge feature columns were selected/found.")
+
+    if use_global_csv and df_global is not None:
+        global_feature_candidates = ("Global_Load_Sum", "Total_Structural_Volume", "Average_Connectivity")
+        global_feature_cols = _resolve_selected_columns(
+            df=df_global,
+            candidates=global_feature_candidates,
+            selected=selected_global_feature_cols,
+            label="global feature",
+        )
+    else:
+        global_feature_cols = ()
 
     node_ids = sorted(df_node["node_id"].astype(str).unique().tolist(), key=_numeric_suffix)
     edge_ids = sorted(df_edge["Edge_ID"].astype(str).unique().tolist(), key=_numeric_suffix)
@@ -95,14 +166,19 @@ def infer_v4_schema(
 def validate_sample_coverage(df_node: pd.DataFrame, df_edge: pd.DataFrame, df_global: pd.DataFrame) -> list[int]:
     node_samples = set(df_node["sample_id"].unique().tolist())
     edge_samples = set(df_edge["Sample_ID"].unique().tolist())
-    global_samples = set(df_global["sample_id"].unique().tolist())
-
-    if node_samples != edge_samples or node_samples != global_samples:
-        raise ValueError(
-            "sample_id coverage mismatch across CSVs: "
-            f"node={len(node_samples)}, edge={len(edge_samples)}, global={len(global_samples)}"
-        )
-
+    if df_global is not None:
+        global_samples = set(df_global["sample_id"].unique().tolist())
+        if node_samples != edge_samples or node_samples != global_samples:
+            raise ValueError(
+                "sample_id coverage mismatch across CSVs: "
+                f"node={len(node_samples)}, edge={len(edge_samples)}, global={len(global_samples)}"
+            )
+    else:
+        if node_samples != edge_samples:
+            raise ValueError(
+                "sample_id coverage mismatch across node and edge CSVs: "
+                f"node={len(node_samples)}, edge={len(edge_samples)}"
+            )
     return sorted(node_samples)
 
 
@@ -139,7 +215,10 @@ def build_graph_dataset(
     for sample_id in sample_ids:
         node_sample = df_node[df_node["sample_id"] == sample_id].copy()
         edge_sample = df_edge[df_edge["Sample_ID"] == sample_id].copy()
-        global_sample = df_global[df_global["sample_id"] == sample_id].copy()
+        if df_global is not None:
+            global_sample = df_global[df_global["sample_id"] == sample_id].copy()
+        else:
+            global_sample = None
         graph_edge_index = edge_index.clone()
 
         node_sample = node_sample.sort_values(by="node_id", key=lambda series: series.map(_numeric_suffix))
@@ -156,7 +235,11 @@ def build_graph_dataset(
         y_edge = torch.tensor(edge_target_scaled.loc[edge_sample.index].to_numpy(), dtype=torch.float32)
         edge_attr = torch.cat([edge_attr, edge_attr], dim=0)
         y_edge = torch.cat([y_edge, y_edge], dim=0)
-        u = torch.tensor(global_feature_scaled.loc[global_sample.index].to_numpy().reshape(1, -1), dtype=torch.float32)
+        if global_feature_scaled is not None and global_sample is not None:
+            u = torch.tensor(global_feature_scaled.loc[global_sample.index].to_numpy().reshape(1, -1), dtype=torch.float32)
+        else:
+            # If no global features, use a zero tensor with shape (1, 0) or (1, n) as appropriate
+            u = torch.zeros((1, 0), dtype=torch.float32)
 
         edge_loss_mask = torch.ones((graph_edge_index.size(1), 1), dtype=torch.float32)
 
