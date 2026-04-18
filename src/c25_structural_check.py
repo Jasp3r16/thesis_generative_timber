@@ -1,7 +1,87 @@
 from __future__ import annotations
 import math
+from typing import Any
 import numpy as np
 import pandas as pd
+
+
+def assign_roof_load_fz(
+	df_vertices: pd.DataFrame,
+	roof_load_kn_m2: float = 2.0,
+	layer_column: str = "layer",
+	top_layer_value: str = "top",
+	bottom_layer_value: str = "bottom",
+) -> pd.DataFrame:
+	"""Assign nodal Fz from distributed roof load over the top-node roof footprint.
+
+	The roof load is projected on the XY plane and distributed to top vertices using
+	a triangulation-based tributary area method:
+	- Triangulate the top-node XY points with `matplotlib.tri.Triangulation`
+	- For each triangle, distribute one-third of its area to each triangle node
+	- Nodal force is `Fz = -roof_load_kn_m2 * tributary_area_m2`
+	- Bottom nodes are explicitly set to `Fz = 0`
+
+	Args:
+		df_vertices: Vertex table containing at least `x`, `y`, `z` and `layer`.
+		roof_load_kn_m2: Uniform roof surface load in kN/m2.
+		layer_column: Column that stores top/bottom layer labels.
+		top_layer_value: Value that marks upper (roof) vertices.
+		bottom_layer_value: Value that marks lower vertices.
+
+	Returns:
+		A copy of `df_vertices` with columns:
+		- `Fz`: nodal vertical load in kN (negative downward)
+		- `roof_tributary_area_m2`: tributary roof area per node in m2
+
+	Raises:
+		ValueError: If required columns are missing or top-node geometry is invalid.
+	"""
+	required_cols = {"x", "y", "z", layer_column}
+	missing = [c for c in required_cols if c not in df_vertices.columns]
+	if missing:
+		raise ValueError("assign_roof_load_fz missing columns: " + ", ".join(missing))
+
+	df_out = df_vertices.copy()
+	df_out["roof_tributary_area_m2"] = 0.0
+	df_out["Fz"] = 0.0
+
+	top_mask = df_out[layer_column].astype(str).str.lower() == str(top_layer_value).lower()
+	bottom_mask = df_out[layer_column].astype(str).str.lower() == str(bottom_layer_value).lower()
+
+	df_top = df_out.loc[top_mask, ["x", "y"]].astype(float)
+	if len(df_top) < 3:
+		raise ValueError("Need at least 3 top-layer vertices to distribute roof load.")
+
+	xy = df_top.to_numpy(dtype=float)
+	if np.linalg.matrix_rank(xy - xy.mean(axis=0, keepdims=True)) < 2:
+		raise ValueError("Top-layer vertices are collinear in XY; cannot define roof area.")
+
+	# Local import keeps this utility lightweight unless structural stage uses it.
+	import matplotlib.tri as mtri
+
+	tri = mtri.Triangulation(xy[:, 0], xy[:, 1])
+	if tri.triangles is None or len(tri.triangles) == 0:
+		raise ValueError("Could not triangulate top-layer roof footprint.")
+
+	tributary_area = np.zeros(len(df_top), dtype=float)
+	for a, b, c in tri.triangles:
+		pa = xy[a]
+		pb = xy[b]
+		pc = xy[c]
+		area = 0.5 * abs(np.cross(pb - pa, pc - pa))
+		share = area / 3.0
+		tributary_area[a] += share
+		tributary_area[b] += share
+		tributary_area[c] += share
+
+	top_indices = df_out.index[top_mask].to_numpy()
+	df_out.loc[top_indices, "roof_tributary_area_m2"] = tributary_area
+	df_out.loc[top_indices, "Fz"] = -float(roof_load_kn_m2) * tributary_area
+
+	# Preserve training convention: lower vertices carry no vertical roof load.
+	df_out.loc[bottom_mask, "Fz"] = 0.0
+
+	return df_out
 
 
 def calculate_utilization_for_dataset(
@@ -33,8 +113,8 @@ def calculate_utilization_for_dataset(
 	f_c_d = (f_c_k * k_mod) / gamma_m
 	f_t_d = (f_t_k * k_mod) / gamma_m
 
-	b = float(row["Width"])
 	h = float(row["Depth"])
+	b = float(row["Width"])
 	l_mm = float(req_length_m) * 1000.0
 	area = b * h
 
@@ -142,12 +222,12 @@ def compute_utilization_outputs(
 	df_utilization_matrix = df_utilization_matrix.sort_index(axis=0).sort_index(axis=1)
 	df_utilization_matrix_display = df_utilization_matrix.where(df_utilization_matrix <= 1.0, np.inf)
 
-	veilige_opties = df_utilization_long[
+	safe_options = df_utilization_long[
 		(df_utilization_long["utilization"] <= 1.0)
 		& (df_utilization_long["utilization"] > 0.0)
 		& np.isfinite(df_utilization_long["utilization"])
 	].copy()
-	veilige_opties = veilige_opties.sort_values(by=["edge_id", "utilization"], ascending=[True, False])
+	safe_options = safe_options.sort_values(by=["edge_id", "utilization"], ascending=[True, False])
 
 	df_slots = df_forces_local[["edge_id", "length_m", "axial_force_kn"]].copy()
 	df_slots["Length_Req"] = (df_slots["length_m"] * 1000.0).round(0)
@@ -155,14 +235,14 @@ def compute_utilization_outputs(
 	# Derive required slot section (Width_Req, Depth_Req) from the most efficient
 	# structurally safe option per edge (highest utilization <= 1.0).
 	best_safe_per_edge = (
-		veilige_opties
+		safe_options
 		.sort_values(by=["edge_id", "utilization"], ascending=[True, False])
 		.drop_duplicates(subset=["edge_id"], keep="first")
 		[["edge_id", "Width", "Depth", "utilization"]]
 		.rename(
 			columns={
-				"Width": "Width_Req",
 				"Depth": "Depth_Req",
+				"Width": "Width_Req",
 				"utilization": "Utilization_Req",
 			}
 		)
@@ -176,8 +256,45 @@ def compute_utilization_outputs(
 		"df_utilization_long": df_utilization_long,
 		"df_utilization_matrix": df_utilization_matrix,
 		"df_utilization_matrix_display": df_utilization_matrix_display,
-		"veilige_opties": veilige_opties,
+		"safe_options": safe_options,
 		"df_slots": df_slots,
+	}
+
+
+def validate_structural_stage_notebook_inputs(
+	df_input_stock: pd.DataFrame | None,
+	df_vertices: pd.DataFrame | None,
+) -> None:
+	"""Validate required notebook inputs for the structural stage wrapper."""
+	missing: list[str] = []
+	if df_input_stock is None:
+		missing.append("df_input_stock")
+	if df_vertices is None:
+		missing.append("df_vertices")
+	if missing:
+		raise ValueError("Missing required structural inputs: " + ", ".join(missing))
+
+
+def package_structural_outputs_for_notebook(
+	structural_out: dict[str, Any],
+	bundle_error: str | None = None,
+) -> dict[str, Any]:
+	"""Package structural stage outputs into notebook-friendly variable names."""
+	summary = structural_out["summary"]
+	return {
+		"SURROGATE_BUNDLE": structural_out["bundle"],
+		"SURROGATE_BUNDLE_ERROR": bundle_error,
+		"structural_out": structural_out,
+		"df_forces": structural_out["df_forces"],
+		"df_inventory": structural_out["df_inventory"],
+		"df_forces_local": structural_out["df_forces_local"],
+		"df_utilization_long": structural_out["df_utilization_long"],
+		"df_utilization_matrix": structural_out["df_utilization_matrix"],
+		"df_utilization_matrix_display": structural_out["df_utilization_matrix_display"],
+		"safe_options": structural_out["safe_options"],
+		"df_slots": structural_out["df_slots"],
+		"summary": summary,
+		"forces_source": structural_out["forces_source"],
 	}
 
 
@@ -197,7 +314,10 @@ def bereken_utilization_voor_dataset(
 
 
 __all__ = [
+	"assign_roof_load_fz",
 	"calculate_utilization_for_dataset",
 	"bereken_utilization_voor_dataset",
 	"compute_utilization_outputs",
+	"validate_structural_stage_notebook_inputs",
+	"package_structural_outputs_for_notebook",
 ]
