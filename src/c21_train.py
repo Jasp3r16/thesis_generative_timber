@@ -16,7 +16,7 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from torch_geometric.loader import DataLoader
 
 import config
-from c00_naming import build_run_id, build_model_artifact_stem
+from c00_naming import build_run_id, build_model_artifact_stem, build_run_folder_name
 from c21_data_pipeline import (
     build_edge_index,
     infer_v4_schema,
@@ -727,7 +727,8 @@ def export_model(model, scalers, schema, params, run_metrics):
         params["epochs"],
         run_metrics["final_val_r2"],
     )
-    artifact_dir = config.SM_EXPORT_PATH / artifact_stem
+    feature_count = run_manifest["node_feature_dim"] + run_manifest["edge_feature_dim"] + run_manifest["global_feature_dim"]
+    artifact_dir = config.SM_EXPORT_PATH / build_run_folder_name(artifact_stem, feature_count=feature_count)
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     # Save prefix for downstream

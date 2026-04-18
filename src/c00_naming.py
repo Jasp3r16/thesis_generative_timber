@@ -85,16 +85,21 @@ def build_model_artifact_stem(
     )
 
 
-def build_run_folder_name(run_id: str, dt: datetime | None = None) -> str:
+def build_run_folder_name(
+    run_id: str,
+    dt: datetime | None = None,
+    feature_count: int | None = None,
+) -> str:
     """Build the output folder name for a training/evaluation run."""
-    return f"{run_id}_{human_timestamp(dt)}"
+    folder_name = run_id
+    if feature_count is not None:
+        folder_name = f"{folder_name}_F{feature_count}"
+    return folder_name
 
 
 def build_evaluation_folder_name(base_name: str, feature_count: int | None = None) -> str:
     """Build the output folder name for exported surrogate evaluation data."""
-    if feature_count is None:
-        return base_name
-    return f"{base_name}_F{feature_count}"
+    return build_run_folder_name(base_name, feature_count=feature_count)
 
 
 __all__ = [
