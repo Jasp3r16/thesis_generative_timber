@@ -16,6 +16,7 @@ def run_milp_stage(
     solver_msg: bool = False,
     raise_on_infeasible_slots: bool = True,
 ) -> dict[str, Any]:
+    
     """Run MILP assignment stage for one cost matrix."""
     stock_items = enriched_stock["Member_ID"].astype(str).tolist()
     construction_slots = df_slots["edge_id"].astype(str).tolist()

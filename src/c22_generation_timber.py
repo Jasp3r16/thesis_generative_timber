@@ -301,6 +301,7 @@ def generate_mixed_stock_subset(
     total_elements: int,
     reclaimed_ratio: float = 0.5,
     random_state: int | None = None,
+    efficient: bool = False,
     allow_replacement: bool = True
 ) -> pd.DataFrame:
     """
@@ -324,7 +325,7 @@ def generate_mixed_stock_subset(
     requested_reclaimed = int(round(total_elements * reclaimed_ratio))
     requested_new = total_elements - requested_reclaimed
 
-    df_new = generate_new_stock()
+    df_new = generate_new_stock(efficient)
     df_reclaimed = generate_reclaimed_stock()
 
     available_new = len(df_new)

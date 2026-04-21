@@ -3,6 +3,7 @@ import math
 from typing import Any
 import numpy as np
 import pandas as pd
+import c21_surrogate_io as surrogate_io
 
 
 def assign_roof_load_fz(
@@ -132,18 +133,51 @@ def geometry_df_to_design_row(
 
 	return pd.Series(payload, dtype=np.float32)
 
+def _predict_forces_with_surrogate(
+    df_vertices: pd.DataFrame,
+    df_edges: pd.DataFrame | None,
+    bundle: dict[str, Any] | None,
+    model_prefix: str | None,
+) -> tuple[pd.DataFrame, dict[str, Any] | None, str]:
+    """Predict forces via the surrogate model."""
+    df_geometry = df_vertices.copy().reset_index(drop=True)
 
+    # Apply distributed roof load as nodal Fz before surrogate inference.
+    # By convention, top-layer nodes receive tributary load and bottom-layer nodes remain zero.
+    df_geometry = assign_roof_load_fz(df_geometry, roof_load_kn_m2=2.0)
+
+    active_bundle = bundle if bundle is not None else surrogate_io.load_surrogate_bundle(prefix_sm=model_prefix)
+
+    design_row = geometry_df_to_design_row(
+        df_geometry=df_geometry,
+        df_edges=df_edges,
+    )
+    df_forces = surrogate_io.predict_edge_forces_kn(design_row, active_bundle).copy()
+    df_forces["V1"] = df_forces["V1"].astype(str)
+    df_forces["V2"] = df_forces["V2"].astype(str)
+    df_forces["length_m"] = df_forces["length_m"].round(3)
+    df_forces["axial_force_kn"] = df_forces["axial_force_kn"].round(2)
+    return df_forces, active_bundle, "surrogate"
+
+def prepare_surrogate_bundle(model_prefix: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
+    """Try loading surrogate bundle once for re-use in iterative runs."""
+    try:
+        return surrogate_io.load_surrogate_bundle(prefix_sm=model_prefix), None
+    except Exception as exc:
+        return None, str(exc)
+	
 def calculate_utilization_for_dataset(
 	row: pd.Series,
-	req_force_kn: float,
 	req_length_m: float,
 	gnn_margin: float = 1.10,
 ) -> float:
-	"""Calculate Eurocode 5 utilization for one stock element.
+	"""
+	- Calculates area for an element
+	- Uses area and surrogate model to calculate axial force with surrogate model
+	- Than uses that axial force to calculate Eurocode 5 utilization for one stock element
 
 	Args:
-		row: Row with at least `Width`, `Depth`, `f_c0k`, `f_tk`, `E_modulus_eff`.
-		req_force_kn: Requested axial force in kN (positive=tension, negative=compression).
+		row: Row with at least `Depth`, `Width`, `f_c0k`, `f_tk`, `E_modulus_eff`.
 		req_length_m: Requested member length in meters for buckling calculation.
 		gnn_margin: Safety factor on predicted force (default 1.10).
 
@@ -151,6 +185,14 @@ def calculate_utilization_for_dataset(
 		Utilization ratio. Values <= 1.0 are structurally acceptable.
 		Returns `np.inf` if the calculated capacity is invalid or non-positive.
 	"""
+	h = float(row["Depth"])
+	b = float(row["Width"])
+	l_mm = float(req_length_m) * 1000.0
+	area = h * b
+
+	#Surrogate model predicts required axial force in kN
+	req_force_kn = 0 # Output of surrogate model, placeholder for now
+
 	required_force_kn = float(req_force_kn) * float(gnn_margin)
 
 	f_c_k = float(row["f_c0k"])
@@ -162,11 +204,6 @@ def calculate_utilization_for_dataset(
 	f_c_d = (f_c_k * k_mod) / gamma_m
 	f_t_d = (f_t_k * k_mod) / gamma_m
 
-	h = float(row["Depth"])
-	b = float(row["Width"])
-	l_mm = float(req_length_m) * 1000.0
-	area = b * h
-
 	if required_force_kn >= 0:
 		force_n = required_force_kn * 1000.0
 		capaciteit_n = area * f_t_d
@@ -175,7 +212,7 @@ def calculate_utilization_for_dataset(
 		return force_n / capaciteit_n
 
 	force_n = abs(required_force_kn * 1000.0)
-	i_min = (max(b, h) * min(b, h) ** 3) / 12.0
+	i_min = (max(h, b) * min(h, b) ** 3) / 12.0
 	i_radius = math.sqrt(i_min / area)
 	slenderness = l_mm / i_radius
 	rel_slenderness = (slenderness / math.pi) * math.sqrt(f_c_k / e_0_mean)
@@ -188,21 +225,17 @@ def calculate_utilization_for_dataset(
 		return float(np.inf)
 	return force_n / capaciteit_n
 
-
-bereken_utilization_voor_dataset = calculate_utilization_for_dataset
-
-
 def compute_utilization_outputs(
 	df_forces: pd.DataFrame,
 	df_input_stock: pd.DataFrame,
-	gnn_marge: float = 1.10,
+	gnn_margin: float = 1.10,
 ) -> dict[str, pd.DataFrame]:
 	"""Genereer alle utilization-tabellen voor notebook- en cost-matrix workflow.
 
 	Args:
 		df_forces: DataFrame met minimaal `edge_id` (of `beam_id`), `length_m`, `axial_force_kn`.
 		df_input_stock: Stock-dataset met geometrie- en sterktekolommen.
-		gnn_marge: Safety factor on the predicted force.
+		gnn_margin: Safety factor on the predicted force.
 
 	Returns:
 		Dictionary met:
@@ -223,7 +256,7 @@ def compute_utilization_outputs(
 	if "edge_id" not in df_forces_local.columns and "beam_id" in df_forces_local.columns:
 		df_forces_local = df_forces_local.rename(columns={"beam_id": "edge_id"})
 
-	required_stock_cols = ["Member_ID", "Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"]
+	required_stock_cols = ["Member_ID", "Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"]
 	required_force_cols = ["edge_id", "length_m", "axial_force_kn"]
 
 	missing_stock_cols = [c for c in required_stock_cols if c not in df_inventory.columns]
@@ -233,7 +266,7 @@ def compute_utilization_outputs(
 	if missing_force_cols:
 		raise ValueError("Missing columns in df_forces: " + ", ".join(missing_force_cols))
 
-	numeric_stock_cols = ["Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"]
+	numeric_stock_cols = ["Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"]
 	for col in numeric_stock_cols:
 		df_inventory[col] = pd.to_numeric(df_inventory[col], errors="coerce")
 
@@ -251,7 +284,7 @@ def compute_utilization_outputs(
 				stock_row,
 				req_force_kn=req_force_kn,
 				req_length_m=req_length_m,
-				gnn_margin=gnn_marge,
+				gnn_margin=gnn_margin,
 			),
 			axis=1,
 		)
@@ -290,7 +323,7 @@ def compute_utilization_outputs(
 		safe_options
 		.sort_values(by=["edge_id", "utilization"], ascending=[True, False])
 		.drop_duplicates(subset=["edge_id"], keep="first")
-		[["edge_id", "Width", "Depth", "utilization"]]
+		[["edge_id", "Depth", "Width", "utilization"]]
 		.rename(
 			columns={
 				"Depth": "Depth_Req",
@@ -352,7 +385,6 @@ def package_structural_outputs_for_notebook(
 __all__ = [
 	"assign_roof_load_fz",
 	"calculate_utilization_for_dataset",
-	"bereken_utilization_voor_dataset",
 	"geometry_df_to_design_row",
 	"compute_utilization_outputs",
 	"validate_structural_stage_notebook_inputs",

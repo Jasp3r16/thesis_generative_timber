@@ -38,7 +38,6 @@ def _validate_structural_stage_notebook_inputs(
     if missing:
         raise ValueError("Missing required structural inputs: " + ", ".join(missing))
 
-
 def _package_structural_outputs_for_notebook(
     structural_out: dict[str, Any],
     bundle_error: str | None = None,
@@ -63,42 +62,6 @@ def _package_structural_outputs_for_notebook(
         "summary": summary,
         "forces_source": structural_out["forces_source"],
     }
-
-
-def _predict_forces_with_surrogate(
-    df_vertices: pd.DataFrame,
-    df_edges: pd.DataFrame | None,
-    bundle: dict[str, Any] | None,
-    model_prefix: str | None,
-) -> tuple[pd.DataFrame, dict[str, Any] | None, str]:
-    """Predict forces via the surrogate model."""
-    df_geometry = df_vertices.copy().reset_index(drop=True)
-
-    # Apply distributed roof load as nodal Fz before surrogate inference.
-    # By convention, top-layer nodes receive tributary load and bottom-layer nodes remain zero.
-    df_geometry = assign_roof_load_fz(df_geometry, roof_load_kn_m2=2.0)
-
-    active_bundle = bundle if bundle is not None else surrogate_io.load_surrogate_bundle(prefix_sm=model_prefix)
-
-    design_row = geometry_df_to_design_row(
-        df_geometry=df_geometry,
-        df_edges=df_edges,
-    )
-    df_forces = surrogate_io.predict_edge_forces_kn(design_row, active_bundle).copy()
-    df_forces["V1"] = df_forces["V1"].astype(str)
-    df_forces["V2"] = df_forces["V2"].astype(str)
-    df_forces["length_m"] = df_forces["length_m"].round(3)
-    df_forces["axial_force_kn"] = df_forces["axial_force_kn"].round(2)
-    return df_forces, active_bundle, "surrogate"
-
-
-def prepare_surrogate_bundle(model_prefix: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
-    """Try loading surrogate bundle once for re-use in iterative runs."""
-    try:
-        return surrogate_io.load_surrogate_bundle(prefix_sm=model_prefix), None
-    except Exception as exc:
-        return None, str(exc)
-
 
 def _build_demand_slots(
     df_vertices: pd.DataFrame | None,
@@ -145,11 +108,11 @@ def _build_demand_slots(
     else:
         slots["axial_force_kn"] = pd.to_numeric(slots["axial_force_kn"], errors="coerce")
 
-    slots["Width_Req"] = np.nan
     slots["Depth_Req"] = np.nan
+    slots["Width_Req"] = np.nan
     slots["Utilization_Req"] = np.nan
 
-    return slots[["edge_id", "length_m", "axial_force_kn", "Length_Req", "Width_Req", "Depth_Req", "Utilization_Req"]]
+    return slots[["edge_id", "length_m", "axial_force_kn", "Length_Req", "Depth_Req", "Width_Req", "Utilization_Req"]]
 
 
 def run_structural_stage(
@@ -207,7 +170,7 @@ def run_structural_stage(
     outputs = compute_utilization_outputs(
         df_forces=df_forces,
         df_input_stock=df_input_stock,
-        gnn_marge=float(gnn_margin),
+        gnn_margin=float(gnn_margin),
     )
 
     df_inventory = outputs["df_inventory"]

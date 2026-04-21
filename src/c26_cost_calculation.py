@@ -34,85 +34,6 @@ def _resolve_edge_columns(df_edges):
             break
     return edge_id_col, area_col
 
-
-def _prepare_surrogate_candidate_context(surrogate_context):
-    if surrogate_context is None:
-        return None
-
-    df_vertices = surrogate_context.get('df_vertices')
-    df_edges = surrogate_context.get('df_edges')
-    bundle = surrogate_context.get('bundle')
-    model_prefix = surrogate_context.get('model_prefix')
-
-    if df_vertices is None or df_edges is None:
-        raise ValueError('surrogate_context requires df_vertices and df_edges.')
-
-    edge_id_col, area_col = _resolve_edge_columns(df_edges)
-    if area_col is None:
-        raise ValueError(
-            'surrogate_context df_edges must include a real area column (Area/cross_section_area/A). '
-            'No synthetic area fallback is allowed.'
-        )
-
-    df_edges_base = df_edges.copy().reset_index(drop=True)
-    if edge_id_col is None:
-        df_edges_base['edge_id'] = [f'e{i}' for i in range(len(df_edges_base))]
-        edge_id_col = 'edge_id'
-    else:
-        df_edges_base[edge_id_col] = df_edges_base[edge_id_col].astype(str)
-
-    df_edges_base[area_col] = pd.to_numeric(df_edges_base[area_col], errors='coerce')
-    if df_edges_base[area_col].isna().any():
-        raise ValueError('surrogate_context df_edges contains empty area values; cannot run strict surrogate inference.')
-
-    if bundle is None:
-        bundle = load_surrogate_bundle(prefix_sm=model_prefix)
-
-    df_geometry = assign_roof_load_fz(df_vertices.copy().reset_index(drop=True), roof_load_kn_m2=2.0)
-
-    return {
-        'bundle': bundle,
-        'df_geometry': df_geometry,
-        'df_edges_base': df_edges_base,
-        'edge_id_col': edge_id_col,
-        'area_col': area_col,
-        'force_cache': {},
-    }
-
-
-def _predict_candidate_force_kn(prepared_context, slot_edge_id, candidate_area_m2):
-    cache_key = (str(slot_edge_id).strip().lower(), float(round(candidate_area_m2, 10)))
-    force_cache = prepared_context['force_cache']
-    if cache_key in force_cache:
-        return force_cache[cache_key]
-
-    edge_id_col = prepared_context['edge_id_col']
-    area_col = prepared_context['area_col']
-    df_edges_candidate = prepared_context['df_edges_base'].copy()
-    normalized_edge_id = str(slot_edge_id).strip().lower()
-
-    edge_ids_normalized = df_edges_candidate[edge_id_col].astype(str).str.strip().str.lower()
-    mask = edge_ids_normalized == normalized_edge_id
-    if not mask.any():
-        raise ValueError(f"Edge '{slot_edge_id}' not found in surrogate_context df_edges.")
-
-    df_edges_candidate.loc[mask, area_col] = float(candidate_area_m2)
-
-    design_row = geometry_df_to_design_row(
-        df_geometry=prepared_context['df_geometry'],
-        df_edges=df_edges_candidate,
-    )
-    df_forces = predict_edge_forces_kn(design_row, prepared_context['bundle'])
-    forces_edge_norm = df_forces['edge_id'].astype(str).str.strip().str.lower()
-    force_match = df_forces.loc[forces_edge_norm == normalized_edge_id, 'axial_force_kn']
-    if force_match.empty:
-        raise ValueError(f"Surrogate output did not contain force for edge '{slot_edge_id}'.")
-
-    predicted_force = float(force_match.iloc[0])
-    force_cache[cache_key] = predicted_force
-    return predicted_force
-
-
 def _build_utilization_matrix_from_slot_forces(df_design, df_stock, gnn_margin=1.10):
     """Build a utilization matrix directly in c26 from slot force demand.
 
@@ -223,7 +144,6 @@ def _classify_geometry_constraint(slot, stock_item):
         return 'Dimensions'
     return 'Passed'
 
-
 def _collect_feasibility_reasons(slot, stock_item, utilization_failed):
     """Collect all active feasibility constraints for this slot-stock combination."""
     reasons = []
@@ -238,39 +158,27 @@ def _collect_feasibility_reasons(slot, stock_item, utilization_failed):
 
     return reasons if reasons else ['Passed']
 
+def calculate_scarcity_weight(df_stock, stock_item):
+    """Compute a scarcity ratio for a stock item based on availability by length category.
 
-def _evaluate_candidate_feasibility(slot, stock_item, utilization_value, max_utilization_threshold, utilization_active):
-    """Evaluate the three feasibility checks for one slot-stock candidate.
+    Stock elements are grouped into 500 mm length bins. The scarcity ratio is:
 
-    Returns a compact summary that can be used to prune infeasible candidates
-    before the more expensive cost formula is evaluated.
+        1 - (count_in_same_length_bin / total_stock_count)
+
+    Higher values indicate that the item's length category is less common in the
+    inventory (more scarce). If the stock table is empty, the function returns 0.0.
     """
-    l_stock = float(stock_item['Length']) / 1000.0
-    a_stock = (float(stock_item['Width']) / 1000.0) * (float(stock_item['Depth']) / 1000.0)
+    length_bin_size_mm = 500
+    length_bin = int(float(stock_item['Length']) // length_bin_size_mm) * length_bin_size_mm
+    category_count = sum(
+        1 for _, item in df_stock.iterrows()
+        if int(float(item['Length']) // length_bin_size_mm) * length_bin_size_mm == length_bin
+    )
+    total_count = len(df_stock)
+    scarcity_ratio = 1.0 - (category_count / total_count) if total_count > 0 else 0.0
+    return scarcity_ratio
 
-    l_req = float(slot['Length_Req']) / 1000.0
-    a_req = _get_required_area(slot, a_stock)
-
-    length_feasible = l_stock >= l_req
-    dimensions_feasible = a_stock >= a_req
-
-    utilization_feasible = True
-    if utilization_active:
-        utilization_feasible = np.isfinite(utilization_value) and float(utilization_value) <= float(max_utilization_threshold)
-    geometry_reason = _classify_geometry_constraint(slot, stock_item)
-    reasons = _collect_feasibility_reasons(slot, stock_item, utilization_active and (not utilization_feasible))
-
-    return {
-        'length_feasible': bool(length_feasible),
-        'dimensions_feasible': bool(dimensions_feasible),
-        'utilization_feasible': bool(utilization_feasible),
-        'structural_feasible': bool(length_feasible and dimensions_feasible and utilization_feasible),
-        'geometry_reason': geometry_reason,
-        'reasons': reasons,
-    }
-
-
-def calculate_cost_formula(slot, stock_item):
+def calculate_cost_formula(slot, stock_item, df_stock):
     """
     Step 1: calculate C_{i,j} according to the LCA logic.
     C = E_embodied + E_prep + E_trans + E_waste + E_saw + E_opp.
@@ -291,6 +199,7 @@ def calculate_cost_formula(slot, stock_item):
     transport_factor = float(stock_item['TransportFactor_Resolved'])
     embodied_factor = float(stock_item['ECC_Resolved'])
     preparation_factor = float(stock_item['PreparationFactor_Resolved'])
+    scarcity_ratio = calculate_scarcity_weight(df_stock, stock_item)
 
     # Explicit volume decomposition:
     # V_stock = V_req + V_over + V_waste
@@ -305,7 +214,7 @@ def calculate_cost_formula(slot, stock_item):
     e_trans = (((v_req + v_over) * density) / 1000.0) * distance_km * transport_factor
     e_waste = v_waste * END_OF_LIFE_FACTOR
     e_saw = 0.0 if stock_item['Length'] == slot['Length_Req'] else SAW_CUT_PENALTY
-    e_opp = 0.0  # Opportunity cost is currently not implemented; can be added here if needed.
+    e_opp = scarcity_ratio*(v_over + v_waste) * embodied_factor
 
     total_cost = e_embodied + e_prep + e_trans + e_waste + e_saw + e_opp
 
@@ -417,7 +326,7 @@ def build_cost_matrix(
             if not candidate_check['structural_feasible']:
                 total_match_score, components = np.inf, None
             else:
-                total_match_score, components = calculate_cost_formula(slot, stock_item)
+                total_match_score, components = calculate_cost_formula(slot, stock_item, df_stock)
 
             if np.isfinite(total_match_score):
                 cost_matrix[i, j] = total_match_score
@@ -466,7 +375,6 @@ def build_cost_matrix(
     logs_df = pd.DataFrame(detailed_logs)
     logs_df.attrs['utilization_mode'] = utilization_mode
     return cost_matrix, df_stock, logs_df
-
 
 def analyze_and_export_slot_logs(
     df_logs,
