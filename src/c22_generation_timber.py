@@ -119,7 +119,7 @@ def _get_lca_properties(attribute_name: str) -> Dict[str, Any]:
     params = _get_params_module()
     return getattr(params, attribute_name)
 
-def assign_transport_distance():
+def assign_transport_distance(efficient: bool = False) -> tuple[str, float]:
     """
     Choose a random transport distance based on timber import shares in the Netherlands (2021).
     """
@@ -140,6 +140,12 @@ def assign_transport_distance():
         "Other": {"weight": 7, "base_distance": 4000}  # Remaining 7%
     }
 
+    if efficient:
+        sources = {
+            "Germany": {"weight": 6, "base_distance": 300},
+            "Netherlands": {"weight": 4, "base_distance": 50}
+                   }
+
     # Split the data into lists for random.choices.
     country_names = list(sources.keys())
     weights = [sources[country]["weight"] for country in country_names]
@@ -155,7 +161,7 @@ def assign_transport_distance():
     return chosen_country, round(final_distance, 2)
 
 
-def generate_new_stock() -> pd.DataFrame:
+def generate_new_stock(efficient: bool = False) -> pd.DataFrame:
     """
     Generate catalog of new timber members with all length/depth/width combinations.
     
@@ -182,7 +188,7 @@ def generate_new_stock() -> pd.DataFrame:
     data = []
     for idx, (length, (depth, width)) in enumerate(combinations):
         # Generate unique distance data for each element.
-        origin_country, transport_dist = assign_transport_distance()
+        origin_country, transport_dist = assign_transport_distance(efficient)
         emission_factor = round(random.uniform(*emission_range), 4)
         
         data.append({
@@ -318,7 +324,7 @@ def generate_mixed_stock_subset(
     requested_reclaimed = int(round(total_elements * reclaimed_ratio))
     requested_new = total_elements - requested_reclaimed
 
-    df_new = generate_new_timber_catalog()
+    df_new = generate_new_stock()
     df_reclaimed = generate_reclaimed_stock()
 
     available_new = len(df_new)
