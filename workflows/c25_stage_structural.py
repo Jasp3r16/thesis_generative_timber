@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 import sys
 
+import numpy as np
 import pandas as pd
 
 
@@ -99,6 +100,58 @@ def prepare_surrogate_bundle(model_prefix: str | None = None) -> tuple[dict[str,
         return None, str(exc)
 
 
+def _build_demand_slots(
+    df_vertices: pd.DataFrame | None,
+    df_edges: pd.DataFrame | None,
+) -> pd.DataFrame:
+    """Build edge demand slots without surrogate force prediction.
+
+    This path keeps c25 demand-only when section area is not assigned yet.
+    """
+    if df_edges is None or len(df_edges) == 0:
+        raise ValueError("demand-only mode requires a non-empty df_edges input.")
+
+    slots = df_edges.copy().reset_index(drop=True)
+    if "edge_id" not in slots.columns:
+        slots["edge_id"] = [f"e{i}" for i in range(len(slots))]
+    else:
+        slots["edge_id"] = slots["edge_id"].astype(str)
+
+    if "length_m" not in slots.columns:
+        if all(col in slots.columns for col in ("V1", "V2")) and df_vertices is not None and all(
+            col in df_vertices.columns for col in ("x", "y", "z")
+        ):
+            coords = df_vertices[["x", "y", "z"]].astype(float).reset_index(drop=True)
+
+            def _edge_length(row: pd.Series) -> float:
+                try:
+                    i = int(row["V1"])
+                    j = int(row["V2"])
+                    p0 = coords.iloc[i].to_numpy(dtype=float)
+                    p1 = coords.iloc[j].to_numpy(dtype=float)
+                    return float(np.linalg.norm(p0 - p1))
+                except Exception:
+                    return float("nan")
+
+            slots["length_m"] = slots.apply(_edge_length, axis=1)
+        else:
+            raise ValueError("demand-only mode needs length_m in df_edges or V1/V2 plus vertex xyz coordinates.")
+
+    slots["length_m"] = pd.to_numeric(slots["length_m"], errors="coerce")
+    slots["Length_Req"] = (slots["length_m"] * 1000.0).round(0)
+
+    if "axial_force_kn" not in slots.columns:
+        slots["axial_force_kn"] = np.nan
+    else:
+        slots["axial_force_kn"] = pd.to_numeric(slots["axial_force_kn"], errors="coerce")
+
+    slots["Width_Req"] = np.nan
+    slots["Depth_Req"] = np.nan
+    slots["Utilization_Req"] = np.nan
+
+    return slots[["edge_id", "length_m", "axial_force_kn", "Length_Req", "Width_Req", "Depth_Req", "Utilization_Req"]]
+
+
 def run_structural_stage(
     df_input_stock: pd.DataFrame,
     df_vertices: pd.DataFrame | None = None,
@@ -108,11 +161,36 @@ def run_structural_stage(
     model_prefix: str | None = None,
     gnn_margin: float = 1.10,
     export_slots_path: Path | None = None,
+    force_mode: str = "surrogate",
 ) -> dict[str, Any]:
     """Run structural utilization stage and return reusable tables.
 
     This is a notebook-independent wrapper around compute_utilization_outputs.
     """
+    if str(force_mode).lower() == "demand-only":
+        df_slots = _build_demand_slots(df_vertices=df_vertices, df_edges=df_edges)
+        if export_slots_path is not None:
+            export_slots_path.parent.mkdir(parents=True, exist_ok=True)
+            df_slots.to_csv(export_slots_path, index=False)
+
+        return {
+            "df_forces": pd.DataFrame(columns=["edge_id", "length_m", "axial_force_kn"]),
+            "df_inventory": df_input_stock.copy(),
+            "df_forces_local": pd.DataFrame(columns=["edge_id", "length_m", "axial_force_kn"]),
+            "df_utilization_long": pd.DataFrame(),
+            "df_utilization_matrix": None,
+            "df_utilization_matrix_display": None,
+            "safe_options": pd.DataFrame(),
+            "df_slots": df_slots,
+            "bundle": bundle,
+            "forces_source": "demand-only",
+            "summary": {
+                "members": int(len(df_slots)),
+                "stock_items": int(len(df_input_stock)),
+                "safe_combinations": 0,
+            },
+        }
+
     if df_forces is None:
         if df_vertices is None:
             raise ValueError("Provide either df_forces or df_vertices for structural stage")
@@ -174,6 +252,7 @@ def run_structural_stage_notebook(
     gnn_margin: float = 1.10,
     export_slots_path: Path | None = None,
     verbose: bool = True,
+    force_mode: str = "surrogate",
 ) -> dict[str, Any]:
     """Notebook-friendly single entry point for the structural stage.
 
@@ -186,12 +265,15 @@ def run_structural_stage_notebook(
     )
 
     active_bundle = bundle
-    if active_bundle is None:
-        active_bundle, bundle_error = prepare_surrogate_bundle(model_prefix=model_prefix)
-        if active_bundle is None:
-            raise RuntimeError(f"Surrogate bundle unavailable. Load reason: {bundle_error}")
-    else:
+    if str(force_mode).lower() == "demand-only":
         bundle_error = None
+    else:
+        if active_bundle is None:
+            active_bundle, bundle_error = prepare_surrogate_bundle(model_prefix=model_prefix)
+            if active_bundle is None:
+                raise RuntimeError(f"Surrogate bundle unavailable. Load reason: {bundle_error}")
+        else:
+            bundle_error = None
 
     structural_out = run_structural_stage(
         df_input_stock=df_input_stock,
@@ -201,6 +283,7 @@ def run_structural_stage_notebook(
         model_prefix=model_prefix,
         gnn_margin=gnn_margin,
         export_slots_path=export_slots_path,
+        force_mode=force_mode,
     )
 
     notebook_outputs = _package_structural_outputs_for_notebook(
@@ -211,6 +294,8 @@ def run_structural_stage_notebook(
     if verbose:
         if notebook_outputs["SURROGATE_BUNDLE"] is not None:
             print("Surrogate bundle loaded and cached for iterative structural calls.")
+        elif str(force_mode).lower() == "demand-only":
+            print("Demand-only structural mode active (no surrogate force prediction in c25).")
 
         summary = notebook_outputs["summary"]
         print(f"Force source: {notebook_outputs['forces_source']}")
