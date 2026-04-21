@@ -86,7 +86,7 @@ def _predict_graph(model: torch.nn.Module, graph: Any, device: torch.device, edg
 	if mask is None:
 		keep = torch.ones(pred_scaled.shape[0], dtype=torch.bool)
 	else:
-		keep = mask.view(-1) > 0.5
+		keep = (mask.view(-1) > 0.5).detach().cpu()
 
 	pred_original = _inverse_transform_targets(edge_target_scaler, pred_scaled[keep].numpy())
 	true_original = _inverse_transform_targets(edge_target_scaler, graph.y_edge.detach().cpu()[keep].numpy())

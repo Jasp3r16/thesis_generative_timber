@@ -135,6 +135,7 @@ def load_parameters(device: torch.device | None = None):
         "selected_node_mask_cols": _parse_csv_columns_env("C21_NODE_MASK_COLS"),
         "selected_edge_feature_cols": _parse_csv_columns_env("C21_EDGE_FEATURE_COLS"),
         "selected_global_feature_cols": _parse_csv_columns_env("C21_GLOBAL_FEATURE_COLS"),
+        "exclude_area_feature": os.getenv("C21_EXCLUDE_AREA_FEATURE", "false").lower() == "true",
         # Workflow
         "use_pretrained": os.getenv("C21_USE_PRETRAINED", "false").lower() == "true",
         "pretrained_model_prefix": os.getenv("C21_PRETRAINED_MODEL_PREFIX", "data_4_0000"),
@@ -208,6 +209,10 @@ def load_data(params):
     selected_node_mask_cols = params.get("selected_node_mask_cols")
     selected_edge_feature_cols = params.get("selected_edge_feature_cols")
     selected_global_feature_cols = params.get("selected_global_feature_cols")
+    
+    # Apply exclusions to edge features
+    if params.get("exclude_area_feature", False) and selected_edge_feature_cols:
+        selected_edge_feature_cols = tuple(col for col in selected_edge_feature_cols if str(col).strip().lower() != "area")
 
     schema_kwargs = {
         "use_virtual_node": params.get("use_virtual_node", False),
@@ -727,7 +732,12 @@ def export_model(model, scalers, schema, params, run_metrics):
         params["epochs"],
         run_metrics["final_val_r2"],
     )
-    feature_count = run_manifest["node_feature_dim"] + run_manifest["edge_feature_dim"] + run_manifest["global_feature_dim"]
+    feature_count = (
+        len(schema.node_continuous_cols)
+        + len(schema.node_mask_cols)
+        + len(schema.edge_feature_cols)
+        + len(schema.global_feature_cols)
+    )
     artifact_dir = config.SM_EXPORT_PATH / build_run_folder_name(artifact_stem, feature_count=feature_count)
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
@@ -848,17 +858,17 @@ def export_model(model, scalers, schema, params, run_metrics):
     print(f"Run manifest saved:\n- {manifest_path}\n")
 
 
-def main():
-    """Main entry point for training workflow."""
-    print("=" * 60)
-    print("c21 SURROGATE MODEL TRAINING")
-    print("=" * 60 + "\n")
+def _is_cuda_runtime_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "cuda error" in message
+        or "acceleratorerror" in message
+        or "cuda kernel errors" in message
+        or "device-side assert" in message
+    )
 
-    # Setup
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}\n")
 
-    # Load parameters
+def _run_workflow_for_device(device: torch.device):
     params = load_parameters(device=device)
     print("Parameters loaded:")
     print(f"- fast_mode={params['fast_mode']} ({params['fast_mode_source']})")
@@ -912,10 +922,6 @@ def main():
     }
     export_model(model, scalers, schema, params, run_metrics)
 
-    print("=" * 60)
-    print("TRAINING COMPLETE")
-    print("=" * 60)
-
     return {
         "model": model,
         "device": device,
@@ -930,6 +936,34 @@ def main():
         "test_loader": test_loader,
         "params": params,
     }
+
+
+def main():
+    """Main entry point for training workflow."""
+    print("=" * 60)
+    print("c21 SURROGATE MODEL TRAINING")
+    print("=" * 60 + "\n")
+
+    force_cpu = os.getenv("C21_FORCE_CPU", "false").lower() == "true"
+    device = torch.device("cpu" if force_cpu else ("cuda" if torch.cuda.is_available() else "cpu"))
+    print(f"Device: {device}\n")
+
+    try:
+        results = _run_workflow_for_device(device)
+    except Exception as exc:
+        if device.type == "cuda" and _is_cuda_runtime_error(exc):
+            print("\nDetected CUDA runtime failure. Retrying on CPU...")
+            print("Tip: set C21_FORCE_CPU=true to skip GPU for unstable sessions.\n")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            results = _run_workflow_for_device(torch.device("cpu"))
+        else:
+            raise
+
+    print("=" * 60)
+    print("TRAINING COMPLETE")
+    print("=" * 60)
+    return results
 
 
 if __name__ == "__main__":
