@@ -84,6 +84,55 @@ def assign_roof_load_fz(
 	return df_out
 
 
+def geometry_df_to_design_row(
+	df_geometry: pd.DataFrame,
+	df_edges: pd.DataFrame | None = None,
+) -> pd.Series:
+	"""Convert geometry and optional edge table to surrogate design-row format."""
+	required = ["x", "y", "z"]
+	missing = [c for c in required if c not in df_geometry.columns]
+	if missing:
+		raise ValueError(f"Geometry dataframe misses required columns: {missing}")
+
+	numeric_columns = list(df_geometry.select_dtypes(include=[np.number]).columns)
+	if not all(column in numeric_columns for column in required):
+		raise ValueError("Geometry dataframe must store x, y and z as numeric columns.")
+
+	coords = df_geometry[numeric_columns].reset_index(drop=True).astype(float)
+	payload: dict[str, float] = {}
+	for idx, row in coords.iterrows():
+		for column_name in coords.columns:
+			payload[f"v{idx}_{column_name}"] = float(row[column_name])
+	if df_edges is not None and len(df_edges) > 0:
+		edge_table = df_edges.reset_index(drop=True)
+		columns_by_lower = {str(col).strip().lower(): col for col in edge_table.columns}
+		edge_id_col = columns_by_lower.get("edge_id")
+		area_col = None
+		for candidate in ("area", "cross_section_area", "a"):
+			if candidate in columns_by_lower:
+				area_col = columns_by_lower[candidate]
+				break
+
+		if area_col is not None:
+			edge_table[area_col] = pd.to_numeric(edge_table[area_col], errors="coerce")
+
+		for idx, edge_row in edge_table.iterrows():
+			edge_key_raw = str(edge_row[edge_id_col]).strip() if edge_id_col is not None else f"e{idx}"
+			edge_key_raw_lower = edge_key_raw.lower()
+			if edge_key_raw_lower.startswith("e"):
+				edge_key = edge_key_raw_lower
+			elif edge_key_raw.isdigit():
+				edge_key = f"e{edge_key_raw}"
+			else:
+				edge_key = f"e{idx}"
+			if not edge_key.startswith("e"):
+				edge_key = f"e{idx}"
+			if area_col is not None and pd.notna(edge_row[area_col]):
+				payload[f"{edge_key}_Area"] = float(edge_row[area_col])
+
+	return pd.Series(payload, dtype=np.float32)
+
+
 def calculate_utilization_for_dataset(
 	row: pd.Series,
 	req_force_kn: float,
@@ -138,6 +187,9 @@ def calculate_utilization_for_dataset(
 	if capaciteit_n <= 0:
 		return float(np.inf)
 	return force_n / capaciteit_n
+
+
+bereken_utilization_voor_dataset = calculate_utilization_for_dataset
 
 
 def compute_utilization_outputs(
@@ -195,11 +247,11 @@ def compute_utilization_outputs(
 
 		util_col = f"Utilization_{edge_id}"
 		df_inventory[util_col] = df_inventory.apply(
-			lambda stock_row: bereken_utilization_voor_dataset(
+			lambda stock_row: calculate_utilization_for_dataset(
 				stock_row,
 				req_force_kn=req_force_kn,
 				req_length_m=req_length_m,
-				gnn_marge=gnn_marge,
+				gnn_margin=gnn_marge,
 			),
 			axis=1,
 		)
@@ -297,26 +349,11 @@ def package_structural_outputs_for_notebook(
 		"forces_source": structural_out["forces_source"],
 	}
 
-
-def bereken_utilization_voor_dataset(
-	row: pd.Series,
-	req_force_kn: float,
-	req_length_m: float,
-	gnn_marge: float = 1.10,
-) -> float:
-	"""Backward-compatible wrapper for calculate_utilization_for_dataset."""
-	return calculate_utilization_for_dataset(
-		row=row,
-		req_force_kn=req_force_kn,
-		req_length_m=req_length_m,
-		gnn_margin=gnn_marge,
-	)
-
-
 __all__ = [
 	"assign_roof_load_fz",
 	"calculate_utilization_for_dataset",
 	"bereken_utilization_voor_dataset",
+	"geometry_df_to_design_row",
 	"compute_utilization_outputs",
 	"validate_structural_stage_notebook_inputs",
 	"package_structural_outputs_for_notebook",
