@@ -1,14 +1,11 @@
 from __future__ import annotations
-
 from pathlib import Path
 from typing import Any, Sequence
 import contextlib
 import io
 import sys
-
 import numpy as np
 import pandas as pd
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = REPO_ROOT / "src"
@@ -112,6 +109,7 @@ def run_cost_matrix_stage(
     require_structural_constraints: bool = True,
     require_surrogate_when_context: bool = True,
     weights: dict[str, float] | None = None,
+    normalize: bool = False,
 ) -> dict[str, Any]:
     """Run cost-matrix stage and return matrix plus diagnostics."""
     _validate_surrogate_context_for_cost_stage(surrogate_context)
@@ -128,6 +126,7 @@ def run_cost_matrix_stage(
                 require_structural_constraints=bool(require_structural_constraints),
                 require_surrogate_when_context=bool(require_surrogate_when_context),
                 weights=weights,
+                normalize=normalize,
             )
     else:
         cost_matrix, enriched_stock, df_logs = build_cost_matrix(
@@ -140,6 +139,7 @@ def run_cost_matrix_stage(
             require_structural_constraints=bool(require_structural_constraints),
             require_surrogate_when_context=bool(require_surrogate_when_context),
             weights=weights,
+            normalize=normalize,
         )
 
     df_cost_matrix_display = pd.DataFrame(

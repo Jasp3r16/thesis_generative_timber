@@ -1,4 +1,4 @@
-import c11_params
+import c26_params
 import numpy as np
 import pandas as pd
 from c25_feasibility_check import calculate_utilization_for_dataset
@@ -8,9 +8,10 @@ from c21_surrogate_io import load_surrogate_bundle, predict_edge_forces_kn
 # ==========================================
 # LCA COST MATRIX PARAMETERS
 # ==========================================
-PREPARATION_FACTOR = float(c11_params.PREPARATION_EMISSION_FACTOR)
-END_OF_LIFE_FACTOR = float(c11_params.END_OF_LIFE_EMISSION_FACTOR)
-SAW_CUT_PENALTY = float(c11_params.SAW_CUT_PENALTY)
+PREPARATION_FACTOR = float(c26_params.PREPARATION_EMISSION_FACTOR)
+END_OF_LIFE_FACTOR = float(c26_params.END_OF_LIFE_EMISSION_FACTOR)
+SAW_CUT_PENALTY = float(c26_params.SAW_CUT_PENALTY)
+SCARCITY_PENALTY = float(c26_params.SCARCITY_PENALTY)
 
 def _resolve_edge_columns(df_edges):
     columns_by_lower = {str(col).strip().lower(): col for col in df_edges.columns}
@@ -84,7 +85,7 @@ def calculate_scarcity_weight(df_stock, stock_item):
     scarcity_ratio = 1.0 - (category_count / total_count) if total_count > 0 else 0.0
     return scarcity_ratio
 
-def calculate_cost_formula_v1(slot, stock_item, df_stock, weights=None):
+def calculate_cost_formula_v1(slot, stock_item, df_stock, weights=None, normalize=False):
     """
     Step 1: calculate C_{i,j} according to the LCA logic.
     C = E_embodied + E_prep + E_trans + E_waste + E_saw + E_opp.
@@ -94,17 +95,15 @@ def calculate_cost_formula_v1(slot, stock_item, df_stock, weights=None):
     a_stock = (stock_item['Width'] / 1000.0) * (stock_item['Depth'] / 1000.0)
 
     l_req = slot['Length_Req'] / 1000.0
-    d_req = 
-
-    # Hard feasibility rule: insufficient length or cross-section area -> impossible match.
-    if l_stock < l_req or a_stock < a_req:
-        return np.inf, None
+    d_req = slot['Depth_Req'] / 1000.0
+    w_req = slot['Width_Req'] / 1000.0
+    a_req = w_req * d_req
 
     density = float(stock_item['Density_Resolved'])
     distance_km = float(stock_item['Distance_Resolved'])
     transport_factor = float(stock_item['TransportFactor_Resolved'])
     embodied_factor = float(stock_item['ECC_Resolved'])
-    preparation_factor = float(stock_item['PreparationFactor_Resolved'])
+    preparation_factor = float(stock_item['PreparationFacto_Resolved'])
     scarcity_ratio = calculate_scarcity_weight(df_stock, stock_item)
 
     # Explicit volume decomposition:
@@ -122,22 +121,23 @@ def calculate_cost_formula_v1(slot, stock_item, df_stock, weights=None):
     e_saw = 0.0 if stock_item['Length'] == slot['Length_Req'] else SAW_CUT_PENALTY
     e_opp = scarcity_ratio*(v_over + v_waste) * embodied_factor
 
-    norm_comp = normalize_cost_formula_values(
-        cost_components={
-            'embodied_energy': e_embodied,
-            'preparation_energy': e_prep,
-            'transportation_energy': e_trans,
-            'waste_energy': e_waste,
-            'sawing_energy': e_saw,
-            'opportunity_cost': e_opp,
-        })
+    if normalize:
+        norm_comp = normalize_cost_formula_values(
+            cost_components={
+                'embodied_energy': e_embodied,
+                'preparation_energy': e_prep,
+                'transportation_energy': e_trans,
+                'waste_energy': e_waste,
+                'sawing_energy': e_saw,
+                'opportunity_cost': e_opp,
+            })
     
-    norm_e_embodied = norm_comp.get('embodied_energy', e_embodied)
-    norm_e_prep = norm_comp.get('preparation_energy', e_prep)
-    norm_e_trans = norm_comp.get('transportation_energy', e_trans)
-    norm_e_waste = norm_comp.get('waste_energy', e_waste)
-    norm_e_saw = norm_comp.get('sawing_energy', e_saw)
-    norm_e_opp = norm_comp.get('opportunity_cost', e_opp)
+        norm_e_embodied = norm_comp.get('embodied_energy', e_embodied)
+        norm_e_prep = norm_comp.get('preparation_energy', e_prep)
+        norm_e_trans = norm_comp.get('transportation_energy', e_trans)
+        norm_e_waste = norm_comp.get('waste_energy', e_waste)
+        norm_e_saw = norm_comp.get('sawing_energy', e_saw)
+        norm_e_opp = norm_comp.get('opportunity_cost', e_opp)
 
     if weights is not None:
         w_embodied = weights.get('embodied_energy', 0.0)
@@ -164,6 +164,92 @@ def calculate_cost_formula_v1(slot, stock_item, df_stock, weights=None):
         'TOTAL_Score': total_cost
     }
 
+def calculate_cost_formula_v2(slot, stock_item, df_stock, weights=None, normalize=False):
+    """
+    Step 1: calculate C_{i,j} according to the LCA logic.
+    state binary is used to distinguish between new and reclaimed element
+    new and reclaimed elements have different calculation logic  
+    """
+    l_stock = stock_item['Length'] / 1000.0
+    a_stock = (stock_item['Width'] / 1000.0) * (stock_item['Depth'] / 1000.0)
+
+    l_req = slot['Length_Req'] / 1000.0
+    d_req = slot['Depth_Req'] / 1000.0
+    w_req = slot['Width_Req'] / 1000.0
+    a_req = w_req * d_req
+
+    density = float(stock_item['Density_Resolved'])
+    distance_km = float(stock_item['Distance_Resolved'])
+    transport_factor = float(stock_item['TransportFactor_Resolved'])
+    embodied_factor = float(stock_item['ECC_Resolved'])
+    state = float(stock_item['State_Resolved'])
+    scarcity_ratio = calculate_scarcity_weight(df_stock, stock_item)
+
+    # Explicit volume decomposition:
+    # V_stock = V_req + V_over + V_waste
+    v_req = a_req * l_req
+    v_profile_target = a_stock * l_req
+    v_over = max(0.0, v_profile_target - v_req)
+    v_waste = max(0.0, a_stock * (l_stock - l_req))
+    v_stock = a_stock * l_stock
+
+    m_a1_a3 = embodied_factor
+    
+
+    e_prep = v_stock * preparation_factor
+    e_trans = (((v_req + v_over) * density) / 1000.0) * distance_km * transport_factor
+    e_waste = v_waste * END_OF_LIFE_FACTOR
+    e_saw = 0.0 if stock_item['Length'] == slot['Length_Req'] else SAW_CUT_PENALTY
+    e_opp = scarcity_ratio*(v_over + v_waste) * embodied_factor
+
+    e_new = (v_req * density * m_a1_a3) + (v_req * density *distance_km * transport_factor)
+
+    e_reclaimed = ((v_stock * density * m_recover) + 
+                   (v_stock * density * distance_km * transport_factor) 
+                   + e_prep + e_saw + e_offcut)   
+
+    total_cost = (1-state) * e_new + state * e_reclaimed
+
+    return total_cost, {
+        'V_req': v_req,
+        'V_over': v_over,
+        'V_waste': v_waste,
+        'V_stock': v_stock,
+        'E_embodied': e_embodied,
+        'E_prep': e_prep,
+        'E_trans': e_trans,
+        'E_waste': e_waste,
+        'E_saw': e_saw,
+        'E_opp': e_opp,
+        'TOTAL_Score': total_cost
+    }
+
+    if normalize:
+        norm_comp = normalize_cost_formula_values(
+            cost_components={
+                'embodied_energy': e_embodied,
+                'preparation_energy': e_prep,
+                'transportation_energy': e_trans,
+                'waste_energy': e_waste,
+                'sawing_energy': e_saw,
+                'opportunity_cost': e_opp,
+            })
+    
+        norm_e_embodied = norm_comp.get('embodied_energy', e_embodied)
+        norm_e_prep = norm_comp.get('preparation_energy', e_prep)
+        norm_e_trans = norm_comp.get('transportation_energy', e_trans)
+        norm_e_waste = norm_comp.get('waste_energy', e_waste)
+        norm_e_saw = norm_comp.get('sawing_energy', e_saw)
+        norm_e_opp = norm_comp.get('opportunity_cost', e_opp)
+
+    if weights is not None:
+        w_embodied = weights.get('embodied_energy', 0.0)
+        w_prep = weights.get('preparation_energy', 0.0)
+        w_trans = weights.get('transportation_energy', 0.0)
+        w_waste = weights.get('waste_energy', 0.0)
+        w_saw = weights.get('sawing_energy', 0.0)
+        w_opp = weights.get('opportunity_cost', 0.0)
+
 # Main stage function
 def build_cost_matrix(
     df_design,
@@ -176,6 +262,7 @@ def build_cost_matrix(
     require_structural_constraints=True,
     require_surrogate_when_context=True,
     weights=None,
+    normalize=False,
 ):
     """
     Step 2: build the cost matrix with the assignment-cost function.
@@ -260,7 +347,7 @@ def build_cost_matrix(
             if not candidate_check['structural_feasible']:
                 total_match_score, components = np.inf, None
             else:
-                total_match_score, components = calculate_cost_formula_v1(slot, stock_item, df_stock, weights)
+                total_match_score, components = calculate_cost_formula_v1(slot, stock_item, df_stock, weights, normalize)
 
             if np.isfinite(total_match_score):
                 cost_matrix[i, j] = total_match_score
