@@ -155,6 +155,22 @@ def _collect_feasibility_reasons(slot, stock_item, utilization_failed):
 
     return reasons if reasons else ['Passed']
 
+def normalize_cost_formula_values(cost_components):
+    """Each independent penalty is calculated across all possible assignments to generate separate, raw matrices 
+    (e.g., $C^{saw}$, $C^{opp}$, $C^{waste}$). Before aggregation, each matrix is individually normalized using Min-Max scaling, 
+    mapping all values to a bounded interval of $[0, 1]$:$C^{norm}_{ij} = \frac{C_{ij} - \min(C)}{\max(C) - \min(C)}$
+    Through this mathematical translation, the worst possible sawing penalty in the matrix becomes exactly $1.0$, 
+    and the worst possible scarcity penalty also becomes exactly $1.0$. The values are now dimensionally uniform, 
+    preventing the macro-penalties from mathematically eclipsing the micro-penalties."""
+    normalized_components = {}
+    for key, matrix in cost_components.items():
+        min_val = np.nanmin(matrix)
+        max_val = np.nanmax(matrix)
+        if np.isfinite(min_val) and np.isfinite(max_val) and max_val > min_val:
+            normalized_matrix = (matrix - min_val) / (max_val - min_val)
+            normalized_components[key] = normalized_matrix
+    return normalized_components    
+
 def calculate_scarcity_weight(df_stock, stock_item):
     """Compute a scarcity ratio for a stock item based on availability by length category.
 
@@ -213,6 +229,23 @@ def calculate_cost_formula(slot, stock_item, df_stock, weights=None):
     e_saw = 0.0 if stock_item['Length'] == slot['Length_Req'] else SAW_CUT_PENALTY
     e_opp = scarcity_ratio*(v_over + v_waste) * embodied_factor
 
+    norm_comp = normalize_cost_formula_values(
+        cost_components={
+            'embodied_energy': e_embodied,
+            'preparation_energy': e_prep,
+            'transportation_energy': e_trans,
+            'waste_energy': e_waste,
+            'sawing_energy': e_saw,
+            'opportunity_cost': e_opp,
+        })
+    
+    norm_e_embodied = norm_comp.get('embodied_energy', e_embodied)
+    norm_e_prep = norm_comp.get('preparation_energy', e_prep)
+    norm_e_trans = norm_comp.get('transportation_energy', e_trans)
+    norm_e_waste = norm_comp.get('waste_energy', e_waste)
+    norm_e_saw = norm_comp.get('sawing_energy', e_saw)
+    norm_e_opp = norm_comp.get('opportunity_cost', e_opp)
+
     if weights is not None:
         w_embodied = weights.get('embodied_energy', 0.0)
         w_prep = weights.get('preparation_energy', 0.0)
@@ -221,8 +254,8 @@ def calculate_cost_formula(slot, stock_item, df_stock, weights=None):
         w_saw = weights.get('sawing_energy', 0.0)
         w_opp = weights.get('opportunity_cost', 0.0)
 
-    total_cost = (w_embodied * e_embodied + w_prep * e_prep + w_trans * e_trans +
-                  w_waste * e_waste + w_saw * e_saw + w_opp * e_opp)
+    total_cost = (w_embodied * norm_e_embodied + w_prep * norm_e_prep + w_trans * norm_e_trans +
+                  w_waste * norm_e_waste + w_saw * norm_e_saw + w_opp * norm_e_opp)
 
     return total_cost, {
         'V_req': v_req,
