@@ -12,17 +12,6 @@ PREPARATION_FACTOR = float(c11_params.PREPARATION_EMISSION_FACTOR)
 END_OF_LIFE_FACTOR = float(c11_params.END_OF_LIFE_EMISSION_FACTOR)
 SAW_CUT_PENALTY = float(c11_params.SAW_CUT_PENALTY)
 
-
-def _resolve_utilization_value(df_utilization_matrix, slot_id, stock_id):
-    """Fetch utilization from the matrix; return np.nan if the combination is missing."""
-    if df_utilization_matrix is None:
-        return np.nan
-    if slot_id not in df_utilization_matrix.index:
-        return np.nan
-    if stock_id not in df_utilization_matrix.columns:
-        return np.nan
-    return df_utilization_matrix.loc[slot_id, stock_id]
-
 def _resolve_edge_columns(df_edges):
     columns_by_lower = {str(col).strip().lower(): col for col in df_edges.columns}
     edge_id_col = columns_by_lower.get('edge_id')
@@ -32,61 +21,6 @@ def _resolve_edge_columns(df_edges):
             area_col = columns_by_lower[candidate]
             break
     return edge_id_col, area_col
-
-def _build_utilization_matrix_from_slot_forces(df_design, df_stock, gnn_margin=1.10):
-    """Build a utilization matrix directly in c26 from slot force demand.
-
-    Requires `edge_id`, `axial_force_kn`, and `length_m` columns in `df_design`, and
-    stock strength/geometry columns required by `calculate_utilization_for_dataset`.
-    """
-    required_slot_cols = ['edge_id', 'axial_force_kn', 'length_m']
-    required_stock_cols = ['Member_ID', 'Width', 'Depth', 'f_c0k', 'f_tk', 'E_modulus_eff']
-
-    if not all(col in df_design.columns for col in required_slot_cols):
-        return None
-    if not all(col in df_stock.columns for col in required_stock_cols):
-        return None
-
-    df_slots_local = df_design.copy()
-    df_slots_local['axial_force_kn'] = pd.to_numeric(df_slots_local['axial_force_kn'], errors='coerce')
-    df_slots_local['length_m'] = pd.to_numeric(df_slots_local['length_m'], errors='coerce')
-
-    if df_slots_local[['axial_force_kn', 'length_m']].dropna().empty:
-        return None
-
-    records = []
-    for _, slot_row in df_slots_local.iterrows():
-        slot_id = str(slot_row['edge_id'])
-        req_force = slot_row['axial_force_kn']
-        req_length = slot_row['length_m']
-
-        if not np.isfinite(req_force) or not np.isfinite(req_length):
-            continue
-
-        for _, stock_row in df_stock.iterrows():
-            stock_id = stock_row['Member_ID']
-            util = calculate_utilization_for_dataset(
-                stock_row,
-                req_force_kn=float(req_force),
-                req_length_m=float(req_length),
-                gnn_margin=float(gnn_margin),
-            )
-            records.append({
-                'edge_id': slot_id,
-                'Member_ID': stock_id,
-                'utilization': float(util),
-            })
-
-    if not records:
-        return None
-
-    matrix = pd.DataFrame.from_records(records).pivot_table(
-        index='edge_id',
-        columns='Member_ID',
-        values='utilization',
-        aggfunc='first',
-    )
-    return matrix
 
 def prepare_stock_cost_inputs(df_stock_raw):
     """
@@ -112,47 +46,6 @@ def prepare_stock_cost_inputs(df_stock_raw):
     df_stock['PreparationFactor_Resolved'] = df_stock['ProcessingFactor_Resolved'] * PREPARATION_FACTOR
 
     return df_stock
-
-def _get_required_area(slot, a_stock):
-    """Return required cross-section area in m2, falling back to stock area when unavailable."""
-    if (
-        'Width_Req' in slot and 'Depth_Req' in slot
-        and pd.notna(slot['Width_Req']) and pd.notna(slot['Depth_Req'])
-    ):
-        return (float(slot['Width_Req']) / 1000.0) * (float(slot['Depth_Req']) / 1000.0)
-    return a_stock
-
-def _classify_geometry_constraint(slot, stock_item):
-    """Classify infeasibility cause as length, dimensions, both, or passed."""
-    l_stock = float(stock_item['Length']) / 1000.0
-    a_stock = (float(stock_item['Width']) / 1000.0) * (float(stock_item['Depth']) / 1000.0)
-    l_req = float(slot['Length_Req']) / 1000.0
-    a_req = _get_required_area(slot, a_stock)
-
-    length_failed = l_stock < l_req
-    dimensions_failed = a_stock < a_req
-
-    if length_failed and dimensions_failed:
-        return 'Length+Dimensions'
-    if length_failed:
-        return 'Length'
-    if dimensions_failed:
-        return 'Dimensions'
-    return 'Passed'
-
-def _collect_feasibility_reasons(slot, stock_item, utilization_failed):
-    """Collect all active feasibility constraints for this slot-stock combination."""
-    reasons = []
-    if utilization_failed:
-        reasons.append('Utilization')
-
-    geometry_reason = _classify_geometry_constraint(slot, stock_item)
-    if geometry_reason == 'Length+Dimensions':
-        reasons.extend(['Length', 'Dimensions'])
-    elif geometry_reason in ('Length', 'Dimensions'):
-        reasons.append(geometry_reason)
-
-    return reasons if reasons else ['Passed']
 
 # Cost formula components and normalization
 def normalize_cost_formula_values(cost_components):

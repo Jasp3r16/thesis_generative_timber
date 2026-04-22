@@ -14,7 +14,7 @@ SRC_PATH = REPO_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.append(str(SRC_PATH))
 
-from c24_fitness_aggregation import (
+from c28_fitness_aggregation import (
     derive_normalization_constants_from_solution,
     evaluate_milp_solution,
     get_normalization_constants,

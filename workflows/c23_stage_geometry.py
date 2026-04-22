@@ -18,7 +18,7 @@ if str(SRC_PATH) not in sys.path:
 
 import c11_params
 from c12_geometry_truss import generate_sample_vertices
-from c23_reconstruction import reconstruct_edges
+from c24_reconstruction import reconstruct_edges
 
 
 def sample_random_design(search_space: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:

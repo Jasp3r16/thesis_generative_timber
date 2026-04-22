@@ -6,387 +6,659 @@ import pandas as pd
 import c21_surrogate_io as surrogate_io
 
 
+DEFAULT_STRUCTURAL_MODEL_PREFIX = "ID20260418_215020_LR0.0005_EP100_R0.99_F6"
+
+
+def _to_numeric_vertex_id(value: Any) -> int:
+    text = str(value).strip()
+    if text.lower().startswith("v"):
+        text = text[1:]
+    return int(text)
+
+
+def _resolve_edge_id_column(df_edges: pd.DataFrame) -> str | None:
+    for candidate in ("edge_id", "Edge_ID", "Element_ID"):
+        if candidate in df_edges.columns:
+            return candidate
+    return None
+
+
+def _resolve_edge_area_column(df_edges: pd.DataFrame) -> str | None:
+    for candidate in ("Area", "area", "cross_section_area", "A"):
+        if candidate in df_edges.columns:
+            return candidate
+    return None
+
+
+def validate_feasibility_stage_notebook_inputs(
+    df_input_stock: pd.DataFrame | None,
+    df_vertices: pd.DataFrame | None,
+    df_edges: pd.DataFrame | None = None,
+) -> None:
+    """Validate required stage inputs and expected schema before expensive compute."""
+    missing: list[str] = []
+    if df_input_stock is None:
+        missing.append("df_input_stock")
+    if df_vertices is None:
+        missing.append("df_vertices")
+    if missing:
+        raise ValueError("Missing required feasibility inputs: " + ", ".join(missing))
+
+    assert df_input_stock is not None
+    assert df_vertices is not None
+
+    required_stock_cols = {"Member_ID", "Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"}
+    missing_stock_cols = [c for c in required_stock_cols if c not in df_input_stock.columns]
+    if missing_stock_cols:
+        raise ValueError("df_input_stock missing required columns: " + ", ".join(missing_stock_cols))
+
+    required_vertex_cols = {"x", "y", "z"}
+    missing_vertex_cols = [c for c in required_vertex_cols if c not in df_vertices.columns]
+    if missing_vertex_cols:
+        raise ValueError("df_vertices missing required columns: " + ", ".join(missing_vertex_cols))
+
+    if "vertex_index" not in df_vertices.columns and "node_id" not in df_vertices.columns:
+        raise ValueError("df_vertices must include 'vertex_index' or 'node_id' for surrogate conversion.")
+
+    if "Fz" not in df_vertices.columns and "layer" not in df_vertices.columns:
+        raise ValueError("df_vertices must include either 'Fz' or 'layer' so nodal load can be resolved.")
+
+    if df_edges is not None and _resolve_edge_id_column(df_edges) is None and len(df_edges) == 0:
+        raise ValueError("df_edges must contain at least one edge row.")
+
+
 def assign_roof_load_fz(
-	df_vertices: pd.DataFrame,
-	roof_load_kn_m2: float = 2.0,
-	layer_column: str = "layer",
-	top_layer_value: str = "top",
-	bottom_layer_value: str = "bottom",
+    df_vertices: pd.DataFrame,
+    roof_load_kn_m2: float = 2.0,
+    layer_column: str = "layer",
+    top_layer_value: str = "top",
+    bottom_layer_value: str = "bottom",
 ) -> pd.DataFrame:
-	"""Assign nodal Fz from distributed roof load over the top-node roof footprint.
+    """Assign nodal Fz from distributed roof load over the top-node roof footprint.
 
-	The roof load is projected on the XY plane and distributed to top vertices using
-	a triangulation-based tributary area method:
-	- Triangulate the top-node XY points with `matplotlib.tri.Triangulation`
-	- For each triangle, distribute one-third of its area to each triangle node
-	- Nodal force is `Fz = -roof_load_kn_m2 * tributary_area_m2`
-	- Bottom nodes are explicitly set to `Fz = 0`
+    The roof load is projected on the XY plane and distributed to top vertices using
+    a triangulation-based tributary area method:
+    - Triangulate the top-node XY points with `matplotlib.tri.Triangulation`
+    - For each triangle, distribute one-third of its area to each triangle node
+    - Nodal force is `Fz = -roof_load_kn_m2 * tributary_area_m2`
+    - Bottom nodes are explicitly set to `Fz = 0`
 
-	Args:
-		df_vertices: Vertex table containing at least `x`, `y`, `z` and `layer`.
-		roof_load_kn_m2: Uniform roof surface load in kN/m2.
-		layer_column: Column that stores top/bottom layer labels.
-		top_layer_value: Value that marks upper (roof) vertices.
-		bottom_layer_value: Value that marks lower vertices.
+    Args:
+        df_vertices: Vertex table containing at least `x`, `y`, `z` and `layer`.
+        roof_load_kn_m2: Uniform roof surface load in kN/m2.
+        layer_column: Column that stores top/bottom layer labels.
+        top_layer_value: Value that marks upper (roof) vertices.
+        bottom_layer_value: Value that marks lower vertices.
 
-	Returns:
-		A copy of `df_vertices` with columns:
-		- `Fz`: nodal vertical load in kN (negative downward)
-		- `roof_tributary_area_m2`: tributary roof area per node in m2
+    Returns:
+        A copy of `df_vertices` with columns:
+        - `Fz`: nodal vertical load in kN (negative downward)
+        - `roof_tributary_area_m2`: tributary roof area per node in m2
 
-	Raises:
-		ValueError: If required columns are missing or top-node geometry is invalid.
-	"""
-	required_cols = {"x", "y", "z", layer_column}
-	missing = [c for c in required_cols if c not in df_vertices.columns]
-	if missing:
-		raise ValueError("assign_roof_load_fz missing columns: " + ", ".join(missing))
+    Raises:
+        ValueError: If required columns are missing or top-node geometry is invalid.
+    """
+    required_cols = {"x", "y", "z", layer_column}
+    missing = [c for c in required_cols if c not in df_vertices.columns]
+    if missing:
+        raise ValueError("assign_roof_load_fz missing columns: " + ", ".join(missing))
 
-	df_out = df_vertices.copy()
-	df_out["roof_tributary_area_m2"] = 0.0
-	df_out["Fz"] = 0.0
+    df_out = df_vertices.copy()
+    df_out["roof_tributary_area_m2"] = 0.0
+    df_out["Fz"] = 0.0
 
-	top_mask = df_out[layer_column].astype(str).str.lower() == str(top_layer_value).lower()
-	bottom_mask = df_out[layer_column].astype(str).str.lower() == str(bottom_layer_value).lower()
+    top_mask = df_out[layer_column].astype(str).str.lower() == str(top_layer_value).lower()
+    bottom_mask = df_out[layer_column].astype(str).str.lower() == str(bottom_layer_value).lower()
 
-	df_top = df_out.loc[top_mask, ["x", "y"]].astype(float)
-	if len(df_top) < 3:
-		raise ValueError("Need at least 3 top-layer vertices to distribute roof load.")
+    df_top = df_out.loc[top_mask, ["x", "y"]].astype(float)
+    if len(df_top) < 3:
+        raise ValueError("Need at least 3 top-layer vertices to distribute roof load.")
 
-	xy = df_top.to_numpy(dtype=float)
-	if np.linalg.matrix_rank(xy - xy.mean(axis=0, keepdims=True)) < 2:
-		raise ValueError("Top-layer vertices are collinear in XY; cannot define roof area.")
+    xy = df_top.to_numpy(dtype=float)
+    if np.linalg.matrix_rank(xy - xy.mean(axis=0, keepdims=True)) < 2:
+        raise ValueError("Top-layer vertices are collinear in XY; cannot define roof area.")
 
-	# Local import keeps this utility lightweight unless structural stage uses it.
-	import matplotlib.tri as mtri
+    # Local import keeps this utility lightweight unless structural stage uses it.
+    import matplotlib.tri as mtri
 
-	tri = mtri.Triangulation(xy[:, 0], xy[:, 1])
-	if tri.triangles is None or len(tri.triangles) == 0:
-		raise ValueError("Could not triangulate top-layer roof footprint.")
+    tri = mtri.Triangulation(xy[:, 0], xy[:, 1])
+    if tri.triangles is None or len(tri.triangles) == 0:
+        raise ValueError("Could not triangulate top-layer roof footprint.")
 
-	tributary_area = np.zeros(len(df_top), dtype=float)
-	for a, b, c in tri.triangles:
-		pa = xy[a]
-		pb = xy[b]
-		pc = xy[c]
-		area = 0.5 * abs(np.cross(pb - pa, pc - pa))
-		share = area / 3.0
-		tributary_area[a] += share
-		tributary_area[b] += share
-		tributary_area[c] += share
+    tributary_area = np.zeros(len(df_top), dtype=float)
+    for a, b, c in tri.triangles:
+        pa = xy[a]
+        pb = xy[b]
+        pc = xy[c]
+        area = 0.5 * abs(np.cross(pb - pa, pc - pa))
+        share = area / 3.0
+        tributary_area[a] += share
+        tributary_area[b] += share
+        tributary_area[c] += share
 
-	top_indices = df_out.index[top_mask].to_numpy()
-	df_out.loc[top_indices, "roof_tributary_area_m2"] = tributary_area
-	df_out.loc[top_indices, "Fz"] = -float(roof_load_kn_m2) * tributary_area
+    top_indices = df_out.index[top_mask].to_numpy()
+    df_out.loc[top_indices, "roof_tributary_area_m2"] = tributary_area
+    df_out.loc[top_indices, "Fz"] = -float(roof_load_kn_m2) * tributary_area
 
-	# Preserve training convention: lower vertices carry no vertical roof load.
-	df_out.loc[bottom_mask, "Fz"] = 0.0
+    # Preserve training convention: lower vertices carry no vertical roof load.
+    df_out.loc[bottom_mask, "Fz"] = 0.0
 
-	return df_out
+    return df_out
 
+def _collect_feasibility_reasons(slot, stock_item, utilization_failed):
+    """Collect all active feasibility constraints for this slot-stock combination."""
+    reasons = []
+    if utilization_failed:
+        reasons.append('Utilization')
+
+    geometry_reason = _classify_geometry_constraint(slot, stock_item)
+    if geometry_reason == 'Length':
+        reasons.append(geometry_reason)
+
+    return reasons if reasons else ['Passed']
+
+
+def _classify_geometry_constraint(slot: pd.Series, stock_item: pd.Series) -> str:
+    """Classify only length feasibility; cross-section is enforced by utilization."""
+    req_length_m = float(slot.get("length_m", np.nan))
+    if not np.isfinite(req_length_m):
+        req_length_m = float(slot.get("Length_Req", np.nan)) / 1000.0
+    stock_length_m = float(stock_item["Length"]) / 1000.0
+    if np.isfinite(req_length_m) and stock_length_m < req_length_m:
+        return "Length"
+    return "Passed"
 
 def geometry_df_to_design_row(
-	df_geometry: pd.DataFrame,
-	df_edges: pd.DataFrame | None = None,
+    df_geometry: pd.DataFrame,
+    df_edges: pd.DataFrame | None = None,
+    edge_area_m2: float | None = None,
 ) -> pd.Series:
-	"""Convert geometry and optional edge table to surrogate design-row format."""
-	required = ["x", "y", "z"]
-	missing = [c for c in required if c not in df_geometry.columns]
-	if missing:
-		raise ValueError(f"Geometry dataframe misses required columns: {missing}")
+    """Convert long-format geometry tables to wide surrogate design-row schema."""
+    node_id_col = "vertex_index" if "vertex_index" in df_geometry.columns else "node_id"
+    if node_id_col not in df_geometry.columns:
+        raise ValueError("df_geometry must include 'vertex_index' or 'node_id'.")
 
-	numeric_columns = list(df_geometry.select_dtypes(include=[np.number]).columns)
-	if not all(column in numeric_columns for column in required):
-		raise ValueError("Geometry dataframe must store x, y and z as numeric columns.")
+    required_node_cols = {"x", "y", "z"}
+    missing_node_cols = [c for c in required_node_cols if c not in df_geometry.columns]
+    if missing_node_cols:
+        raise ValueError("geometry_df_to_design_row missing node columns: " + ", ".join(missing_node_cols))
 
-	coords = df_geometry[numeric_columns].reset_index(drop=True).astype(float)
-	payload: dict[str, float] = {}
-	for idx, row in coords.iterrows():
-		for column_name in coords.columns:
-			payload[f"v{idx}_{column_name}"] = float(row[column_name])
-	if df_edges is not None and len(df_edges) > 0:
-		edge_table = df_edges.reset_index(drop=True)
-		columns_by_lower = {str(col).strip().lower(): col for col in edge_table.columns}
-		edge_id_col = columns_by_lower.get("edge_id")
-		area_col = None
-		for candidate in ("area", "cross_section_area", "a"):
-			if candidate in columns_by_lower:
-				area_col = columns_by_lower[candidate]
-				break
+    df_nodes = df_geometry.copy()
+    if "Fz" not in df_nodes.columns:
+        if "layer" not in df_nodes.columns:
+            raise ValueError("df_geometry requires Fz or layer to derive Fz values.")
+        df_nodes = assign_roof_load_fz(df_nodes)
 
-		if area_col is not None:
-			edge_table[area_col] = pd.to_numeric(edge_table[area_col], errors="coerce")
+    df_nodes = df_nodes.sort_values(by=node_id_col, key=lambda s: s.map(_to_numeric_vertex_id)).reset_index(drop=True)
 
-		for idx, edge_row in edge_table.iterrows():
-			edge_key_raw = str(edge_row[edge_id_col]).strip() if edge_id_col is not None else f"e{idx}"
-			edge_key_raw_lower = edge_key_raw.lower()
-			if edge_key_raw_lower.startswith("e"):
-				edge_key = edge_key_raw_lower
-			elif edge_key_raw.isdigit():
-				edge_key = f"e{edge_key_raw}"
-			else:
-				edge_key = f"e{idx}"
-			if not edge_key.startswith("e"):
-				edge_key = f"e{idx}"
-			if area_col is not None and pd.notna(edge_row[area_col]):
-				payload[f"{edge_key}_Area"] = float(edge_row[area_col])
+    payload: dict[str, float] = {}
+    for _, row in df_nodes.iterrows():
+        node_idx = _to_numeric_vertex_id(row[node_id_col])
+        payload[f"v{node_idx}_x"] = float(row["x"])
+        payload[f"v{node_idx}_y"] = float(row["y"])
+        payload[f"v{node_idx}_z"] = float(row["z"])
+        payload[f"v{node_idx}_Fz"] = float(row["Fz"])
 
-	return pd.Series(payload, dtype=np.float32)
+    if df_edges is not None:
+        edge_area_col = _resolve_edge_area_column(df_edges)
+        if edge_area_col is None and edge_area_m2 is None:
+            raise ValueError("df_edges missing edge area column (Area/cross_section_area/A).")
+
+        edge_id_col = _resolve_edge_id_column(df_edges)
+        df_edges_local = df_edges.copy()
+        if edge_id_col is not None:
+            df_edges_local["_edge_numeric"] = (
+                df_edges_local[edge_id_col].astype(str).str.extract(r"(\d+)", expand=False).astype(float)
+            )
+            df_edges_local = df_edges_local.sort_values(by="_edge_numeric", kind="stable")
+        else:
+            df_edges_local = df_edges_local.reset_index(drop=True)
+
+        for edge_idx, (_, edge_row) in enumerate(df_edges_local.iterrows()):
+            if edge_area_col is not None:
+                payload[f"e{edge_idx}_Area"] = float(edge_row[edge_area_col])
+            else:
+                payload[f"e{edge_idx}_Area"] = float(edge_area_m2)
+
+    payload["num_vertices"] = float(len(df_nodes))
+    payload["num_edges"] = float(len(df_edges)) if df_edges is not None else 0.0
+    return pd.Series(payload, dtype="float64")
 
 def _predict_forces_with_surrogate(
     df_vertices: pd.DataFrame,
     df_edges: pd.DataFrame | None,
     bundle: dict[str, Any] | None,
     model_prefix: str | None,
+    edge_area_m2: float | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any] | None, str]:
     """Predict forces via the surrogate model."""
-    df_geometry = df_vertices.copy().reset_index(drop=True)
+    if df_edges is None:
+        raise ValueError("df_edges is required for surrogate force prediction in c25.")
 
-    # Apply distributed roof load as nodal Fz before surrogate inference.
-    # By convention, top-layer nodes receive tributary load and bottom-layer nodes remain zero.
-    df_geometry = assign_roof_load_fz(df_geometry, roof_load_kn_m2=2.0)
+    active_prefix = model_prefix or DEFAULT_STRUCTURAL_MODEL_PREFIX
+    bundle_local = bundle
+    if bundle_local is None:
+        bundle_local, bundle_error = prepare_surrogate_bundle(active_prefix)
+        if bundle_local is None:
+            raise RuntimeError(bundle_error or "Could not load surrogate bundle.")
 
-    active_bundle = bundle if bundle is not None else surrogate_io.load_surrogate_bundle(prefix_sm=model_prefix)
+    design_row = geometry_df_to_design_row(df_geometry=df_vertices, df_edges=df_edges, edge_area_m2=edge_area_m2)
+    df_forces = surrogate_io.predict_edge_forces_kn(design_row=design_row, bundle=bundle_local)
 
-    design_row = geometry_df_to_design_row(
-        df_geometry=df_geometry,
+    required_force_cols = {"edge_id", "length_m", "axial_force_kn"}
+    missing_force_cols = [c for c in required_force_cols if c not in df_forces.columns]
+    if missing_force_cols:
+        raise ValueError("Surrogate prediction missing columns: " + ", ".join(missing_force_cols))
+
+    return df_forces.copy(), bundle_local, f"surrogate:{active_prefix}"
+
+
+def _validate_surrogate_feature_availability(
+    df_vertices: pd.DataFrame,
+    df_edges: pd.DataFrame,
+    bundle: dict[str, Any],
+) -> None:
+    """Fail fast when required surrogate features/topology are not fully available."""
+    run_manifest = bundle.get("run_manifest") or {}
+
+    node_id_col = "vertex_index" if "vertex_index" in df_vertices.columns else "node_id"
+    if node_id_col not in df_vertices.columns:
+        raise ValueError("Surrogate guard: df_vertices must contain 'vertex_index' or 'node_id'.")
+
+    required_node_features = tuple(run_manifest.get("selected_node_continuous_cols") or ("x", "y", "z", "Fz"))
+    missing_node_features = [f for f in required_node_features if f not in df_vertices.columns]
+    if missing_node_features:
+        raise ValueError(
+            "Surrogate guard: missing required node features for model inference: "
+            + ", ".join(missing_node_features)
+        )
+
+    required_edge_features = tuple(run_manifest.get("selected_edge_feature_cols") or ("Area", "Length"))
+    unsupported_edge_features = [f for f in required_edge_features if f not in {"Area", "Length"}]
+    if unsupported_edge_features:
+        raise ValueError(
+            "Surrogate guard: current c25 stock-specific mode only supports edge features Area and Length. "
+            "Model requires unsupported edge features: "
+            + ", ".join(unsupported_edge_features)
+        )
+
+    expected_edge_count = int(bundle["edge_index"].size(1) // 2)
+    if int(len(df_edges)) != expected_edge_count:
+        raise ValueError(
+            "Surrogate guard: df_edges row count does not match model topology. "
+            f"expected={expected_edge_count}, received={len(df_edges)}"
+        )
+
+    expected_node_count = int(bundle["edge_index"].max().item()) + 1
+    node_ids = df_vertices[node_id_col].map(_to_numeric_vertex_id)
+    unique_node_ids = sorted(set(int(v) for v in node_ids.tolist()))
+    expected_node_ids = list(range(expected_node_count))
+    if unique_node_ids != expected_node_ids:
+        raise ValueError(
+            "Surrogate guard: vertex ids do not match model node indexing. "
+            f"expected ids={expected_node_ids[:6]}...({expected_node_count} total), "
+            f"received ids={unique_node_ids[:6]}...({len(unique_node_ids)} total)"
+        )
+
+
+def compute_utilization_outputs_with_stock_specific_area(
+    df_vertices: pd.DataFrame,
+    df_edges: pd.DataFrame,
+    df_input_stock: pd.DataFrame,
+    bundle: dict[str, Any] | None = None,
+    model_prefix: str | None = None,
+    gnn_margin: float = 1.10,
+    utilization_threshold: float = 1.0,
+) -> dict[str, Any]:
+    """Compute feasibility by predicting surrogate force for each stock-specific edge area.
+
+    Each stock candidate contributes an area value A = Width*Depth (m2), which is injected
+    as the edge `Area` feature before surrogate force prediction.
+    """
+    validate_feasibility_stage_notebook_inputs(
+        df_input_stock=df_input_stock,
+        df_vertices=df_vertices,
         df_edges=df_edges,
     )
-    df_forces = surrogate_io.predict_edge_forces_kn(design_row, active_bundle).copy()
-    df_forces["V1"] = df_forces["V1"].astype(str)
-    df_forces["V2"] = df_forces["V2"].astype(str)
-    df_forces["length_m"] = df_forces["length_m"].round(3)
-    df_forces["axial_force_kn"] = df_forces["axial_force_kn"].round(2)
-    return df_forces, active_bundle, "surrogate"
+
+    vertices = df_vertices.copy()
+    if "Fz" not in vertices.columns:
+        vertices = assign_roof_load_fz(vertices)
+
+    stock = df_input_stock.copy()
+    stock["Member_ID"] = stock["Member_ID"].astype(str)
+    for numeric_col in ("Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"):
+        stock[numeric_col] = pd.to_numeric(stock[numeric_col], errors="coerce")
+
+    active_prefix = model_prefix or DEFAULT_STRUCTURAL_MODEL_PREFIX
+    bundle_local = bundle
+    if bundle_local is None:
+        bundle_local, bundle_error = prepare_surrogate_bundle(active_prefix)
+        if bundle_local is None:
+            raise RuntimeError(bundle_error or "Could not load surrogate bundle.")
+
+    _validate_surrogate_feature_availability(
+        df_vertices=vertices,
+        df_edges=df_edges,
+        bundle=bundle_local,
+    )
+
+    stock_ids = stock["Member_ID"].tolist()
+    util_matrix: np.ndarray | None = None
+    feas_matrix: np.ndarray | None = None
+    edge_ids: list[str] = []
+    df_slots: pd.DataFrame | None = None
+    df_forces_reference: pd.DataFrame | None = None
+
+    long_rows: list[dict[str, Any]] = []
+    failure_rows: list[dict[str, Any]] = []
+    force_rows: list[dict[str, Any]] = []
+
+    for j, (_, stock_item) in enumerate(stock.iterrows()):
+        candidate_area_m2 = (float(stock_item["Width"]) / 1000.0) * (float(stock_item["Depth"]) / 1000.0)
+        df_forces_candidate, _, _ = _predict_forces_with_surrogate(
+            df_vertices=vertices,
+            df_edges=df_edges,
+            bundle=bundle_local,
+            model_prefix=active_prefix,
+            edge_area_m2=float(candidate_area_m2),
+        )
+
+        if util_matrix is None:
+            edge_ids = df_forces_candidate["edge_id"].astype(str).tolist()
+            util_matrix = np.full((len(edge_ids), len(stock_ids)), np.inf, dtype=float)
+            feas_matrix = np.full((len(edge_ids), len(stock_ids)), np.inf, dtype=float)
+            df_slots = df_forces_candidate[["edge_id", "length_m", "axial_force_kn"]].copy()
+            df_slots["Length_Req"] = (pd.to_numeric(df_slots["length_m"], errors="coerce") * 1000.0).round().astype(int)
+            df_forces_reference = df_forces_candidate.copy()
+
+        for i, (_, slot_force) in enumerate(df_forces_candidate.iterrows()):
+            req_length_m = float(slot_force["length_m"])
+            req_force_kn = float(slot_force["axial_force_kn"])
+            utilization = calculate_utilization_for_dataset(
+                stock_item,
+                req_force_kn=req_force_kn,
+                req_length_m=req_length_m,
+                gnn_margin=float(gnn_margin),
+            )
+
+            assert util_matrix is not None
+            assert feas_matrix is not None
+            util_matrix[i, j] = utilization
+
+            geometry_reason = _classify_geometry_constraint(slot_force, stock_item)
+            utilization_failed = (not np.isfinite(utilization)) or (float(utilization) > float(utilization_threshold))
+            reasons = _collect_feasibility_reasons(slot_force, stock_item, utilization_failed=utilization_failed)
+            feasible = reasons == ["Passed"]
+            if feasible:
+                feas_matrix[i, j] = 0.0
+            else:
+                failure_rows.append(
+                    {
+                        "edge_id": str(slot_force["edge_id"]),
+                        "Member_ID": str(stock_item["Member_ID"]),
+                        "failure_reasons": ", ".join(reasons),
+                        "geometry_reason": geometry_reason,
+                        "utilization": float(utilization) if np.isfinite(utilization) else np.inf,
+                    }
+                )
+
+            long_rows.append(
+                {
+                    "edge_id": str(slot_force["edge_id"]),
+                    "Member_ID": str(stock_item["Member_ID"]),
+                    "length_m": req_length_m,
+                    "axial_force_kn": req_force_kn,
+                    "candidate_area_m2": float(candidate_area_m2),
+                    "utilization": float(utilization) if np.isfinite(utilization) else np.inf,
+                    "is_feasible": bool(feasible),
+                    "failure_reasons": ", ".join(reasons),
+                }
+            )
+            force_rows.append(
+                {
+                    "edge_id": str(slot_force["edge_id"]),
+                    "Member_ID": str(stock_item["Member_ID"]),
+                    "candidate_area_m2": float(candidate_area_m2),
+                    "length_m": req_length_m,
+                    "axial_force_kn": req_force_kn,
+                }
+            )
+
+    if util_matrix is None or feas_matrix is None or df_slots is None:
+        raise ValueError("No feasibility data could be generated.")
+
+    df_utilization_long = pd.DataFrame(long_rows)
+    df_failure_reasons = pd.DataFrame(failure_rows)
+    df_forces_by_stock = pd.DataFrame(force_rows)
+    df_utilization_matrix_display = pd.DataFrame(util_matrix, index=edge_ids, columns=stock_ids)
+    df_feasibility_matrix_display = pd.DataFrame(feas_matrix, index=edge_ids, columns=stock_ids)
+
+    df_safe_options = df_utilization_long.loc[df_utilization_long["is_feasible"]].copy()
+
+    df_req_dims = (
+        df_safe_options.sort_values(["edge_id", "utilization"], ascending=[True, False])
+        .drop_duplicates(subset=["edge_id"], keep="first")
+        [["edge_id", "Member_ID", "utilization"]]
+        .merge(
+            stock[["Member_ID", "Width", "Depth"]],
+            on="Member_ID",
+            how="left",
+        )
+        .rename(columns={"Width": "Width_Req", "Depth": "Depth_Req", "utilization": "governing_utilization"})
+    )
+
+    df_slots = df_slots.merge(
+        df_req_dims[["edge_id", "Width_Req", "Depth_Req", "governing_utilization"]],
+        on="edge_id",
+        how="left",
+    )
+    df_slots["Area_Req"] = (pd.to_numeric(df_slots["Width_Req"], errors="coerce") * pd.to_numeric(df_slots["Depth_Req"], errors="coerce")) / 1_000_000.0
+
+    return {
+        "bundle": bundle_local,
+        "df_vertices": vertices,
+        "df_forces": df_forces_reference if df_forces_reference is not None else pd.DataFrame(),
+        "df_forces_by_stock": df_forces_by_stock,
+        "df_utilization_long": df_utilization_long,
+        "df_utilization_matrix": util_matrix,
+        "df_utilization_matrix_display": df_utilization_matrix_display,
+        "df_feasibility_matrix": feas_matrix,
+        "df_feasibility_matrix_display": df_feasibility_matrix_display,
+        "df_safe_options": df_safe_options,
+        "df_failure_reasons": df_failure_reasons,
+        "df_slots": df_slots,
+        "utilization_threshold": float(utilization_threshold),
+    }
 
 def prepare_surrogate_bundle(model_prefix: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
     """Try loading surrogate bundle once for re-use in iterative runs."""
+    active_prefix = model_prefix or DEFAULT_STRUCTURAL_MODEL_PREFIX
     try:
-        return surrogate_io.load_surrogate_bundle(prefix_sm=model_prefix), None
+        bundle = surrogate_io.load_surrogate_bundle(prefix_sm=active_prefix)
+        return bundle, None
     except Exception as exc:
-        return None, str(exc)
-	
+        return None, f"Failed to load surrogate bundle '{active_prefix}': {exc}"
+
+
+def _validate_force_and_stock_inputs(
+    df_forces: pd.DataFrame,
+    df_input_stock: pd.DataFrame,
+) -> None:
+    required_force_cols = {"edge_id", "length_m", "axial_force_kn"}
+    missing_force = [c for c in required_force_cols if c not in df_forces.columns]
+    if missing_force:
+        raise ValueError("df_forces missing required columns: " + ", ".join(missing_force))
+
+    required_stock_cols = {"Member_ID", "Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"}
+    missing_stock = [c for c in required_stock_cols if c not in df_input_stock.columns]
+    if missing_stock:
+        raise ValueError("df_input_stock missing required columns: " + ", ".join(missing_stock))
+    
 def calculate_utilization_for_dataset(
-	row: pd.Series,
-	req_length_m: float,
-	gnn_margin: float = 1.10,
+    row: pd.Series,
+    req_force_kn: float,
+    req_length_m: float,
+    gnn_margin: float = 1.10,
 ) -> float:
-	"""
-	- Calculates area for an element
-	- Uses area and surrogate model to calculate axial force with surrogate model
-	- Than uses that axial force to calculate Eurocode 5 utilization for one stock element
+    """
+    - Calculates area for an element
+    - Uses area and surrogate model to calculate axial force with surrogate model
+    - Than uses that axial force to calculate Eurocode 5 utilization for one stock element
 
-	Args:
-		row: Row with at least `Depth`, `Width`, `f_c0k`, `f_tk`, `E_modulus_eff`.
-		req_length_m: Requested member length in meters for buckling calculation.
-		gnn_margin: Safety factor on predicted force (default 1.10).
+    Args:
+        row: Row with at least `Depth`, `Width`, `f_c0k`, `f_tk`, `E_modulus_eff`.
+        req_length_m: Requested member length in meters for buckling calculation.
+        gnn_margin: Safety factor on predicted force (default 1.10).
 
-	Returns:
-		Utilization ratio. Values <= 1.0 are structurally acceptable.
-		Returns `np.inf` if the calculated capacity is invalid or non-positive.
-	"""
-	h = float(row["Depth"])
-	b = float(row["Width"])
-	l_mm = float(req_length_m) * 1000.0
-	area = h * b
+    Returns:
+        Utilization ratio. Values <= 1.0 are structurally acceptable.
+        Returns `np.inf` if the calculated capacity is invalid or non-positive.
+    """
+    h = float(row["Depth"])
+    b = float(row["Width"])
+    l_mm = float(req_length_m) * 1000.0
+    area = h * b
 
-	#Surrogate model predicts required axial force in kN
-	req_force_kn = 0 # Output of surrogate model, placeholder for now
+    required_force_kn = float(req_force_kn) * float(gnn_margin)
 
-	required_force_kn = float(req_force_kn) * float(gnn_margin)
+    f_c_k = float(row["f_c0k"])
+    e_0_mean = float(row["E_modulus_eff"])
+    f_t_k = float(row["f_tk"])
 
-	f_c_k = float(row["f_c0k"])
-	e_0_mean = float(row["E_modulus_eff"])
-	f_t_k = float(row["f_tk"])
+    gamma_m = 1.3
+    k_mod = 0.8
+    f_c_d = (f_c_k * k_mod) / gamma_m
+    f_t_d = (f_t_k * k_mod) / gamma_m
 
-	gamma_m = 1.3
-	k_mod = 0.8
-	f_c_d = (f_c_k * k_mod) / gamma_m
-	f_t_d = (f_t_k * k_mod) / gamma_m
+    if required_force_kn >= 0:
+        force_n = required_force_kn * 1000.0
+        capaciteit_n = area * f_t_d
+        if capaciteit_n <= 0:
+            return float(np.inf)
+        return force_n / capaciteit_n
 
-	if required_force_kn >= 0:
-		force_n = required_force_kn * 1000.0
-		capaciteit_n = area * f_t_d
-		if capaciteit_n <= 0:
-			return float(np.inf)
-		return force_n / capaciteit_n
+    force_n = abs(required_force_kn * 1000.0)
+    i_min = (max(h, b) * min(h, b) ** 3) / 12.0
+    i_radius = math.sqrt(i_min / area)
+    slenderness = l_mm / i_radius
+    rel_slenderness = (slenderness / math.pi) * math.sqrt(f_c_k / e_0_mean)
+    beta_c = 0.2
+    k_waarde = 0.5 * (1 + beta_c * (rel_slenderness - 0.3) + rel_slenderness**2)
+    k_c = 1 / (k_waarde + math.sqrt(max(0.0, k_waarde**2 - rel_slenderness**2)))
 
-	force_n = abs(required_force_kn * 1000.0)
-	i_min = (max(h, b) * min(h, b) ** 3) / 12.0
-	i_radius = math.sqrt(i_min / area)
-	slenderness = l_mm / i_radius
-	rel_slenderness = (slenderness / math.pi) * math.sqrt(f_c_k / e_0_mean)
-	beta_c = 0.2
-	k_waarde = 0.5 * (1 + beta_c * (rel_slenderness - 0.3) + rel_slenderness**2)
-	k_c = 1 / (k_waarde + math.sqrt(max(0.0, k_waarde**2 - rel_slenderness**2)))
+    capaciteit_n = area * k_c * f_c_d
+    if capaciteit_n <= 0:
+        return float(np.inf)
+    return force_n / capaciteit_n
 
-	capaciteit_n = area * k_c * f_c_d
-	if capaciteit_n <= 0:
-		return float(np.inf)
-	return force_n / capaciteit_n
 
 def compute_utilization_outputs(
-	df_forces: pd.DataFrame,
-	df_input_stock: pd.DataFrame,
-	gnn_margin: float = 1.10,
-) -> dict[str, pd.DataFrame]:
-	"""Genereer alle utilization-tabellen voor notebook- en cost-matrix workflow.
-
-	Args:
-		df_forces: DataFrame met minimaal `edge_id` (of `beam_id`), `length_m`, `axial_force_kn`.
-		df_input_stock: Stock-dataset met geometrie- en sterktekolommen.
-		gnn_margin: Safety factor on the predicted force.
-
-	Returns:
-		Dictionary met:
-		- `df_inventory`: opgeschoonde stock-data incl. `f_tk`
-		- `df_forces_local`: genormaliseerde force-tabel
-		- `df_utilization_long`: long-format combinatie-tabel (edge x stock)
-		- `df_utilization_matrix`: raw utilization matrix
-		- `df_utilization_matrix_display`: matrix met `inf` voor utilization > 1.0
-		- `veilige_opties`: combinaties met 0 < utilization <= 1.0
-		- `df_slots`: inputtabel voor cost matrix (`edge_id`, `length_m`, `axial_force_kn`, `Length_Req`)
-
-	Raises:
-		ValueError: Raised when required columns are missing in the force or stock data.
-	"""
-	df_forces_local = df_forces.copy()
-	df_inventory = df_input_stock.copy()
-
-	if "edge_id" not in df_forces_local.columns and "beam_id" in df_forces_local.columns:
-		df_forces_local = df_forces_local.rename(columns={"beam_id": "edge_id"})
-
-	required_stock_cols = ["Member_ID", "Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"]
-	required_force_cols = ["edge_id", "length_m", "axial_force_kn"]
-
-	missing_stock_cols = [c for c in required_stock_cols if c not in df_inventory.columns]
-	missing_force_cols = [c for c in required_force_cols if c not in df_forces_local.columns]
-	if missing_stock_cols:
-		raise ValueError("Missing columns in df_input_stock: " + ", ".join(missing_stock_cols))
-	if missing_force_cols:
-		raise ValueError("Missing columns in df_forces: " + ", ".join(missing_force_cols))
-
-	numeric_stock_cols = ["Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"]
-	for col in numeric_stock_cols:
-		df_inventory[col] = pd.to_numeric(df_inventory[col], errors="coerce")
-
-	df_inventory = df_inventory.dropna(subset=numeric_stock_cols).copy()
-
-	records: list[pd.DataFrame] = []
-	for _, force_row in df_forces_local.iterrows():
-		edge_id = str(force_row["edge_id"])
-		req_force_kn = float(force_row["axial_force_kn"])
-		req_length_m = float(force_row["length_m"])
-
-		util_col = f"Utilization_{edge_id}"
-		df_inventory[util_col] = df_inventory.apply(
-			lambda stock_row: calculate_utilization_for_dataset(
-				stock_row,
-				req_force_kn=req_force_kn,
-				req_length_m=req_length_m,
-				gnn_margin=gnn_margin,
-			),
-			axis=1,
-		)
-
-		df_edge = df_inventory[["Member_ID", "Length", "Width", "Depth", util_col]].copy()
-		df_edge = df_edge.rename(columns={util_col: "utilization"})
-		df_edge["edge_id"] = edge_id
-		df_edge["axial_force_kn"] = req_force_kn
-		df_edge["length_m"] = req_length_m
-		records.append(df_edge)
-
-	df_utilization_long = pd.concat(records, ignore_index=True)
-
-	df_utilization_matrix = df_utilization_long.pivot_table(
-		index="edge_id",
-		columns="Member_ID",
-		values="utilization",
-		aggfunc="first",
-	)
-	df_utilization_matrix = df_utilization_matrix.sort_index(axis=0).sort_index(axis=1)
-	df_utilization_matrix_display = df_utilization_matrix.where(df_utilization_matrix <= 1.0, np.inf)
-
-	safe_options = df_utilization_long[
-		(df_utilization_long["utilization"] <= 1.0)
-		& (df_utilization_long["utilization"] > 0.0)
-		& np.isfinite(df_utilization_long["utilization"])
-	].copy()
-	safe_options = safe_options.sort_values(by=["edge_id", "utilization"], ascending=[True, False])
-
-	df_slots = df_forces_local[["edge_id", "length_m", "axial_force_kn"]].copy()
-	df_slots["Length_Req"] = (df_slots["length_m"] * 1000.0).round(0)
-
-	# Derive required slot section (Width_Req, Depth_Req) from the most efficient
-	# structurally safe option per edge (highest utilization <= 1.0).
-	best_safe_per_edge = (
-		safe_options
-		.sort_values(by=["edge_id", "utilization"], ascending=[True, False])
-		.drop_duplicates(subset=["edge_id"], keep="first")
-		[["edge_id", "Depth", "Width", "utilization"]]
-		.rename(
-			columns={
-				"Depth": "Depth_Req",
-				"Width": "Width_Req",
-				"utilization": "Utilization_Req",
-			}
-		)
-	)
-
-	df_slots = df_slots.merge(best_safe_per_edge, on="edge_id", how="left")
-
-	return {
-		"df_inventory": df_inventory,
-		"df_forces_local": df_forces_local,
-		"df_utilization_long": df_utilization_long,
-		"df_utilization_matrix": df_utilization_matrix,
-		"df_utilization_matrix_display": df_utilization_matrix_display,
-		"safe_options": safe_options,
-		"df_slots": df_slots,
-	}
-
-
-def validate_structural_stage_notebook_inputs(
-	df_input_stock: pd.DataFrame | None,
-	df_vertices: pd.DataFrame | None,
-) -> None:
-	"""Validate required notebook inputs for the structural stage wrapper."""
-	missing: list[str] = []
-	if df_input_stock is None:
-		missing.append("df_input_stock")
-	if df_vertices is None:
-		missing.append("df_vertices")
-	if missing:
-		raise ValueError("Missing required structural inputs: " + ", ".join(missing))
-
-
-def package_structural_outputs_for_notebook(
-	structural_out: dict[str, Any],
-	bundle_error: str | None = None,
+    df_forces: pd.DataFrame,
+    df_input_stock: pd.DataFrame,
+    gnn_margin: float = 1.10,
+    utilization_threshold: float = 1.0,
 ) -> dict[str, Any]:
-	"""Package structural stage outputs into notebook-friendly variable names."""
-	summary = structural_out["summary"]
-	return {
-		"SURROGATE_BUNDLE": structural_out["bundle"],
-		"SURROGATE_BUNDLE_ERROR": bundle_error,
-		"structural_out": structural_out,
-		"df_forces": structural_out["df_forces"],
-		"df_inventory": structural_out["df_inventory"],
-		"df_forces_local": structural_out["df_forces_local"],
-		"df_utilization_long": structural_out["df_utilization_long"],
-		"df_utilization_matrix": structural_out["df_utilization_matrix"],
-		"df_utilization_matrix_display": structural_out["df_utilization_matrix_display"],
-		"safe_options": structural_out["safe_options"],
-		"df_slots": structural_out["df_slots"],
-		"summary": summary,
-		"forces_source": structural_out["forces_source"],
-	}
+    """Build utilization and feasibility outputs for all slot-stock combinations."""
+    _validate_force_and_stock_inputs(df_forces=df_forces, df_input_stock=df_input_stock)
 
-__all__ = [
-	"assign_roof_load_fz",
-	"calculate_utilization_for_dataset",
-	"geometry_df_to_design_row",
-	"compute_utilization_outputs",
-	"validate_structural_stage_notebook_inputs",
-	"package_structural_outputs_for_notebook",
-]
+    forces = df_forces.copy()
+    forces["edge_id"] = forces["edge_id"].astype(str)
+    forces["length_m"] = pd.to_numeric(forces["length_m"], errors="coerce")
+    forces["axial_force_kn"] = pd.to_numeric(forces["axial_force_kn"], errors="coerce")
+
+    stock = df_input_stock.copy()
+    stock["Member_ID"] = stock["Member_ID"].astype(str)
+    for numeric_col in ("Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"):
+        stock[numeric_col] = pd.to_numeric(stock[numeric_col], errors="coerce")
+
+    edge_ids = forces["edge_id"].tolist()
+    stock_ids = stock["Member_ID"].tolist()
+
+    util_matrix = np.full((len(edge_ids), len(stock_ids)), np.inf, dtype=float)
+    feas_matrix = np.full((len(edge_ids), len(stock_ids)), np.inf, dtype=float)
+
+    long_rows: list[dict[str, Any]] = []
+    failure_rows: list[dict[str, Any]] = []
+
+    for i, (_, slot) in enumerate(forces.iterrows()):
+        req_length_m = float(slot["length_m"])
+        req_force_kn = float(slot["axial_force_kn"])
+
+        for j, (_, stock_item) in enumerate(stock.iterrows()):
+            utilization = calculate_utilization_for_dataset(
+                stock_item,
+                req_force_kn=req_force_kn,
+                req_length_m=req_length_m,
+                gnn_margin=float(gnn_margin),
+            )
+
+            util_matrix[i, j] = utilization
+
+            geometry_reason = _classify_geometry_constraint(slot, stock_item)
+            utilization_failed = (not np.isfinite(utilization)) or (float(utilization) > float(utilization_threshold))
+            reasons = _collect_feasibility_reasons(slot, stock_item, utilization_failed=utilization_failed)
+            feasible = reasons == ["Passed"]
+            if feasible:
+                feas_matrix[i, j] = 0.0
+            else:
+                failure_rows.append(
+                    {
+                        "edge_id": str(slot["edge_id"]),
+                        "Member_ID": str(stock_item["Member_ID"]),
+                        "failure_reasons": ", ".join(reasons),
+                        "geometry_reason": geometry_reason,
+                        "utilization": float(utilization) if np.isfinite(utilization) else np.inf,
+                    }
+                )
+
+            long_rows.append(
+                {
+                    "edge_id": str(slot["edge_id"]),
+                    "Member_ID": str(stock_item["Member_ID"]),
+                    "length_m": req_length_m,
+                    "axial_force_kn": req_force_kn,
+                    "utilization": float(utilization) if np.isfinite(utilization) else np.inf,
+                    "is_feasible": bool(feasible),
+                    "failure_reasons": ", ".join(reasons),
+                }
+            )
+
+    df_utilization_long = pd.DataFrame(long_rows)
+    df_failure_reasons = pd.DataFrame(failure_rows)
+
+    df_utilization_matrix_display = pd.DataFrame(util_matrix, index=edge_ids, columns=stock_ids)
+    df_feasibility_matrix_display = pd.DataFrame(feas_matrix, index=edge_ids, columns=stock_ids)
+
+    df_safe_options = df_utilization_long.loc[df_utilization_long["is_feasible"]].copy()
+
+    df_slots = forces[["edge_id", "length_m", "axial_force_kn"]].copy()
+    df_slots["Length_Req"] = (df_slots["length_m"] * 1000.0).round().astype(int)
+
+    # Use the most critical feasible candidate (highest utilization <= threshold) to infer required section.
+    df_req_dims = (
+        df_safe_options.sort_values(["edge_id", "utilization"], ascending=[True, False])
+        .drop_duplicates(subset=["edge_id"], keep="first")
+        [["edge_id", "Member_ID", "utilization"]]
+        .merge(
+            stock[["Member_ID", "Width", "Depth"]],
+            on="Member_ID",
+            how="left",
+        )
+        .rename(columns={"Width": "Width_Req", "Depth": "Depth_Req", "utilization": "governing_utilization"})
+    )
+
+    df_slots = df_slots.merge(df_req_dims[["edge_id", "Width_Req", "Depth_Req", "governing_utilization"]], on="edge_id", how="left")
+    df_slots["Area_Req"] = (pd.to_numeric(df_slots["Width_Req"], errors="coerce") * pd.to_numeric(df_slots["Depth_Req"], errors="coerce")) / 1_000_000.0
+
+    return {
+        "df_utilization_long": df_utilization_long,
+        "df_utilization_matrix": util_matrix,
+        "df_utilization_matrix_display": df_utilization_matrix_display,
+        "df_feasibility_matrix": feas_matrix,
+        "df_feasibility_matrix_display": df_feasibility_matrix_display,
+        "df_safe_options": df_safe_options,
+        "df_failure_reasons": df_failure_reasons,
+        "df_slots": df_slots,
+        "utilization_threshold": float(utilization_threshold),
+    }
