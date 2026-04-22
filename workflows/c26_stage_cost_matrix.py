@@ -50,7 +50,6 @@ def _validate_surrogate_context_for_cost_stage(surrogate_context: dict[str, Any]
             "candidate-level surrogate evaluation requires complete real baseline areas."
         )
 
-
 def _build_threshold_sweep(
     df_slots: pd.DataFrame,
     df_input_stock: pd.DataFrame,
@@ -96,7 +95,6 @@ def _build_threshold_sweep(
 
     return pd.DataFrame(rows)
 
-
 def run_cost_matrix_stage(
     df_slots: pd.DataFrame,
     df_input_stock: pd.DataFrame,
@@ -113,6 +111,7 @@ def run_cost_matrix_stage(
     surrogate_context: dict[str, Any] | None = None,
     require_structural_constraints: bool = True,
     require_surrogate_when_context: bool = True,
+    weights: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Run cost-matrix stage and return matrix plus diagnostics."""
     _validate_surrogate_context_for_cost_stage(surrogate_context)
@@ -128,6 +127,7 @@ def run_cost_matrix_stage(
                 surrogate_context=surrogate_context,
                 require_structural_constraints=bool(require_structural_constraints),
                 require_surrogate_when_context=bool(require_surrogate_when_context),
+                weights=weights,
             )
     else:
         cost_matrix, enriched_stock, df_logs = build_cost_matrix(
@@ -139,6 +139,7 @@ def run_cost_matrix_stage(
             surrogate_context=surrogate_context,
             require_structural_constraints=bool(require_structural_constraints),
             require_surrogate_when_context=bool(require_surrogate_when_context),
+            weights=weights,
         )
 
     df_cost_matrix_display = pd.DataFrame(

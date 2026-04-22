@@ -89,7 +89,6 @@ def _build_utilization_matrix_from_slot_forces(df_design, df_stock, gnn_margin=1
     )
     return matrix
 
-
 def prepare_stock_cost_inputs(df_stock_raw):
     """
     Prepare a strict input table for cost calculation.
@@ -115,7 +114,6 @@ def prepare_stock_cost_inputs(df_stock_raw):
 
     return df_stock
 
-
 def _get_required_area(slot, a_stock):
     """Return required cross-section area in m2, falling back to stock area when unavailable."""
     if (
@@ -124,7 +122,6 @@ def _get_required_area(slot, a_stock):
     ):
         return (float(slot['Width_Req']) / 1000.0) * (float(slot['Depth_Req']) / 1000.0)
     return a_stock
-
 
 def _classify_geometry_constraint(slot, stock_item):
     """Classify infeasibility cause as length, dimensions, both, or passed."""
@@ -178,7 +175,7 @@ def calculate_scarcity_weight(df_stock, stock_item):
     scarcity_ratio = 1.0 - (category_count / total_count) if total_count > 0 else 0.0
     return scarcity_ratio
 
-def calculate_cost_formula(slot, stock_item, df_stock):
+def calculate_cost_formula(slot, stock_item, df_stock, weights=None):
     """
     Step 1: calculate C_{i,j} according to the LCA logic.
     C = E_embodied + E_prep + E_trans + E_waste + E_saw + E_opp.
@@ -216,7 +213,16 @@ def calculate_cost_formula(slot, stock_item, df_stock):
     e_saw = 0.0 if stock_item['Length'] == slot['Length_Req'] else SAW_CUT_PENALTY
     e_opp = scarcity_ratio*(v_over + v_waste) * embodied_factor
 
-    total_cost = e_embodied + e_prep + e_trans + e_waste + e_saw + e_opp
+    if weights is not None:
+        w_embodied = weights.get('embodied_energy', 0.0)
+        w_prep = weights.get('preparation_energy', 0.0)
+        w_trans = weights.get('transportation_energy', 0.0)
+        w_waste = weights.get('waste_energy', 0.0)
+        w_saw = weights.get('sawing_energy', 0.0)
+        w_opp = weights.get('opportunity_cost', 0.0)
+
+    total_cost = (w_embodied * e_embodied + w_prep * e_prep + w_trans * e_trans +
+                  w_waste * e_waste + w_saw * e_saw + w_opp * e_opp)
 
     return total_cost, {
         'V_req': v_req,
@@ -242,6 +248,7 @@ def build_cost_matrix(
     surrogate_context=None,
     require_structural_constraints=True,
     require_surrogate_when_context=True,
+    weights=None,
 ):
     """
     Step 2: build the cost matrix with the assignment-cost function.
@@ -326,7 +333,7 @@ def build_cost_matrix(
             if not candidate_check['structural_feasible']:
                 total_match_score, components = np.inf, None
             else:
-                total_match_score, components = calculate_cost_formula(slot, stock_item, df_stock)
+                total_match_score, components = calculate_cost_formula(slot, stock_item, df_stock, weights)
 
             if np.isfinite(total_match_score):
                 cost_matrix[i, j] = total_match_score
