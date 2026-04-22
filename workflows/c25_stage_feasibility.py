@@ -14,7 +14,7 @@ if str(SRC_PATH) not in sys.path:
     sys.path.append(str(SRC_PATH))
 
 import c21_surrogate_io as surrogate_io
-import c25_structural_check as structural_check
+import c25_feasibility_check as structural_check
 
 assign_roof_load_fz = structural_check.assign_roof_load_fz
 geometry_df_to_design_row = structural_check.geometry_df_to_design_row

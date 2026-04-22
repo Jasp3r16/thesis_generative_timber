@@ -1,8 +1,8 @@
 import c11_params
 import numpy as np
 import pandas as pd
-from c25_structural_check import calculate_utilization_for_dataset
-from c25_structural_check import assign_roof_load_fz, geometry_df_to_design_row
+from c25_feasibility_check import calculate_utilization_for_dataset
+from c25_feasibility_check import assign_roof_load_fz, geometry_df_to_design_row
 from c21_surrogate_io import load_surrogate_bundle, predict_edge_forces_kn
 
 # ==========================================
@@ -22,7 +22,6 @@ def _resolve_utilization_value(df_utilization_matrix, slot_id, stock_id):
     if stock_id not in df_utilization_matrix.columns:
         return np.nan
     return df_utilization_matrix.loc[slot_id, stock_id]
-
 
 def _resolve_edge_columns(df_edges):
     columns_by_lower = {str(col).strip().lower(): col for col in df_edges.columns}
@@ -155,6 +154,7 @@ def _collect_feasibility_reasons(slot, stock_item, utilization_failed):
 
     return reasons if reasons else ['Passed']
 
+# Cost formula components and normalization
 def normalize_cost_formula_values(cost_components):
     """Each independent penalty is calculated across all possible assignments to generate separate, raw matrices 
     (e.g., $C^{saw}$, $C^{opp}$, $C^{waste}$). Before aggregation, each matrix is individually normalized using Min-Max scaling, 
@@ -191,7 +191,7 @@ def calculate_scarcity_weight(df_stock, stock_item):
     scarcity_ratio = 1.0 - (category_count / total_count) if total_count > 0 else 0.0
     return scarcity_ratio
 
-def calculate_cost_formula(slot, stock_item, df_stock, weights=None):
+def calculate_cost_formula_v1(slot, stock_item, df_stock, weights=None):
     """
     Step 1: calculate C_{i,j} according to the LCA logic.
     C = E_embodied + E_prep + E_trans + E_waste + E_saw + E_opp.
@@ -271,6 +271,7 @@ def calculate_cost_formula(slot, stock_item, df_stock, weights=None):
         'TOTAL_Score': total_cost
     }
 
+# Main stage function
 def build_cost_matrix(
     df_design,
     df_stock_raw,
@@ -366,7 +367,7 @@ def build_cost_matrix(
             if not candidate_check['structural_feasible']:
                 total_match_score, components = np.inf, None
             else:
-                total_match_score, components = calculate_cost_formula(slot, stock_item, df_stock, weights)
+                total_match_score, components = calculate_cost_formula_v1(slot, stock_item, df_stock, weights)
 
             if np.isfinite(total_match_score):
                 cost_matrix[i, j] = total_match_score
