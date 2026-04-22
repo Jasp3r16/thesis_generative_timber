@@ -28,12 +28,10 @@ RECLAIMED_LENGTH_ROUND_TO_MM = 50
 
 # LCA assumptions for reclaimed timber.
 RECLAIMED_TIMBER_LCA = {
-    "embodied_carbon_coefficient": 0.0,                # Fictitiously low (deconstruction only)
     "transport_distance_range": (5, 240),              # Delft location: (local, Groningen)
     "diesel_emission_factor_range": (0.17, 0.18),
     "electric_emission_factor_range": (0.02, 0.05),
-    "electric_transport_probability": 0.30,            # 30% chance that local transport uses an e-truck
-    "processing_factor": 1                             # 1 = de-nailing and planing required
+    "electric_transport_probability": 0.30,            # 30% chance that local transport uses an e-truck                       # 1 = de-nailing and planing required
 }
 
 # --- PARAMETERS NEW STOCK (CATALOGUS) ---
@@ -83,9 +81,7 @@ DEPTH_WIDTH_COMBINATIONS = [
 
 # LCA assumptions for new timber.
 NEW_TIMBER_LCA = {
-    "embodied_carbon_coefficient": 150.0,     # Fictitiously high (production + drying)
     "diesel_emission_factor_range": (0.17, 0.18),  # Diesel transport only for new timber
-    "processing_factor": 0                    # 0 = No de-nailing required
 }
 
 MECH_PROPS = {

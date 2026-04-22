@@ -174,9 +174,7 @@ def generate_new_stock(efficient: bool = False) -> pd.DataFrame:
     params = _get_params_module()
     
     # Pre-cache values to avoid repeated dict lookups.
-    embodied_carbon = float(lca_new["embodied_carbon_coefficient"])
     emission_range = lca_new["diesel_emission_factor_range"]
-    processing_factor = int(lca_new["processing_factor"])
     
     combinations = list(itertools.product(
         params.TUPLE_LENGTHS, 
@@ -198,11 +196,9 @@ def generate_new_stock(efficient: bool = False) -> pd.DataFrame:
             'Depth': float(depth),
             'Width': float(width),
             **mech_row,
-            'ECC': embodied_carbon,
             'Origin_Country': origin_country,
             'Transport_Dist': transport_dist,
             'EmissionFactor': emission_factor,
-            'ProcessingFactor': processing_factor
         })
     
     df_new = pd.DataFrame(data)
@@ -225,8 +221,6 @@ def generate_reclaimed_stock() -> pd.DataFrame:
     params = _get_params_module()
     
     # Pre-cache values.
-    embodied_carbon = float(lca_reclaimed["embodied_carbon_coefficient"])
-    processing_factor = int(lca_reclaimed["processing_factor"])
     prob_electric = lca_reclaimed["electric_transport_probability"]
     electric_range = lca_reclaimed["electric_emission_factor_range"]
     diesel_range = lca_reclaimed["diesel_emission_factor_range"]
@@ -282,11 +276,9 @@ def generate_reclaimed_stock() -> pd.DataFrame:
             'Depth': float(depth),
             'Width': float(width),
             **mech_row,
-            'ECC': embodied_carbon,
             'Origin_Country': "Netherlands",
             'Transport_Dist': transport_dist,
             'EmissionFactor': round(emission_factor, 4),
-            'ProcessingFactor': processing_factor
         })
     
     df_reclaimed = pd.DataFrame(inventory_list)

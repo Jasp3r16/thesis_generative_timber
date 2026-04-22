@@ -2,15 +2,15 @@ import c26_params
 import numpy as np
 import pandas as pd
 from c25_feasibility_check import calculate_utilization_for_dataset
-from c25_feasibility_check import assign_roof_load_fz, geometry_df_to_design_row
-from c21_surrogate_io import load_surrogate_bundle, predict_edge_forces_kn
 
 # ==========================================
 # LCA COST MATRIX PARAMETERS
 # ==========================================
-PREPARATION_FACTOR = float(c26_params.PREPARATION_EMISSION_FACTOR)
-END_OF_LIFE_FACTOR = float(c26_params.END_OF_LIFE_EMISSION_FACTOR)
-SAW_CUT_PENALTY = float(c26_params.SAW_CUT_PENALTY)
+M_A1_A3 = float(c26_params.IMPACT_FACTOR_A1_A3)
+M_RECOVER = float(c26_params.IMPACT_FACTOR_RECOVERED_C1)
+E_PREP_SAW = float(c26_params.ENERGY_PREP_SAW_A5)
+E_OFFCUT = float(c26_params.ENERGY_OFFCUT_FACTOR_C3_C4)
+
 SCARCITY_PENALTY = float(c26_params.SCARCITY_PENALTY)
 
 def _resolve_edge_columns(df_edges):
@@ -42,48 +42,8 @@ def prepare_stock_cost_inputs(df_stock_raw):
     df_stock['Density_Resolved'] = df_stock['mean_density'].astype(float)
     df_stock['Distance_Resolved'] = df_stock['Transport_Dist'].astype(float)
     df_stock['TransportFactor_Resolved'] = df_stock['EmissionFactor'].astype(float)
-    df_stock['ProcessingFactor_Resolved'] = df_stock['ProcessingFactor'].astype(float)
-    df_stock['ECC_Resolved'] = df_stock['ECC'].astype(float)
-    df_stock['PreparationFactor_Resolved'] = df_stock['ProcessingFactor_Resolved'] * PREPARATION_FACTOR
 
     return df_stock
-
-# Cost formula components and normalization
-def normalize_cost_formula_values(cost_components):
-    """Each independent penalty is calculated across all possible assignments to generate separate, raw matrices 
-    (e.g., $C^{saw}$, $C^{opp}$, $C^{waste}$). Before aggregation, each matrix is individually normalized using Min-Max scaling, 
-    mapping all values to a bounded interval of $[0, 1]$:$C^{norm}_{ij} = \frac{C_{ij} - \min(C)}{\max(C) - \min(C)}$
-    Through this mathematical translation, the worst possible sawing penalty in the matrix becomes exactly $1.0$, 
-    and the worst possible scarcity penalty also becomes exactly $1.0$. The values are now dimensionally uniform, 
-    preventing the macro-penalties from mathematically eclipsing the micro-penalties."""
-    normalized_components = {}
-    for key, matrix in cost_components.items():
-        min_val = np.nanmin(matrix)
-        max_val = np.nanmax(matrix)
-        if np.isfinite(min_val) and np.isfinite(max_val) and max_val > min_val:
-            normalized_matrix = (matrix - min_val) / (max_val - min_val)
-            normalized_components[key] = normalized_matrix
-    return normalized_components    
-
-def calculate_scarcity_weight(df_stock, stock_item):
-    """Compute a scarcity ratio for a stock item based on availability by length category.
-
-    Stock elements are grouped into 500 mm length bins. The scarcity ratio is:
-
-        1 - (count_in_same_length_bin / total_stock_count)
-
-    Higher values indicate that the item's length category is less common in the
-    inventory (more scarce). If the stock table is empty, the function returns 0.0.
-    """
-    length_bin_size_mm = 500
-    length_bin = int(float(stock_item['Length']) // length_bin_size_mm) * length_bin_size_mm
-    category_count = sum(
-        1 for _, item in df_stock.iterrows()
-        if int(float(item['Length']) // length_bin_size_mm) * length_bin_size_mm == length_bin
-    )
-    total_count = len(df_stock)
-    scarcity_ratio = 1.0 - (category_count / total_count) if total_count > 0 else 0.0
-    return scarcity_ratio
 
 def calculate_cost_formula_v1(slot, stock_item, df_stock, weights=None, normalize=False):
     """
@@ -164,7 +124,7 @@ def calculate_cost_formula_v1(slot, stock_item, df_stock, weights=None, normaliz
         'TOTAL_Score': total_cost
     }
 
-def calculate_cost_formula_v2(slot, stock_item, df_stock, weights=None, normalize=False):
+def calculate_cost_formula_v2(slot, stock_item):
     """
     Step 1: calculate C_{i,j} according to the LCA logic.
     state binary is used to distinguish between new and reclaimed element
@@ -181,32 +141,31 @@ def calculate_cost_formula_v2(slot, stock_item, df_stock, weights=None, normaliz
     density = float(stock_item['Density_Resolved'])
     distance_km = float(stock_item['Distance_Resolved'])
     transport_factor = float(stock_item['TransportFactor_Resolved'])
-    embodied_factor = float(stock_item['ECC_Resolved'])
+    trans_factor_km = transport_factor / 1000.0
     state = float(stock_item['State_Resolved'])
-    scarcity_ratio = calculate_scarcity_weight(df_stock, stock_item)
 
     # Explicit volume decomposition:
     # V_stock = V_req + V_over + V_waste
     v_req = a_req * l_req
+    v_stock = a_stock * l_stock
+    v_waste = max(0.0, a_stock * (l_stock - l_req))
     v_profile_target = a_stock * l_req
     v_over = max(0.0, v_profile_target - v_req)
-    v_waste = max(0.0, a_stock * (l_stock - l_req))
-    v_stock = a_stock * l_stock
 
-    m_a1_a3 = embodied_factor
-    
+    mass_req = v_req * density
+    mass_stock = v_stock * density
+    mass_waste = v_waste * density
 
-    e_prep = v_stock * preparation_factor
-    e_trans = (((v_req + v_over) * density) / 1000.0) * distance_km * transport_factor
-    e_waste = v_waste * END_OF_LIFE_FACTOR
-    e_saw = 0.0 if stock_item['Length'] == slot['Length_Req'] else SAW_CUT_PENALTY
-    e_opp = scarcity_ratio*(v_over + v_waste) * embodied_factor
+    m_a1_a3 = M_A1_A3
+    m_recover = M_RECOVER
+    e_prep_saw = E_PREP_SAW
+    e_offcut = E_OFFCUT
+    scar_p = SCARCITY_PENALTY
 
-    e_new = (v_req * density * m_a1_a3) + (v_req * density *distance_km * transport_factor)
+    e_new = (mass_req * m_a1_a3) + (mass_req * distance_km * trans_factor_km)
 
-    e_reclaimed = ((v_stock * density * m_recover) + 
-                   (v_stock * density * distance_km * transport_factor) 
-                   + e_prep + e_saw + e_offcut)   
+    e_reclaimed = ((mass_stock * m_recover) + (mass_stock * distance_km * trans_factor_km) + 
+                   (mass_stock * e_prep_saw) + (mass_waste * e_offcut) + (scar_p * v_waste))
 
     total_cost = (1-state) * e_new + state * e_reclaimed
 
@@ -215,54 +174,16 @@ def calculate_cost_formula_v2(slot, stock_item, df_stock, weights=None, normaliz
         'V_over': v_over,
         'V_waste': v_waste,
         'V_stock': v_stock,
-        'E_embodied': e_embodied,
-        'E_prep': e_prep,
-        'E_trans': e_trans,
-        'E_waste': e_waste,
-        'E_saw': e_saw,
-        'E_opp': e_opp,
+        'E_prep_saw': e_prep_saw,
+        'E_offcut': e_offcut,
         'TOTAL_Score': total_cost
     }
-
-    if normalize:
-        norm_comp = normalize_cost_formula_values(
-            cost_components={
-                'embodied_energy': e_embodied,
-                'preparation_energy': e_prep,
-                'transportation_energy': e_trans,
-                'waste_energy': e_waste,
-                'sawing_energy': e_saw,
-                'opportunity_cost': e_opp,
-            })
-    
-        norm_e_embodied = norm_comp.get('embodied_energy', e_embodied)
-        norm_e_prep = norm_comp.get('preparation_energy', e_prep)
-        norm_e_trans = norm_comp.get('transportation_energy', e_trans)
-        norm_e_waste = norm_comp.get('waste_energy', e_waste)
-        norm_e_saw = norm_comp.get('sawing_energy', e_saw)
-        norm_e_opp = norm_comp.get('opportunity_cost', e_opp)
-
-    if weights is not None:
-        w_embodied = weights.get('embodied_energy', 0.0)
-        w_prep = weights.get('preparation_energy', 0.0)
-        w_trans = weights.get('transportation_energy', 0.0)
-        w_waste = weights.get('waste_energy', 0.0)
-        w_saw = weights.get('sawing_energy', 0.0)
-        w_opp = weights.get('opportunity_cost', 0.0)
 
 # Main stage function
 def build_cost_matrix(
     df_design,
     df_stock_raw,
     target_stock_ids=None,
-    df_utilization_matrix=None,
-    max_utilization_threshold=1.0,
-    gnn_margin=1.10,
-    surrogate_context=None,
-    require_structural_constraints=True,
-    require_surrogate_when_context=True,
-    weights=None,
-    normalize=False,
 ):
     """
     Step 2: build the cost matrix with the assignment-cost function.
@@ -275,41 +196,9 @@ def build_cost_matrix(
     n_stock = len(df_stock)
 
     cost_matrix = np.full((n_slots, n_stock), np.inf)
-    successful_matches = 0
 
     # Store the detailed calculations here.
     detailed_logs = []
-
-    utilization_mode = 'external_matrix'
-    utilization_matrix_active = df_utilization_matrix
-    surrogate_candidate_context = None
-    if utilization_matrix_active is None:
-        utilization_matrix_active = _build_utilization_matrix_from_slot_forces(
-            df_design=df_design,
-            df_stock=df_stock,
-            gnn_margin=float(gnn_margin),
-        )
-        if utilization_matrix_active is not None:
-            utilization_mode = 'slot_force_derived'
-        elif surrogate_context is not None:
-            surrogate_candidate_context = _prepare_surrogate_candidate_context(surrogate_context)
-            utilization_mode = 'candidate_surrogate'
-        else:
-            utilization_mode = 'inactive'
-
-    if require_surrogate_when_context and surrogate_context is not None and utilization_mode != 'candidate_surrogate':
-        raise RuntimeError(
-            "surrogate_context was provided but candidate-level surrogate mode was not activated. "
-            f"Resolved utilization_mode='{utilization_mode}'."
-        )
-
-    if require_structural_constraints and utilization_mode == 'inactive':
-        raise RuntimeError(
-            "Structural constraints are inactive in cost-matrix generation. "
-            "Provide either df_utilization_matrix, slot force demand, or surrogate_context."
-        )
-
-    util_constraint_active = utilization_matrix_active is not None
 
     for i in range(n_slots):
         slot = df_design.iloc[i]
@@ -318,36 +207,8 @@ def build_cost_matrix(
         for j in range(n_stock):
             stock_item = df_stock.iloc[j]
             stock_id = stock_item['Member_ID']
-            utilization_value = _resolve_utilization_value(utilization_matrix_active, slot_id, stock_id)
 
-            if surrogate_candidate_context is not None:
-                candidate_area_m2 = (float(stock_item['Width']) / 1000.0) * (float(stock_item['Depth']) / 1000.0)
-                predicted_force_kn = _predict_candidate_force_kn(
-                    prepared_context=surrogate_candidate_context,
-                    slot_edge_id=slot_id,
-                    candidate_area_m2=candidate_area_m2,
-                )
-                utilization_value = calculate_utilization_for_dataset(
-                    stock_item,
-                    req_force_kn=float(predicted_force_kn),
-                    req_length_m=float(slot['length_m']) if 'length_m' in slot else float(slot['Length_Req']) / 1000.0,
-                    gnn_margin=float(gnn_margin),
-                )
-
-            candidate_check = _evaluate_candidate_feasibility(
-                slot=slot,
-                stock_item=stock_item,
-                utilization_value=utilization_value,
-                max_utilization_threshold=max_utilization_threshold,
-                utilization_active=util_constraint_active,
-            )
-
-            all_reasons = candidate_check['reasons']
-
-            if not candidate_check['structural_feasible']:
-                total_match_score, components = np.inf, None
-            else:
-                total_match_score, components = calculate_cost_formula_v1(slot, stock_item, df_stock, weights, normalize)
+                total_match_score, components = calculate_cost_formula_v2(slot, stock_item))
 
             if np.isfinite(total_match_score):
                 cost_matrix[i, j] = total_match_score
@@ -360,42 +221,24 @@ def build_cost_matrix(
                         'Slot_ID': slot_id,
                         'Stock_ID': stock_id,
                         'Status': '✅',
-                        'Feasibility_Reasons': ', '.join(all_reasons),
-                        'Utilization_Value': round(float(utilization_value), 4) if np.isfinite(utilization_value) else '-',
                         'V_req_m3': round(components['V_req'], 6),
                         'V_over_m3': round(components['V_over'], 6),
                         'V_waste_m3': round(components['V_waste'], 6),
                         'V_stock_m3': round(components['V_stock'], 6),
-                        'Embodied_CO2': round(components['E_embodied'], 3),
                         'Prep_CO2': round(components['E_prep'], 3),
                         'Trans_CO2': round(components['E_trans'], 3),
                         'Waste_CO2': round(components['E_waste'], 3),
                         'Saw_CO2': round(components['E_saw'], 4),
-                        'Opportunity_CO2': round(components['E_opp'], 3),
                         'TOTAL_Score': round(components['TOTAL_Score'], 3)
                     })
             else:
                 if target_stock_ids and stock_id in target_stock_ids:
                     detailed_logs.append({
                         'Slot_ID': slot_id, 'Stock_ID': stock_id, 'Status': '❌',
-                        'Feasibility_Reasons': ', '.join(all_reasons),
-                        'Utilization_Value': round(float(utilization_value), 4) if np.isfinite(utilization_value) else '-',
                         'V_req_m3': '-', 'V_over_m3': '-', 'V_waste_m3': '-', 'V_stock_m3': '-',
                         'Embodied_CO2': '-', 'Prep_CO2': '-', 'Trans_CO2': '-', 'Waste_CO2': '-', 'Saw_CO2': '-',
                         'Opportunity_CO2': '-', 'TOTAL_Score': np.inf
                     })
-
-    print(f"Matrix generated! Dimensions: {n_slots} required members x {n_stock} inventory beams.")
-    print(f"Physical valid combinations found: {successful_matches}")
-    if util_constraint_active:
-        print(f"Utilization constraint active with threshold <= {float(max_utilization_threshold):.3f}")
-        print(f"Utilization source: {utilization_mode}")
-    else:
-        print("Utilization constraint inactive (no external matrix and no slot-force-derived matrix).")
-
-    logs_df = pd.DataFrame(detailed_logs)
-    logs_df.attrs['utilization_mode'] = utilization_mode
-    return cost_matrix, df_stock, logs_df
 
 def analyze_and_export_slot_logs(
     df_logs,
