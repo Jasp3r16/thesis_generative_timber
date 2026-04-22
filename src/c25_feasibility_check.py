@@ -47,7 +47,7 @@ def validate_feasibility_stage_notebook_inputs(
     assert df_input_stock is not None
     assert df_vertices is not None
 
-    required_stock_cols = {"Member_ID", "Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"}
+    required_stock_cols = {"Member_ID", "Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"}
     missing_stock_cols = [c for c in required_stock_cols if c not in df_input_stock.columns]
     if missing_stock_cols:
         raise ValueError("df_input_stock missing required columns: " + ", ".join(missing_stock_cols))
@@ -312,7 +312,7 @@ def compute_utilization_outputs_with_stock_specific_area(
 ) -> dict[str, Any]:
     """Compute feasibility by predicting surrogate force for each stock-specific edge area.
 
-    Each stock candidate contributes an area value A = Width*Depth (m2), which is injected
+    Each stock candidate contributes an area value A = Depth*Width (m2), which is injected
     as the edge `Area` feature before surrogate force prediction.
     """
     validate_feasibility_stage_notebook_inputs(
@@ -327,7 +327,7 @@ def compute_utilization_outputs_with_stock_specific_area(
 
     stock = df_input_stock.copy()
     stock["Member_ID"] = stock["Member_ID"].astype(str)
-    for numeric_col in ("Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"):
+    for numeric_col in ("Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"):
         stock[numeric_col] = pd.to_numeric(stock[numeric_col], errors="coerce")
 
     active_prefix = model_prefix or DEFAULT_STRUCTURAL_MODEL_PREFIX
@@ -355,7 +355,7 @@ def compute_utilization_outputs_with_stock_specific_area(
     force_rows: list[dict[str, Any]] = []
 
     for j, (_, stock_item) in enumerate(stock.iterrows()):
-        candidate_area_m2 = (float(stock_item["Width"]) / 1000.0) * (float(stock_item["Depth"]) / 1000.0)
+        candidate_area_m2 = (float(stock_item["Depth"]) / 1000.0) * (float(stock_item["Width"]) / 1000.0)
         df_forces_candidate, _, _ = _predict_forces_with_surrogate(
             df_vertices=vertices,
             df_edges=df_edges,
@@ -441,19 +441,19 @@ def compute_utilization_outputs_with_stock_specific_area(
         .drop_duplicates(subset=["edge_id"], keep="first")
         [["edge_id", "Member_ID", "utilization"]]
         .merge(
-            stock[["Member_ID", "Width", "Depth"]],
+            stock[["Member_ID", "Depth", "Width"]],
             on="Member_ID",
             how="left",
         )
-        .rename(columns={"Width": "Width_Req", "Depth": "Depth_Req", "utilization": "governing_utilization"})
+        .rename(columns={"Depth": "Depth_Req", "Width": "Width_Req", "utilization": "governing_utilization"})
     )
 
     df_slots = df_slots.merge(
-        df_req_dims[["edge_id", "Width_Req", "Depth_Req", "governing_utilization"]],
+        df_req_dims[["edge_id", "Depth_Req", "Width_Req", "governing_utilization"]],
         on="edge_id",
         how="left",
     )
-    df_slots["Area_Req"] = (pd.to_numeric(df_slots["Width_Req"], errors="coerce") * pd.to_numeric(df_slots["Depth_Req"], errors="coerce")) / 1_000_000.0
+    df_slots["Area_Req"] = (pd.to_numeric(df_slots["Depth_Req"], errors="coerce") * pd.to_numeric(df_slots["Width_Req"], errors="coerce")) / 1_000_000.0
 
     return {
         "bundle": bundle_local,
@@ -490,7 +490,7 @@ def _validate_force_and_stock_inputs(
     if missing_force:
         raise ValueError("df_forces missing required columns: " + ", ".join(missing_force))
 
-    required_stock_cols = {"Member_ID", "Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"}
+    required_stock_cols = {"Member_ID", "Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"}
     missing_stock = [c for c in required_stock_cols if c not in df_input_stock.columns]
     if missing_stock:
         raise ValueError("df_input_stock missing required columns: " + ", ".join(missing_stock))
@@ -569,7 +569,7 @@ def compute_utilization_outputs(
 
     stock = df_input_stock.copy()
     stock["Member_ID"] = stock["Member_ID"].astype(str)
-    for numeric_col in ("Length", "Width", "Depth", "f_c0k", "f_tk", "E_modulus_eff"):
+    for numeric_col in ("Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"):
         stock[numeric_col] = pd.to_numeric(stock[numeric_col], errors="coerce")
 
     edge_ids = forces["edge_id"].tolist()
@@ -641,15 +641,15 @@ def compute_utilization_outputs(
         .drop_duplicates(subset=["edge_id"], keep="first")
         [["edge_id", "Member_ID", "utilization"]]
         .merge(
-            stock[["Member_ID", "Width", "Depth"]],
+            stock[["Member_ID", "Depth", "Width"]],
             on="Member_ID",
             how="left",
         )
-        .rename(columns={"Width": "Width_Req", "Depth": "Depth_Req", "utilization": "governing_utilization"})
+        .rename(columns={"Depth": "Depth_Req", "Width": "Width_Req", "utilization": "governing_utilization"})
     )
 
-    df_slots = df_slots.merge(df_req_dims[["edge_id", "Width_Req", "Depth_Req", "governing_utilization"]], on="edge_id", how="left")
-    df_slots["Area_Req"] = (pd.to_numeric(df_slots["Width_Req"], errors="coerce") * pd.to_numeric(df_slots["Depth_Req"], errors="coerce")) / 1_000_000.0
+    df_slots = df_slots.merge(df_req_dims[["edge_id", "Depth_Req", "Width_Req", "governing_utilization"]], on="edge_id", how="left")
+    df_slots["Area_Req"] = (pd.to_numeric(df_slots["Depth_Req"], errors="coerce") * pd.to_numeric(df_slots["Width_Req"], errors="coerce")) / 1_000_000.0
 
     return {
         "df_utilization_long": df_utilization_long,

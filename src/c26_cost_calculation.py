@@ -94,7 +94,7 @@ def calculate_cost_formula_v1(slot, stock_item, df_stock, weights=None):
     a_stock = (stock_item['Width'] / 1000.0) * (stock_item['Depth'] / 1000.0)
 
     l_req = slot['Length_Req'] / 1000.0
-    a_req = _get_required_area(slot, a_stock)
+    d_req = 
 
     # Hard feasibility rule: insufficient length or cross-section area -> impossible match.
     if l_stock < l_req or a_stock < a_req:
