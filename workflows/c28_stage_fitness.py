@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-import json
 import sys
 
 import numpy as np
@@ -18,9 +17,9 @@ from c28_fitness_aggregation import (
     derive_normalization_constants_from_solution,
     evaluate_milp_solution,
     get_normalization_constants,
-    get_weight_config,
     print_fitness_breakdown,
     run_fitness_sanity_checks,
+    validate_weight_config,
     weights_from_config,
 )
 
@@ -30,15 +29,16 @@ def run_fitness_stage(
     enriched_stock: pd.DataFrame,
     df_slots: pd.DataFrame,
     total_cost: float,
-    weight_strategy: str,
+    weight_config: dict[str, float],
     normalization_margin: float = 0.20,
     normalization_constants: dict[str, float] | None = None,
+    derive_normalization_constants: bool = True,
     run_sanity_checks: bool = True,
     print_breakdown: bool = False,
 ) -> dict[str, Any]:
     """Run fitness stage and return fitness values plus metadata."""
-    weight_config = get_weight_config(weight_strategy)
-    weights = weights_from_config(weight_config)
+    validated_weight_config = validate_weight_config(weight_config)
+    weights = weights_from_config(validated_weight_config)
 
     if normalization_constants is not None:
         norm_constants = {
@@ -46,7 +46,7 @@ def run_fitness_stage(
             "R_max": float(normalization_constants["R_max"]),
             "W_max": float(normalization_constants["W_max"]),
         }
-    else:
+    elif derive_normalization_constants:
         norm_constants = derive_normalization_constants_from_solution(
             milp_results_df=df_results,
             enriched_stock_df=enriched_stock,
@@ -54,13 +54,18 @@ def run_fitness_stage(
             milp_objective_value=float(total_cost),
             margin=float(normalization_margin),
         )
+    else:
+        norm_constants = get_normalization_constants()
 
     sanity = None
     if run_sanity_checks:
-        sanity = run_fitness_sanity_checks(normalization_constants=norm_constants)
-        if not sanity["fitness_ordering"]["passes"]:
+        sanity = run_fitness_sanity_checks(
+            normalization_constants=norm_constants,
+            weight_config=validated_weight_config,
+        )
+        if not sanity["fitness_ordering"]["passes"] or not sanity["normalization_mid_range"]["passes"]:
             raise ValueError(
-                "Fitness sanity check failed: excellent design did not outperform poor design."
+                "Fitness sanity check failed. Inspect normalization constants and weight configuration."
             )
 
     fitness_result = evaluate_milp_solution(
@@ -77,7 +82,7 @@ def run_fitness_stage(
 
     return {
         "fitness_result": fitness_result,
-        "weight_config": weight_config,
+        "weight_config": validated_weight_config,
         "weights": weights,
         "normalization_constants": norm_constants,
         "sanity": sanity,

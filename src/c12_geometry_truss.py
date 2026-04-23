@@ -5,7 +5,7 @@ from typing import Mapping, Optional, Sequence
 
 import numpy as np
 
-import c11_params
+import c00_headquarter_params as c11_params
 
 
 def _build_truss_edges(cells_x, cells_y):

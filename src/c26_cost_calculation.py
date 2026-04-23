@@ -6,7 +6,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-import c26_params
+import c00_headquarter_params as c26_params
 
 M_A1_A3 = float(c26_params.IMPACT_FACTOR_A1_A3)
 M_RECOVER = float(c26_params.IMPACT_FACTOR_RECOVERED_C1)

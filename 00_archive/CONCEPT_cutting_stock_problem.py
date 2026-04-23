@@ -2,7 +2,7 @@
 import pulp
 import numpy as np
 import pandas as pd
-import c11_params
+import c00_headquarter_params
 
 def optimize_cutting_stock(df_slots, verrijkte_stock):
 
@@ -23,7 +23,7 @@ def optimize_cutting_stock(df_slots, verrijkte_stock):
     stock_rho = {row['Member_ID']: row['Density'] for _, row in verrijkte_stock.iterrows()}
 
     # Determine GWP for each timber item (based on whether NS or RS is in the ID).
-    stock_gwp = {row['Member_ID']: c11_params.GWP_RECLAIMED if 'RS' in row['Member_ID'] else c11_params.GWP_VIRGIN for _, row in verrijkte_stock.iterrows()}
+    stock_gwp = {row['Member_ID']: c00_headquarter_params.GWP_RECLAIMED if 'RS' in row['Member_ID'] else c00_headquarter_params.GWP_VIRGIN for _, row in verrijkte_stock.iterrows()}
     stock_base_cost = {row['Member_ID']: row['E_cost_Total_kgCO2'] for _, row in verrijkte_stock.iterrows()}
 
     stock_items = verrijkte_stock['Member_ID'].tolist()
