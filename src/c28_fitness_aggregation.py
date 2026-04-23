@@ -300,6 +300,17 @@ def evaluate_milp_solution(
     }
 
 
+def interpret_fitness_score(fitness: float) -> tuple[str, str]:
+    """Map a fitness score to a label and short explanation."""
+    if fitness <= -0.25:
+        return "EXCELLENT", "Strong reclaimed reuse and low waste relative to cost"
+    if fitness <= 0.25:
+        return "GOOD", "Balanced trade-off with no major penalty dominance"
+    if fitness <= 0.75:
+        return "FAIR", "One objective is starting to dominate the trade-off"
+    return "POOR", "Cost, waste, or low reuse is dominating the solution"
+
+
 def print_fitness_breakdown(result: dict[str, Any]) -> None:
     """Pretty-print a fitness result dictionary for debugging."""
     print("\n" + "=" * 70)
@@ -334,12 +345,7 @@ def print_fitness_breakdown(result: dict[str, Any]) -> None:
     print(f"  F(x) = {term1:.3f} - {term2:.3f} + {term3:.3f}")
     print(f"  F(x) = {result['fitness']:>8.3f}")
     print("\nInterpretation:")
-    if result['fitness'] < -0.5:
-        print("  [EXCELLENT] Favors reclaimed timber with low waste")
-    elif result['fitness'] < 0.0:
-        print("  [GOOD] Balanced multi-objective design")
-    elif result['fitness'] < 0.5:
-        print("  [FAIR] Moderate virgin timber usage")
-    else:
-        print("  [POOR] Heavy virgin material dependence")
+    label, explanation = interpret_fitness_score(float(result["fitness"]))
+    print(f"  [{label}] {explanation}")
+    print("  Bands: <= -0.25 excellent, <= 0.25 good, <= 0.75 fair, > 0.75 poor")
     print("=" * 70 + "\n")

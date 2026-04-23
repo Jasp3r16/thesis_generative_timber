@@ -20,6 +20,7 @@ geometry_df_to_design_row = feasibility_check.geometry_df_to_design_row
 compute_utilization_outputs = feasibility_check.compute_utilization_outputs
 predict_forces_with_surrogate = feasibility_check._predict_forces_with_surrogate
 compute_utilization_outputs_with_stock_specific_area = feasibility_check.compute_utilization_outputs_with_stock_specific_area
+compute_utilization_outputs_length_only = feasibility_check.compute_utilization_outputs_length_only
 
 
 def _validate_feasibility_stage_notebook_inputs(
@@ -44,11 +45,13 @@ def run_feasibility_stage(
     df_vertices: pd.DataFrame | None = None,
     df_edges: pd.DataFrame | None = None,
     bundle: dict[str, Any] | None = None,
-    model_prefix: str | None = None,
+    model_prefix_complex: str | None = None,
+    model_prefix_simple: str | None = None,
     gnn_margin: float = 1.10,
     utilization_threshold: float = 1.0,
     export_slots_path: Path | None = None,
     force_mode: str = "surrogate",
+    surrogate_edge_feature_mode: str = "length_only",
 ) -> dict[str, Any]:
     """Run feasibility stage and return reusable tables.
 
@@ -64,26 +67,47 @@ def run_feasibility_stage(
     if df_edges is None:
         raise ValueError("df_edges is required for surrogate inference.")
 
-    active_prefix = model_prefix or getattr(feasibility_check, "DEFAULT_STRUCTURAL_MODEL_PREFIX", None)
-    if active_prefix is None:
+    # Determine active model prefix for surrogate inference
+    if surrogate_edge_feature_mode == "area_length" and model_prefix_complex is not None:
+        active_prefix = model_prefix_complex
+    elif surrogate_edge_feature_mode == "length_only" and model_prefix_simple is not None:
+        active_prefix = model_prefix_simple
+    else:
         active_prefix = "ID20260418_215020_LR0.0005_EP100_R0.99_F6"
 
+    feature_mode = str(surrogate_edge_feature_mode).strip().lower()
+    if feature_mode not in {"length_only", "area_length"}:
+        raise ValueError("surrogate_edge_feature_mode must be 'length_only' or 'area_length'.")
+
+    print(f"Using surrogate model prefix: {active_prefix} with edge feature mode: {surrogate_edge_feature_mode}")
+    
     if "Fz" not in df_vertices.columns:
         df_vertices = assign_roof_load_fz(df_vertices)
 
-    outputs = compute_utilization_outputs_with_stock_specific_area(
-        df_vertices=df_vertices,
-        df_edges=df_edges,
-        df_input_stock=df_input_stock,
-        bundle=bundle,
-        model_prefix=active_prefix,
-        gnn_margin=float(gnn_margin),
-        utilization_threshold=float(utilization_threshold),
-    )
+    if feature_mode == "length_only":
+        outputs = compute_utilization_outputs_length_only(
+            df_vertices=df_vertices,
+            df_edges=df_edges,
+            df_input_stock=df_input_stock,
+            bundle=bundle,
+            model_prefix=active_prefix,
+            gnn_margin=float(gnn_margin),
+            utilization_threshold=float(utilization_threshold),
+        )
+    else:
+        outputs = compute_utilization_outputs_with_stock_specific_area(
+            df_vertices=df_vertices,
+            df_edges=df_edges,
+            df_input_stock=df_input_stock,
+            bundle=bundle,
+            model_prefix=active_prefix,
+            gnn_margin=float(gnn_margin),
+            utilization_threshold=float(utilization_threshold),
+        )
 
     df_forces = outputs["df_forces"]
     active_bundle = outputs["bundle"]
-    prediction_mode = "surrogate:stock_specific_area"
+    prediction_mode = f"surrogate:{feature_mode}"
 
     if export_slots_path is not None:
         export_slots_path.parent.mkdir(parents=True, exist_ok=True)
