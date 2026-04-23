@@ -161,16 +161,19 @@ def calculate_cost_formula_v2(slot: pd.Series, stock_item: pd.Series) -> tuple[f
 
     trans_factor_km = transport_factor / 1000.0
 
-    e_new = (mass_req * M_A1_A3) + (mass_req * distance_km * trans_factor_km)
-    e_reclaimed = (
-        (mass_stock * M_RECOVER)
-        + (mass_stock * distance_km * trans_factor_km)
-        + (mass_stock * E_PREP_SAW)
-        + (mass_waste * E_OFFCUT)
-        + (SCARCITY_PENALTY * v_waste)
-    )
-
     branch = "reclaimed" if state >= 0.5 else "new"
+
+    e_embodied = mass_req * M_A1_A3 if branch == "new" else 0.0
+    e_transport = (mass_req * distance_km * trans_factor_km if branch == "new" 
+                   else mass_stock * distance_km * trans_factor_km)
+    e_recovered = mass_stock * M_RECOVER if branch == "reclaimed" else 0.0
+    e_prep = mass_stock * E_PREP_SAW if branch == "reclaimed" else 0.0
+    e_waste = mass_waste * E_OFFCUT if branch == "reclaimed" else 0.0
+    e_scarcity = SCARCITY_PENALTY * v_waste if branch == "reclaimed" else 0.0
+
+    e_new = e_embodied + e_transport
+    e_reclaimed = e_recovered + e_transport + e_prep + e_waste + e_scarcity
+
     total_cost = e_reclaimed if branch == "reclaimed" else e_new
 
     components: dict[str, float | str] = {
@@ -182,13 +185,12 @@ def calculate_cost_formula_v2(slot: pd.Series, stock_item: pd.Series) -> tuple[f
         "Mass_req": float(mass_req),
         "Mass_stock": float(mass_stock),
         "Mass_waste": float(mass_waste),
-        "E_embodied": float(mass_req * M_A1_A3),
-        "E_recovered": float(mass_stock * M_RECOVER),
-        "E_transport": float((mass_stock if branch == "reclaimed" else mass_req) * distance_km * trans_factor_km),
-        "E_prep": float(mass_stock * E_PREP_SAW if branch == "reclaimed" else 0.0),
-        "E_waste": float(mass_waste * E_OFFCUT if branch == "reclaimed" else 0.0),
-        "E_scarcity": float(SCARCITY_PENALTY * v_waste if branch == "reclaimed" else 0.0),
-        "TOTAL_Score": float(total_cost),
+        "E_embodied": float(e_embodied),
+        "E_recovered": float(e_recovered),
+        "E_transport": float(e_transport),
+        "E_prep": float(e_prep),
+        "E_waste": float(e_waste),
+        "E_scarcity": float(e_scarcity),
     }
     return float(total_cost), components
 
@@ -242,7 +244,6 @@ def calculate_cost_formula_v1(slot: pd.Series, stock_item: pd.Series) -> tuple[f
         "TOTAL_Score": float(total_cost),
     }
     return float(total_cost), components
-
 
 def _calculate_cost_pair(
     slot: pd.Series,
@@ -311,7 +312,7 @@ def build_cost_matrix(
                 log_row.update(
                     {
                         "Status": "feasible",
-                        "Cost": float(total_cost),
+                        "Total cost": float(total_cost),
                         "V_req_m3": float(components["V_req"]),
                         "V_over_m3": float(components["V_over"]),
                         "V_waste_m3": float(components["V_waste"]),
@@ -330,7 +331,7 @@ def build_cost_matrix(
                 log_row.update(
                     {
                         "Status": "infeasible",
-                        "Cost": float("inf"),
+                        "Total cost": float("inf"),
                         "V_req_m3": np.nan,
                         "V_over_m3": np.nan,
                         "V_waste_m3": np.nan,
@@ -365,13 +366,11 @@ def analyze_and_export_slot_logs(
     max_full_list_rows: int | None = None,
     show_full_list: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, Path]:
-    """Prepare a compact per-slot analysis table and export it to CSV."""
-    export_dir.mkdir(parents=True, exist_ok=True)
-    analysis_export_path = export_dir / f"depth_analysis_{target_slot_for_analysis}.csv"
+    """Prepare a compact per-slot analysis table and return the export path."""
+    analysis_export_path = export_dir / f"c26_depth_analysis_{target_slot_for_analysis}.csv"
 
     if df_logs.empty:
         empty = pd.DataFrame(columns=df_logs.columns)
-        empty.to_csv(analysis_export_path, index=False)
         return empty, empty, analysis_export_path
 
     slot_mask = df_logs["Slot_ID"].astype(str).str.strip().str.lower() == str(target_slot_for_analysis).strip().lower()
@@ -380,8 +379,6 @@ def analyze_and_export_slot_logs(
 
     if not show_full_list and max_full_list_rows is not None:
         df_slot = df_slot.head(int(max_full_list_rows)).copy()
-
-    df_slot.to_csv(analysis_export_path, index=False)
 
     if display_fn is not None:
         display_fn(df_slot)

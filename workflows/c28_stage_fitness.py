@@ -30,13 +30,11 @@ def run_fitness_stage(
     enriched_stock: pd.DataFrame,
     df_slots: pd.DataFrame,
     total_cost: float,
-    weight_strategy: str = "cost-dominant",
+    weight_strategy: str,
     normalization_margin: float = 0.20,
     normalization_constants: dict[str, float] | None = None,
     run_sanity_checks: bool = True,
     print_breakdown: bool = False,
-    export_json_path: Path | None = None,
-    export_csv_path: Path | None = None,
 ) -> dict[str, Any]:
     """Run fitness stage and return fitness values plus metadata."""
     weight_config = get_weight_config(weight_strategy)
@@ -76,20 +74,6 @@ def run_fitness_stage(
 
     if print_breakdown:
         print_fitness_breakdown(fitness_result)
-
-    if export_json_path is not None:
-        export_json_path.parent.mkdir(parents=True, exist_ok=True)
-        fitness_export = {
-            key: (float(value) if isinstance(value, (np.floating, np.integer)) else value)
-            for key, value in fitness_result.items()
-        }
-        with open(export_json_path, "w", encoding="utf-8") as f:
-            json.dump(fitness_export, f, indent=2)
-
-    if export_csv_path is not None:
-        export_csv_path.parent.mkdir(parents=True, exist_ok=True)
-        fitness_df = pd.DataFrame([{**fitness_result, **weight_config}])
-        fitness_df.to_csv(export_csv_path, index=False)
 
     return {
         "fitness_result": fitness_result,

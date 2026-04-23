@@ -63,7 +63,6 @@ def run_cost_matrix_stage(
     utilization_threshold: float = 1.0,
     cost_formula_version: str = "v2",
     target_stock_ids: Sequence[str] | None = None,
-    export_cost_matrix_path: Path | None = None,
     include_threshold_sweep: bool = False,
     utilization_threshold_sweep: Sequence[float] = (1.00, 1.25, 1.50),
     export_slot_analysis: bool = False,
@@ -100,10 +99,6 @@ def run_cost_matrix_stage(
 
     df_cost_matrix_display = _format_cost_display(cost_matrix, df_slots, enriched_stock)
 
-    if export_cost_matrix_path is not None:
-        export_cost_matrix_path.parent.mkdir(parents=True, exist_ok=True)
-        df_cost_matrix_display.to_csv(export_cost_matrix_path, index=True)
-
     df_threshold_sweep = None
     if include_threshold_sweep:
         if not isinstance(df_utilization_matrix, pd.DataFrame):
@@ -120,9 +115,6 @@ def run_cost_matrix_stage(
 
     slot_analysis = None
     if export_slot_analysis:
-        if export_dir is None:
-            raise ValueError("export_dir is required when export_slot_analysis=True")
-
         all_stock_ids = enriched_stock["Member_ID"].astype(str).tolist()
         if quiet:
             with contextlib.redirect_stdout(io.StringIO()):

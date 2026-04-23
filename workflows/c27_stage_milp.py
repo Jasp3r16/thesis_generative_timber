@@ -5,12 +5,45 @@ import pandas as pd
 import pulp
 
 
+def _resolve_stock_state(enriched_stock: pd.DataFrame) -> pd.Series:
+    columns_by_lower = {str(col).strip().lower(): col for col in enriched_stock.columns}
+    for candidate in ("state_resolved", "state"):
+        column = columns_by_lower.get(candidate)
+        if column is not None:
+            values = pd.to_numeric(enriched_stock[column], errors="coerce")
+            if not values.isna().any():
+                return values.clip(lower=0.0, upper=1.0).astype(int)
+
+    member_ids = enriched_stock["Member_ID"].astype(str).str.strip().str.upper()
+    return pd.Series(np.where(member_ids.str.startswith("RS"), 1, 0), index=enriched_stock.index, dtype=int)
+
+
+def _identify_stock_groups(
+    enriched_stock: pd.DataFrame,
+    reclaimed_marker: str,
+    new_marker: str,
+) -> tuple[list[str], list[str]]:
+    stock_items = enriched_stock["Member_ID"].astype(str).tolist()
+    stock_state = _resolve_stock_state(enriched_stock)
+
+    reclaimed_items = enriched_stock.loc[stock_state == 1, "Member_ID"].astype(str).tolist()
+    new_items = enriched_stock.loc[stock_state == 0, "Member_ID"].astype(str).tolist()
+
+    if not reclaimed_items:
+        reclaimed_items = [item for item in stock_items if reclaimed_marker in item]
+    if not new_items:
+        new_items = [item for item in stock_items if new_marker in item]
+
+    return reclaimed_items, new_items
+
+
 def run_milp_stage(
     cost_matrix: np.ndarray,
     enriched_stock: pd.DataFrame,
     df_slots: pd.DataFrame,
     reclaimed_marker: str = "RS",
     new_marker: str = "NS",
+    new_stock_max_uses: int | None = 1,
     solver_msg: bool = False,
     raise_on_infeasible_slots: bool = True,
 ) -> dict[str, Any]:
@@ -19,8 +52,7 @@ def run_milp_stage(
     stock_items = enriched_stock["Member_ID"].astype(str).tolist()
     construction_slots = df_slots["edge_id"].astype(str).tolist()
 
-    new_items = [item for item in stock_items if new_marker in item]
-    reclaimed_items = [item for item in stock_items if reclaimed_marker in item]
+    reclaimed_items, new_items = _identify_stock_groups(enriched_stock, reclaimed_marker, new_marker)
 
     finite_positions = np.argwhere(np.isfinite(cost_matrix))
     valid_matches: list[tuple[str, str]] = []
@@ -47,10 +79,12 @@ def run_milp_stage(
             "total_cost": float("inf"),
             "df_results": pd.DataFrame(columns=["edge_id", "assigned_timber", "CO2_Penalty"]),
             "infeasible_slots": infeasible_slots,
+            "infeasible_slot_count": int(len(infeasible_slots)),
             "summary": {
                 "slots": int(len(construction_slots)),
                 "reclaimed_items": int(len(reclaimed_items)),
                 "new_items": int(len(new_items)),
+                "new_stock_max_uses": None if new_stock_max_uses is None else int(new_stock_max_uses),
             },
         }
 
@@ -67,7 +101,10 @@ def run_milp_stage(
 
     for stock_id in new_items:
         if stock_id in stock_to_slots:
-            problem += pulp.lpSum(x[(stock_id, slot_id)] for slot_id in stock_to_slots[stock_id]) <= len(construction_slots)
+            if new_stock_max_uses is None:
+                problem += pulp.lpSum(x[(stock_id, slot_id)] for slot_id in stock_to_slots[stock_id]) <= len(construction_slots)
+            else:
+                problem += pulp.lpSum(x[(stock_id, slot_id)] for slot_id in stock_to_slots[stock_id]) <= int(new_stock_max_uses)
 
     pulp.PULP_CBC_CMD(msg=solver_msg).solve(problem)
     status = pulp.LpStatus[problem.status]
@@ -78,7 +115,7 @@ def run_milp_stage(
             {
                 "edge_id": slot_id,
                 "assigned_timber": stock_id,
-                "CO2_Penalty": round(costs[(stock_id, slot_id)], 2),
+                "CO2_Penalty": float(costs[(stock_id, slot_id)]),
             }
             for stock_id, slot_id in valid_matches
             if x[(stock_id, slot_id)].varValue == 1
@@ -98,6 +135,7 @@ def run_milp_stage(
             "slots": int(len(construction_slots)),
             "reclaimed_items": int(len(reclaimed_items)),
             "new_items": int(len(new_items)),
+            "new_stock_max_uses": None if new_stock_max_uses is None else int(new_stock_max_uses),
             "assignments": int(len(df_results)),
         },
     }

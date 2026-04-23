@@ -3,24 +3,6 @@
 import numpy as np
 import pandas as pd
 
-
-WEIGHT_STRATEGIES = {
-    'cost-dominant': (1.0, 0.5, 0.5),
-    'reuse-prioritized': (1.0, 2.0, 0.25),
-    'balanced': (1.0, 1.0, 1.0),
-}
-
-DEFAULT_NORMALIZATION_CONSTANTS = {
-    'C_max': 8.0,
-    'R_max': 100.0,
-    'W_max': 0.4,
-}
-
-def get_normalization_constants() -> dict:
-    """Return default normalization constants."""
-    return dict(DEFAULT_NORMALIZATION_CONSTANTS)
-
-
 def derive_normalization_constants_from_solution(
     milp_results_df: pd.DataFrame,
     enriched_stock_df: pd.DataFrame,
