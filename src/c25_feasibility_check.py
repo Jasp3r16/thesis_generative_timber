@@ -5,10 +5,6 @@ import numpy as np
 import pandas as pd
 import c21_surrogate_io as surrogate_io
 
-
-DEFAULT_STRUCTURAL_MODEL_PREFIX = "ID20260418_215020_LR0.0005_EP100_R0.99_F6"
-
-
 def _to_numeric_vertex_id(value: Any) -> int:
     text = str(value).strip()
     if text.lower().startswith("v"):
@@ -300,8 +296,7 @@ def _predict_forces_with_surrogate(
     if df_edges is None:
         raise ValueError("df_edges is required for surrogate force prediction in c25.")
 
-    active_prefix = model_prefix or DEFAULT_STRUCTURAL_MODEL_PREFIX
-    bundle_local = bundle
+    active_prefix = model_prefix
     if bundle_local is None:
         bundle_local, bundle_error = prepare_surrogate_bundle(active_prefix)
         if bundle_local is None:
@@ -382,6 +377,29 @@ def _validate_length_only_surrogate_compatibility(bundle: dict[str, Any], model_
         )
 
 
+def _validate_area_length_surrogate_compatibility(bundle: dict[str, Any], model_prefix: str) -> None:
+    """Fail fast when area-length mode is used with a non area-aware checkpoint."""
+    run_manifest = bundle.get("run_manifest") or {}
+    selected_edge_features = run_manifest.get("selected_edge_feature_cols")
+
+    if isinstance(selected_edge_features, (list, tuple)) and len(selected_edge_features) > 0:
+        normalized_features = [str(feature).strip().lower() for feature in selected_edge_features]
+        if "area" not in normalized_features:
+            raise ValueError(
+                "Area-length surrogate mode requires a checkpoint trained with an 'Area' edge feature. "
+                f"Prefix '{model_prefix}' was trained with edge features: {selected_edge_features}"
+            )
+        return
+
+    edge_in_dim = int(bundle.get("edge_in_dim", 0) or 0)
+    if edge_in_dim < 2:
+        raise ValueError(
+            "Area-length surrogate mode requires a checkpoint with at least two edge input features "
+            "(typically Area and Length). "
+            f"Prefix '{model_prefix}' reports edge_in_dim={edge_in_dim}."
+        )
+
+
 def compute_utilization_outputs_with_stock_specific_area(
     df_vertices: pd.DataFrame,
     df_edges: pd.DataFrame,
@@ -411,12 +429,14 @@ def compute_utilization_outputs_with_stock_specific_area(
     for numeric_col in ("Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"):
         stock[numeric_col] = pd.to_numeric(stock[numeric_col], errors="coerce")
 
-    active_prefix = model_prefix or DEFAULT_STRUCTURAL_MODEL_PREFIX
+    active_prefix = model_prefix
     bundle_local = bundle
     if bundle_local is None:
         bundle_local, bundle_error = prepare_surrogate_bundle(active_prefix)
         if bundle_local is None:
             raise RuntimeError(bundle_error or "Could not load surrogate bundle.")
+
+    _validate_area_length_surrogate_compatibility(bundle=bundle_local, model_prefix=active_prefix)
 
     _validate_surrogate_feature_availability(
         df_vertices=vertices,
@@ -583,7 +603,7 @@ def compute_utilization_outputs_length_only(
     for numeric_col in ("Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"):
         stock[numeric_col] = pd.to_numeric(stock[numeric_col], errors="coerce")
 
-    active_prefix = model_prefix or DEFAULT_STRUCTURAL_MODEL_PREFIX
+    active_prefix = model_prefix
     bundle_local = bundle
     if bundle_local is None:
         bundle_local, bundle_error = prepare_surrogate_bundle(active_prefix)
@@ -711,7 +731,7 @@ def compute_utilization_outputs_length_only(
 
 def prepare_surrogate_bundle(model_prefix: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
     """Try loading surrogate bundle once for re-use in iterative runs."""
-    active_prefix = model_prefix or DEFAULT_STRUCTURAL_MODEL_PREFIX
+    active_prefix = model_prefix
     try:
         bundle = surrogate_io.load_surrogate_bundle(prefix_sm=active_prefix)
         return bundle, None

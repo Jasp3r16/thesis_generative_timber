@@ -67,19 +67,18 @@ def run_feasibility_stage(
     if df_edges is None:
         raise ValueError("df_edges is required for surrogate inference.")
 
-    # Determine active model prefix for surrogate inference
-    if surrogate_edge_feature_mode == "area_length" and model_prefix_complex is not None:
-        active_prefix = model_prefix_complex
-    elif surrogate_edge_feature_mode == "length_only" and model_prefix_simple is not None:
-        active_prefix = model_prefix_simple
-    else:
-        active_prefix = "ID20260418_215020_LR0.0005_EP100_R0.99_F6"
-
     feature_mode = str(surrogate_edge_feature_mode).strip().lower()
     if feature_mode not in {"length_only", "area_length"}:
         raise ValueError("surrogate_edge_feature_mode must be 'length_only' or 'area_length'.")
 
-    print(f"Using surrogate model prefix: {active_prefix} with edge feature mode: {surrogate_edge_feature_mode}")
+    # Determine active model prefix for surrogate inference.
+    # Keep a deterministic fallback so legacy notebook calls continue to run.
+    if feature_mode == "area_length":
+        active_prefix = model_prefix_complex
+    else:
+        active_prefix = model_prefix_simple
+
+    print(f"Using surrogate model prefix: {active_prefix} with edge feature mode: {feature_mode}")
     
     if "Fz" not in df_vertices.columns:
         df_vertices = assign_roof_load_fz(df_vertices)
