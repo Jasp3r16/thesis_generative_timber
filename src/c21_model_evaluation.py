@@ -298,6 +298,122 @@ def build_error_distribution_figure(train_residuals, test_residuals, train_mae, 
     return fig
 
 
+def build_extremes_diagnostics_figure(
+    train_trues: np.ndarray,
+    train_preds: np.ndarray,
+    test_trues: np.ndarray,
+    test_preds: np.ndarray,
+    top_k: int = 40,
+    tail_target_quantile: float = 0.90,
+):
+    """Build diagnostics focused on tail behavior and worst-case prediction errors.
+
+    This plot complements MAE/R2 by exposing where prediction shape diverges from
+    targets and how much error concentrates in high-force regions.
+    """
+    test_residuals = test_preds - test_trues
+    test_abs_errors = np.abs(test_residuals)
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+
+    # 1) Sorted target-vs-prediction profile (test split)
+    sort_idx = np.argsort(test_trues)
+    sorted_true = test_trues[sort_idx]
+    sorted_pred = test_preds[sort_idx]
+    x_sorted = np.arange(sorted_true.shape[0])
+
+    ax = axes[0, 0]
+    ax.plot(x_sorted, sorted_true, color=PLOT_COLORS["secondary"], linewidth=1.8, label="Target (sorted)")
+    ax.plot(x_sorted, sorted_pred, color=PLOT_COLORS["accent"], linewidth=1.4, alpha=0.9, label="Prediction")
+    ax.fill_between(
+        x_sorted,
+        sorted_true,
+        sorted_pred,
+        color=PLOT_COLORS["danger"],
+        alpha=0.18,
+        label="Prediction gap",
+    )
+    ax.set_title("Test Split: Sorted Target vs Prediction")
+    ax.set_xlabel("Samples sorted by target")
+    ax.set_ylabel("Force (kN)")
+    ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], color=PLOT_COLORS["neutral"])
+    ax.legend(loc="upper left")
+
+    # 2) Absolute error against absolute target magnitude (test split)
+    abs_target = np.abs(test_trues)
+    tail_threshold = float(np.quantile(abs_target, tail_target_quantile))
+
+    ax = axes[0, 1]
+    ax.scatter(
+        abs_target,
+        test_abs_errors,
+        s=PLOT_STYLE["marker_size"] * 2,
+        alpha=0.35,
+        color=PLOT_COLORS["accent"],
+        edgecolors="none",
+        label="Test samples",
+    )
+    ax.axvline(
+        tail_threshold,
+        linestyle="--",
+        linewidth=PLOT_STYLE["line_width"],
+        color=PLOT_COLORS["black"],
+        label=f"Tail threshold q{tail_target_quantile:.2f}",
+    )
+    ax.set_title("Test Split: |Error| vs |Target|")
+    ax.set_xlabel("|Target| (kN)")
+    ax.set_ylabel("Absolute error (kN)")
+    ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], color=PLOT_COLORS["neutral"])
+    ax.legend(loc="upper left")
+
+    # 3) Residual trend by target bins (train/test)
+    ax = axes[1, 0]
+
+    def _plot_binned_residual(trues, preds, color, label):
+        residuals = preds - trues
+        bins = np.linspace(float(np.min(trues)), float(np.max(trues)), 21)
+        if np.allclose(bins[0], bins[-1]):
+            return
+        bin_centers = 0.5 * (bins[:-1] + bins[1:])
+        idx = np.digitize(trues, bins) - 1
+        means = np.full(bin_centers.shape, np.nan)
+        for i in range(bin_centers.shape[0]):
+            mask = idx == i
+            if np.any(mask):
+                means[i] = float(np.mean(residuals[mask]))
+        valid = np.isfinite(means)
+        if np.any(valid):
+            ax.plot(bin_centers[valid], means[valid], color=color, linewidth=2.0, label=label)
+
+    _plot_binned_residual(train_trues, train_preds, PLOT_COLORS["primary"], "Train mean residual")
+    _plot_binned_residual(test_trues, test_preds, PLOT_COLORS["accent"], "Test mean residual")
+    ax.axhline(0.0, color=PLOT_COLORS["black"], linestyle="--", linewidth=PLOT_STYLE["line_width"])
+    ax.set_title("Residual Bias by Target Region")
+    ax.set_xlabel("Target bin center (kN)")
+    ax.set_ylabel("Mean residual (pred - true) (kN)")
+    ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], color=PLOT_COLORS["neutral"])
+    ax.legend(loc="upper left")
+
+    # 4) Top-K worst absolute errors in test split
+    ax = axes[1, 1]
+    k = int(max(1, min(top_k, test_abs_errors.shape[0])))
+    top_idx = np.argsort(test_abs_errors)[-k:]
+    top_err = test_abs_errors[top_idx]
+    order = np.argsort(top_err)
+    top_err = top_err[order]
+    top_signed = test_residuals[top_idx][order]
+    bar_colors = [PLOT_COLORS["danger"] if e >= 0 else PLOT_COLORS["primary"] for e in top_signed]
+
+    ax.bar(np.arange(k), top_err, color=bar_colors, alpha=0.85, edgecolor=PLOT_COLORS["black"], linewidth=0.3)
+    ax.set_title(f"Top-{k} Worst Test Errors (color = residual sign)")
+    ax.set_xlabel("Rank within top-k")
+    ax.set_ylabel("Absolute error (kN)")
+    ax.grid(True, alpha=PLOT_STYLE["grid_alpha"], axis="y", color=PLOT_COLORS["neutral"])
+
+    plt.tight_layout()
+    return fig
+
+
 def drop_non_finite_pairs(trues: np.ndarray, preds: np.ndarray, split_name: str) -> tuple[np.ndarray, np.ndarray]:
     """Remove NaN/Inf pairs so downstream sklearn metrics are stable."""
     mask = np.isfinite(trues) & np.isfinite(preds)
@@ -316,14 +432,52 @@ def drop_non_finite_pairs(trues: np.ndarray, preds: np.ndarray, split_name: str)
     return trues[mask], preds[mask]
 
 
-def compute_split_metrics(trues: np.ndarray, preds: np.ndarray) -> dict[str, float]:
-    """Compute standard regression metrics for one split."""
+def compute_split_metrics(trues: np.ndarray, preds: np.ndarray, tail_target_quantile: float = 0.90) -> dict[str, float]:
+    """Compute regression and tail-behavior metrics for one split."""
     from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+    signed_errors = preds - trues
+    abs_errors = np.abs(signed_errors)
+
+    abs_target = np.abs(trues)
+    tail_threshold = float(np.quantile(abs_target, tail_target_quantile))
+    tail_mask = abs_target >= tail_threshold
+    if not np.any(tail_mask):
+        tail_mask = np.ones_like(abs_target, dtype=bool)
+
+    true_min = float(np.min(trues))
+    true_max = float(np.max(trues))
+    outside_range_mask = (preds < true_min) | (preds > true_max)
+
+    if trues.size >= 2:
+        slope, intercept = np.polyfit(trues, preds, 1)
+        slope = float(slope)
+        intercept = float(intercept)
+    else:
+        slope = float("nan")
+        intercept = float("nan")
 
     return {
         "r2": float(r2_score(trues, preds)),
         "mae": float(mean_absolute_error(trues, preds)),
         "rmse": float(np.sqrt(mean_squared_error(trues, preds))),
+        "bias": float(np.mean(signed_errors)),
+        "median_abs_error": float(np.median(abs_errors)),
+        "p90_abs_error": float(np.quantile(abs_errors, 0.90)),
+        "p95_abs_error": float(np.quantile(abs_errors, 0.95)),
+        "p99_abs_error": float(np.quantile(abs_errors, 0.99)),
+        "max_abs_error": float(np.max(abs_errors)),
+        "tail_target_quantile": float(tail_target_quantile),
+        "tail_target_threshold_abs": tail_threshold,
+        "tail_count": float(np.sum(tail_mask)),
+        "tail_fraction": float(np.mean(tail_mask)),
+        "tail_mae": float(np.mean(abs_errors[tail_mask])),
+        "tail_rmse": float(np.sqrt(np.mean(np.square(signed_errors[tail_mask])))),
+        "tail_bias": float(np.mean(signed_errors[tail_mask])),
+        "outside_true_range_count": float(np.sum(outside_range_mask)),
+        "outside_true_range_fraction": float(np.mean(outside_range_mask)),
+        "pred_slope_vs_true": slope,
+        "pred_intercept_vs_true": intercept,
     }
 
 
@@ -356,6 +510,19 @@ def print_evaluation_metrics(metrics: dict, status: str = "unknown"):
     print(f"   Test MAE:   {metrics['test_mae']:.4f}")
     print(f"   Train RMSE: {metrics['train_rmse']:.4f}")
     print(f"   Test RMSE:  {metrics['test_rmse']:.4f}")
+
+    if all(key in metrics for key in ("test_p95_abs_error", "test_max_abs_error", "test_tail_mae")):
+        print(f"\nExtreme-behavior metrics (Test, kN):")
+        print(f"   Median |error|: {metrics.get('test_median_abs_error', float('nan')):.4f}")
+        print(f"   P95 |error|:    {metrics['test_p95_abs_error']:.4f}")
+        print(f"   P99 |error|:    {metrics.get('test_p99_abs_error', float('nan')):.4f}")
+        print(f"   Max |error|:    {metrics['test_max_abs_error']:.4f}")
+        print(f"   Tail MAE:       {metrics['test_tail_mae']:.4f}")
+        if "test_outside_true_range_count" in metrics:
+            print(
+                f"   Pred outside true range: {int(metrics['test_outside_true_range_count'])} "
+                f"({100.0 * metrics.get('test_outside_true_range_fraction', 0.0):.2f}%)"
+            )
     
     print(f"\nInterpretation:")
     if status == "good_fit":
@@ -389,6 +556,7 @@ def save_evaluation(
     edge_count: int,
     export_path: Path,
     training_visuals_fig: plt.Figure = None,
+    extremes_diagnostics_fig: plt.Figure | None = None,
     status: str = "✅ GOOD FIT",
     run_id: str | None = None,
     artifact_stem: str | None = None,
@@ -488,8 +656,15 @@ def save_evaluation(
         training_visuals_fig.savefig(training_plot_path, dpi=150, bbox_inches='tight')
         saved_files['training_diagnostics_plot'] = training_plot_path
         print(f"Training diagnostics saved: 03_training_diagnostics_{timestamp}.png")
+
+    # 4. Save extreme-behavior diagnostics plot (optional)
+    if extremes_diagnostics_fig is not None:
+        extremes_plot_path = eval_dir / f"04_extremes_diagnostics_{timestamp}.png"
+        extremes_diagnostics_fig.savefig(extremes_plot_path, dpi=150, bbox_inches='tight')
+        saved_files['extremes_diagnostics_plot'] = extremes_plot_path
+        print(f"Extremes diagnostics saved: 04_extremes_diagnostics_{timestamp}.png")
     
-    # 3b. Save epoch-by-epoch metrics as CSV (for reviewing training progress)
+    # 4b. Save epoch-by-epoch metrics as CSV (for reviewing training progress)
     if epoch_metrics_history:
         import pandas as pd
         epoch_csv_path = eval_dir / f"epoch_history_{timestamp}.csv"
@@ -498,7 +673,7 @@ def save_evaluation(
         saved_files['epoch_history_csv'] = epoch_csv_path
         print(f"Epoch history saved: epoch_history_{timestamp}.csv")
     
-    # 4. Save architecture summary
+    # 5. Save architecture summary
     architecture_path = eval_dir / f"model_architecture_{timestamp}.txt"
     architecture_text_block = f"""# Model Architecture Summary
 
@@ -519,7 +694,15 @@ Graph: {node_count} nodes x {edge_count} edges
     saved_files['architecture_summary'] = architecture_path
     print(f"Architecture summary saved: {architecture_path.name}")
 
-    # 5. Save combined manifest + metrics for downstream tooling
+    # 6. Save combined manifest + metrics for downstream tooling
+    train_metric_bundle = {}
+    test_metric_bundle = {}
+    for key, value in metrics.items():
+        if key.startswith("train_") and isinstance(value, (int, float)):
+            train_metric_bundle[key.replace("train_", "", 1)] = float(value)
+        if key.startswith("test_") and isinstance(value, (int, float)):
+            test_metric_bundle[key.replace("test_", "", 1)] = float(value)
+
     manifest_path = eval_dir / f"run_manifest_{timestamp}.json"
     with open(manifest_path, 'w', encoding='utf-8') as f:
         json.dump(
@@ -540,16 +723,8 @@ Graph: {node_count} nodes x {edge_count} edges
                 "selected_global_feature_cols": architecture_summary.get("selected_global_feature_cols") if isinstance(architecture_summary, dict) else None,
                 "feature_count": resolved_feature_count,
                 "metrics": {
-                    "train": {
-                        "r2": float(metrics['train_r2']),
-                        "mae": float(metrics['train_mae']),
-                        "rmse": float(metrics['train_rmse'])
-                    },
-                    "test": {
-                        "r2": float(metrics['test_r2']),
-                        "mae": float(metrics['test_mae']),
-                        "rmse": float(metrics['test_rmse'])
-                    },
+                    "train": train_metric_bundle,
+                    "test": test_metric_bundle,
                     "r2_gap": float(metrics['r2_gap']),
                     "status": status
                 },
@@ -568,7 +743,7 @@ Graph: {node_count} nodes x {edge_count} edges
     saved_files['manifest'] = manifest_path
     print(f"Manifest saved: {manifest_path.name}")
 
-    # 6. Save experiment card for reproducibility audits
+    # 7. Save experiment card for reproducibility audits
     experiment_card_path = eval_dir / f"experiment_card_{timestamp}.md"
     experiment_card = f"""# Experiment Card
 
@@ -627,7 +802,20 @@ Graph: {node_count} nodes x {edge_count} edges
     saved_files['experiment_card'] = experiment_card_path
     print(f"Experiment card saved: {experiment_card_path.name}")
 
-    # 7. Create summary README
+    # 8. Create summary README
+    extreme_summary = ""
+    if "test_p95_abs_error" in metrics:
+        extreme_summary = f"""
+## Extreme-Error Diagnostics
+
+- Test median |error|: {metrics.get('test_median_abs_error', float('nan')):.4f} kN
+- Test p95 |error|: {metrics['test_p95_abs_error']:.4f} kN
+- Test p99 |error|: {metrics.get('test_p99_abs_error', float('nan')):.4f} kN
+- Test max |error|: {metrics.get('test_max_abs_error', float('nan')):.4f} kN
+- Test tail MAE (largest-force region): {metrics.get('test_tail_mae', float('nan')):.4f} kN
+- Pred outside true range: {int(metrics.get('test_outside_true_range_count', 0.0))} ({100.0 * metrics.get('test_outside_true_range_fraction', 0.0):.2f}%)
+"""
+
     contextual_notes = f"## Contextual Notes\n\n{experiment_notes}\n" if experiment_notes else ""
     summary_text = f"""# Evaluation Results: {artifact_stem or model_prefix}
 
@@ -656,6 +844,8 @@ Graph: {node_count} nodes x {edge_count} edges
 
 **Meaning**: The model explains {metrics['test_r2']*100:.1f}% of variance in test data with {metrics['test_mae']:.2f} kN average error.
 
+{extreme_summary}
+
 ## Architecture Summary
 
 ```text
@@ -675,10 +865,11 @@ Graph: {node_count} nodes x {edge_count} edges
 1. `01_predictions_residuals_{timestamp}.png` — 4-panel: predictions vs actual + residual plots (train & test)
 2. `02_error_distribution_{timestamp}.png` — Error histograms for train & test
 3. `03_training_diagnostics_{timestamp}.png` — Training loss curve + normalized target profile (if available)
-4. `model_architecture_{timestamp}.txt` — Text summary of the trained model
-5. `run_manifest_{timestamp}.json` — Combined manifest, metrics, feature selection, and environment snapshot
-6. `experiment_card_{timestamp}.md` — Reproducibility snapshot for the run
-7. `README.md` — This summary
+4. `04_extremes_diagnostics_{timestamp}.png` — Sorted profile, tail error scatter, residual trend, and top-k worst errors (if available)
+5. `model_architecture_{timestamp}.txt` — Text summary of the trained model
+6. `run_manifest_{timestamp}.json` — Combined manifest, metrics, feature selection, and environment snapshot
+7. `experiment_card_{timestamp}.md` — Reproducibility snapshot for the run
+8. `README.md` — This summary
 
 ## Model Files
 

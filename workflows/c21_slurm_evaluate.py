@@ -12,13 +12,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 import config
 from c21_model_evaluation import (
+    build_extremes_diagnostics_figure,
     build_error_distribution_figure,
     build_pred_residual_figure,
     build_training_visuals_figure,
+    compute_split_metrics,
     save_evaluation,
 )
 from c00_naming import build_model_artifact_stem
@@ -71,12 +72,15 @@ def export_slurm_evaluation(results: dict) -> dict:
     train_residuals = train_trues - train_preds
     test_residuals = test_trues - test_preds
 
-    train_r2 = float(r2_score(train_trues, train_preds))
-    test_r2 = float(r2_score(test_trues, test_preds))
-    train_mae = float(mean_absolute_error(train_trues, train_preds))
-    test_mae = float(mean_absolute_error(test_trues, test_preds))
-    train_rmse = float(np.sqrt(mean_squared_error(train_trues, train_preds)))
-    test_rmse = float(np.sqrt(mean_squared_error(test_trues, test_preds)))
+    train_split_metrics = compute_split_metrics(train_trues, train_preds)
+    test_split_metrics = compute_split_metrics(test_trues, test_preds)
+
+    train_r2 = float(train_split_metrics["r2"])
+    test_r2 = float(test_split_metrics["r2"])
+    train_mae = float(train_split_metrics["mae"])
+    test_mae = float(test_split_metrics["mae"])
+    train_rmse = float(train_split_metrics["rmse"])
+    test_rmse = float(test_split_metrics["rmse"])
 
     r2_gap = train_r2 - test_r2
     if train_r2 < 0.7 and test_r2 < 0.7:
@@ -86,15 +90,11 @@ def export_slurm_evaluation(results: dict) -> dict:
     else:
         status = "good_fit"
 
-    metrics = {
-        "train_r2": train_r2,
-        "test_r2": test_r2,
-        "train_mae": train_mae,
-        "test_mae": test_mae,
-        "train_rmse": train_rmse,
-        "test_rmse": test_rmse,
-        "r2_gap": float(r2_gap),
-    }
+    metrics = {"r2_gap": float(r2_gap)}
+    for key, value in train_split_metrics.items():
+        metrics[f"train_{key}"] = float(value)
+    for key, value in test_split_metrics.items():
+        metrics[f"test_{key}"] = float(value)
 
     artifact_stem = build_model_artifact_stem(
         params["run_id"],
@@ -153,6 +153,12 @@ def export_slurm_evaluation(results: dict) -> dict:
         train_mae,
         test_mae,
     )
+    extremes_diagnostics_fig = build_extremes_diagnostics_figure(
+        train_trues,
+        train_preds,
+        test_trues,
+        test_preds,
+    )
 
     saved_files = save_evaluation(
         model_prefix=artifact_stem,
@@ -161,6 +167,7 @@ def export_slurm_evaluation(results: dict) -> dict:
         pred_residuals_fig=pred_residuals_fig,
         error_dist_fig=error_dist_fig,
         training_visuals_fig=training_visuals_fig,
+        extremes_diagnostics_fig=extremes_diagnostics_fig,
         node_count=schema.node_count,
         edge_count=schema.edge_count,
         export_path=config.SM_DATA_PATH,
@@ -184,6 +191,7 @@ def export_slurm_evaluation(results: dict) -> dict:
     plt.close(training_visuals_fig)
     plt.close(pred_residuals_fig)
     plt.close(error_dist_fig)
+    plt.close(extremes_diagnostics_fig)
 
     print("\n✅ SLURM evaluation export completed.")
     print(f"Run ID: {params['run_id']}")

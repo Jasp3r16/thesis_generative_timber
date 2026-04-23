@@ -296,6 +296,7 @@ def _predict_forces_with_surrogate(
     if df_edges is None:
         raise ValueError("df_edges is required for surrogate force prediction in c25.")
 
+    bundle_local = bundle
     active_prefix = model_prefix
     if bundle_local is None:
         bundle_local, bundle_error = prepare_surrogate_bundle(active_prefix)
