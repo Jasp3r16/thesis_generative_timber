@@ -18,6 +18,8 @@ if str(SRC_PATH) not in sys.path:
 
 import c00_headquarter_params
 from c12_geometry_truss import generate_sample_vertices
+from c12_geometry_shell import generate_sample_vertices as generate_shell_sample_vertices
+from c12_geometry_shell import generate_edges as generate_shell_edges
 from c24_reconstruction import reconstruct_edges
 
 
@@ -168,3 +170,39 @@ def plot_geometry_preview(
 
     fig.subplots_adjust(left=0.06, right=0.90, bottom=0.08, top=0.93)
     return fig, ax
+
+def run_random_shell_geometry_stage(
+    json_path: Path | None = None,
+    optimizer_search_space: Mapping[str, Mapping[str, Any]] | None = None,
+    sample_id: int = 0,
+) -> dict[str, Any]:
+    """Generate random one-layer dome-shell geometry and an overview in one call."""
+    if optimizer_search_space is None:
+        if json_path is None:
+            raise ValueError("Provide optimizer_search_space or json_path")
+        with open(json_path, "r", encoding="utf-8") as f:
+            optimizer_search_space = json.load(f)
+
+    my_random_design = sample_random_design(optimizer_search_space)
+    vertices_list = generate_shell_sample_vertices(sample_id=sample_id, params=my_random_design)
+    df_vertices = pd.DataFrame(vertices_list)
+    grid_radius = int(my_random_design.get("grid_radius", 3))
+    df_edges = generate_shell_edges(num_samples=1, grid_radius=grid_radius)
+    df_geometry_overview = build_geometry_overview(df_vertices=df_vertices, df_edges=df_edges)
+
+    return {
+        "my_random_design": my_random_design,
+        "vertices_list": vertices_list,
+        "df_vertices": df_vertices,
+        "df_edges": df_edges,
+        "df_geometry_overview": df_geometry_overview,
+    }
+
+
+def run_shell_geometry_from_design(
+    design_params: Mapping[str, Any],
+    sample_id: int = 0,
+) -> dict[str, Any]:
+    """Generate one-layer dome-shell geometry tables from a design dictionary."""
+    design_dict = dict(design_params)
+    """Generate one-layer dome-shell geometry tables from a design dictionary."""
