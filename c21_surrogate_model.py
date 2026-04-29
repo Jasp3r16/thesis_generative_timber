@@ -3,7 +3,6 @@ import torch.nn.functional as F
 from torch.nn import Dropout, LayerNorm, Linear, ModuleList, ReLU, Sequential
 from torch_geometric.nn import NNConv, global_mean_pool
 
-
 class TrussEdgeNNConv(torch.nn.Module):
     """
     Baseline edge-aware surrogate model used by the c21 pipeline.
