@@ -18,50 +18,7 @@ if str(SRC_PATH) not in sys.path:
 
 import c00_headquarter_params
 from c12_geometry_truss import generate_sample_vertices
-from c24_reconstruction import reconstruct_edges
-
-
-def sample_random_design(search_space: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-    """Sample one random design from a search-space mapping."""
-    random_params: dict[str, Any] = {}
-    for var_name, rules in search_space.items():
-        if rules["type"] == "continuous":
-            random_params[var_name] = random.uniform(float(rules["min"]), float(rules["max"]))
-        elif rules["type"] == "discrete":
-            random_params[var_name] = random.choice(list(rules["options"]))
-        else:
-            raise ValueError(f"Unsupported search-space type for {var_name}: {rules['type']}")
-    return random_params
-
-
-def _to_vertex_key(v: Any) -> str:
-    v_str = str(v)
-    return v_str if v_str.startswith("v") else f"v{v_str}"
-
-
-def _edge_length_m(vertex_lookup: dict[str, dict[str, float]], v1: Any, v2: Any) -> float:
-    p1 = vertex_lookup[_to_vertex_key(v1)]
-    p2 = vertex_lookup[_to_vertex_key(v2)]
-    return float(
-        np.linalg.norm(
-            [
-                p2["x"] - p1["x"],
-                p2["y"] - p1["y"],
-                p2["z"] - p1["z"],
-            ]
-        )
-    )
-
-
-def build_geometry_overview(df_vertices: pd.DataFrame, df_edges: pd.DataFrame) -> pd.DataFrame:
-    """Build compact edge table with computed member lengths in meters."""
-    vertex_lookup = df_vertices.set_index("vertex_index")[["x", "y", "z"]].to_dict("index")
-    df_geometry_overview = df_edges.copy()
-    df_geometry_overview["length_m"] = df_geometry_overview.apply(
-        lambda r: round(_edge_length_m(vertex_lookup, r["V1"], r["V2"]), 3),
-        axis=1,
-    )
-    return df_geometry_overview
+from c24_reconstruction import reconstruct_edges, build_geometry_overview, sample_random_design, _to_vertex_key
 
 
 def run_random_geometry_stage(
