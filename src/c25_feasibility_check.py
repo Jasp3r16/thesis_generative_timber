@@ -3,7 +3,6 @@ import math
 from typing import Any
 import numpy as np
 import pandas as pd
-import c21_surrogate_io as surrogate_io
 
 def _to_numeric_vertex_id(value: Any) -> int:
     text = str(value).strip()
@@ -48,10 +47,12 @@ def validate_feasibility_stage_notebook_inputs(
     if missing_stock_cols:
         raise ValueError("df_input_stock missing required columns: " + ", ".join(missing_stock_cols))
 
-    required_vertex_cols = {"x", "y", "z"}
+    required_vertex_cols = {"x", "y", "z", "Rx", "Ry", "Rz", "Tx", "Ty", "Tz"}
     missing_vertex_cols = [c for c in required_vertex_cols if c not in df_vertices.columns]
     if missing_vertex_cols:
         raise ValueError("df_vertices missing required columns: " + ", ".join(missing_vertex_cols))
+
+    required_edge_cols = 0
 
     if "vertex_index" not in df_vertices.columns and "node_id" not in df_vertices.columns:
         raise ValueError("df_vertices must include 'vertex_index' or 'node_id' for surrogate conversion.")
