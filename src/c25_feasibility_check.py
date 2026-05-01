@@ -47,7 +47,7 @@ def validate_feasibility_stage_notebook_inputs(
     if missing_stock_cols:
         raise ValueError("df_input_stock missing required columns: " + ", ".join(missing_stock_cols))
 
-    required_vertex_cols = {"x", "y", "z", "Rx", "Ry", "Rz", "Tx", "Ty", "Tz"}
+    required_vertex_cols = {"x", "y", "z"}
     missing_vertex_cols = [c for c in required_vertex_cols if c not in df_vertices.columns]
     if missing_vertex_cols:
         raise ValueError("df_vertices missing required columns: " + ", ".join(missing_vertex_cols))
@@ -285,41 +285,6 @@ def geometry_df_to_design_row_edge_mode(
     payload["num_edges"] = float(len(df_edges)) if df_edges is not None else 0.0
     return pd.Series(payload, dtype="float64")
 
-def _predict_forces_with_surrogate(
-    df_vertices: pd.DataFrame,
-    df_edges: pd.DataFrame | None,
-    bundle: dict[str, Any] | None,
-    model_prefix: str | None,
-    edge_area_m2: float | None = None,
-    edge_feature_mode: str = "area_length",
-) -> tuple[pd.DataFrame, dict[str, Any] | None, str]:
-    """Predict forces via the surrogate model."""
-    if df_edges is None:
-        raise ValueError("df_edges is required for surrogate force prediction in c25.")
-
-    bundle_local = bundle
-    active_prefix = model_prefix
-    if bundle_local is None:
-        bundle_local, bundle_error = prepare_surrogate_bundle(active_prefix)
-        if bundle_local is None:
-            raise RuntimeError(bundle_error or "Could not load surrogate bundle.")
-
-    design_row = geometry_df_to_design_row_edge_mode(
-        df_geometry=df_vertices,
-        df_edges=df_edges,
-        edge_feature_mode=edge_feature_mode,
-        edge_area_m2=edge_area_m2,
-    )
-    df_forces = surrogate_io.predict_edge_forces_kn(design_row=design_row, bundle=bundle_local)
-
-    required_force_cols = {"edge_id", "length_m", "axial_force_kn"}
-    missing_force_cols = [c for c in required_force_cols if c not in df_forces.columns]
-    if missing_force_cols:
-        raise ValueError("Surrogate prediction missing columns: " + ", ".join(missing_force_cols))
-
-    return df_forces.copy(), bundle_local, f"surrogate:{active_prefix}"
-
-
 def _validate_surrogate_feature_availability(
     df_vertices: pd.DataFrame,
     df_edges: pd.DataFrame,
@@ -332,7 +297,7 @@ def _validate_surrogate_feature_availability(
     if node_id_col not in df_vertices.columns:
         raise ValueError("Surrogate guard: df_vertices must contain 'vertex_index' or 'node_id'.")
 
-    required_node_features = tuple(run_manifest.get("selected_node_continuous_cols") or ("x", "y", "z", "Fz"))
+    required_node_features = tuple(run_manifest.get("selected_node_continuous_cols") or ("x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz"))
     missing_node_features = [f for f in required_node_features if f not in df_vertices.columns]
     if missing_node_features:
         raise ValueError(
@@ -401,8 +366,16 @@ def _validate_area_length_surrogate_compatibility(bundle: dict[str, Any], model_
             f"Prefix '{model_prefix}' reports edge_in_dim={edge_in_dim}."
         )
 
+def prepare_surrogate_bundle(model_prefix: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
+    """Try loading surrogate bundle once for re-use in iterative runs."""
+    active_prefix = model_prefix
+    try:
+        bundle = surrogate_io.load_surrogate_bundle(prefix_sm=active_prefix)
+        return bundle, None
+    except Exception as exc:
+        return None, f"Failed to load surrogate bundle '{active_prefix}': {exc}"
 
-def compute_utilization_outputs_with_stock_specific_area(
+def compute_feasibility_with_stock_properties(
     df_vertices: pd.DataFrame,
     df_edges: pd.DataFrame,
     df_input_stock: pd.DataFrame,
@@ -411,10 +384,8 @@ def compute_utilization_outputs_with_stock_specific_area(
     gnn_margin: float = 1.10,
     utilization_threshold: float = 1.0,
 ) -> dict[str, Any]:
-    """Compute feasibility by predicting surrogate force for each stock-specific edge area.
+    """Compute feasibility by predicting a utilization feasibility binary, 0 is safe, 1 is unsafe.
 
-    Each stock candidate contributes an area value A = Depth*Width (m2), which is injected
-    as the edge `Area` feature before surrogate force prediction.
     """
     validate_feasibility_stage_notebook_inputs(
         df_input_stock=df_input_stock,
@@ -458,84 +429,12 @@ def compute_utilization_outputs_with_stock_specific_area(
     force_rows: list[dict[str, Any]] = []
 
     for j, (_, stock_item) in enumerate(stock.iterrows()):
-        candidate_area_m2 = (float(stock_item["Depth"]) / 1000.0) * (float(stock_item["Width"]) / 1000.0)
-        df_forces_candidate, _, _ = _predict_forces_with_surrogate(
-            df_vertices=vertices,
-            df_edges=df_edges,
-            bundle=bundle_local,
-            model_prefix=active_prefix,
-            edge_area_m2=float(candidate_area_m2),
-            edge_feature_mode="area_length",
-        )
-
-        if util_matrix is None:
-            edge_ids = df_forces_candidate["edge_id"].astype(str).tolist()
-            util_matrix = np.full((len(edge_ids), len(stock_ids)), np.inf, dtype=float)
-            feas_matrix = np.full((len(edge_ids), len(stock_ids)), np.inf, dtype=float)
-            df_slots = df_forces_candidate[["edge_id", "length_m", "axial_force_kn"]].copy()
-            df_slots["Length_Req"] = (pd.to_numeric(df_slots["length_m"], errors="coerce") * 1000.0).round().astype(int)
-            df_forces_reference = df_forces_candidate.copy()
-
-        for i, (_, slot_force) in enumerate(df_forces_candidate.iterrows()):
-            req_length_m = float(slot_force["length_m"])
-            req_force_kn = float(slot_force["axial_force_kn"])
-            utilization = calculate_utilization_for_dataset(
-                stock_item,
-                req_force_kn=req_force_kn,
-                req_length_m=req_length_m,
-                gnn_margin=float(gnn_margin),
-            )
-
-            assert util_matrix is not None
-            assert feas_matrix is not None
-            util_matrix[i, j] = utilization
-
-            geometry_reason = _classify_geometry_constraint(slot_force, stock_item)
-            utilization_failed = (not np.isfinite(utilization)) or (float(utilization) > float(utilization_threshold))
-            reasons = _collect_feasibility_reasons(slot_force, stock_item, utilization_failed=utilization_failed)
-            feasible = reasons == ["Passed"]
-            if feasible:
-                feas_matrix[i, j] = 0.0
-            else:
-                failure_rows.append(
-                    {
-                        "edge_id": str(slot_force["edge_id"]),
-                        "Member_ID": str(stock_item["Member_ID"]),
-                        "failure_reasons": ", ".join(reasons),
-                        "geometry_reason": geometry_reason,
-                        "utilization": float(utilization) if np.isfinite(utilization) else np.inf,
-                    }
-                )
-
-            long_rows.append(
-                {
-                    "edge_id": str(slot_force["edge_id"]),
-                    "Member_ID": str(stock_item["Member_ID"]),
-                    "length_m": req_length_m,
-                    "axial_force_kn": req_force_kn,
-                    "candidate_area_m2": float(candidate_area_m2),
-                    "utilization": float(utilization) if np.isfinite(utilization) else np.inf,
-                    "is_feasible": bool(feasible),
-                    "failure_reasons": ", ".join(reasons),
-                }
-            )
-            force_rows.append(
-                {
-                    "edge_id": str(slot_force["edge_id"]),
-                    "Member_ID": str(stock_item["Member_ID"]),
-                    "candidate_area_m2": float(candidate_area_m2),
-                    "length_m": req_length_m,
-                    "axial_force_kn": req_force_kn,
-                }
-            )
+            
 
     if util_matrix is None or feas_matrix is None or df_slots is None:
         raise ValueError("No feasibility data could be generated.")
 
-    df_utilization_long = pd.DataFrame(long_rows)
     df_failure_reasons = pd.DataFrame(failure_rows)
-    df_forces_by_stock = pd.DataFrame(force_rows)
-    df_utilization_matrix_display = pd.DataFrame(util_matrix, index=edge_ids, columns=stock_ids)
     df_feasibility_matrix_display = pd.DataFrame(feas_matrix, index=edge_ids, columns=stock_ids)
 
     df_safe_options = df_utilization_long.loc[df_utilization_long["is_feasible"]].copy()
@@ -564,354 +463,6 @@ def compute_utilization_outputs_with_stock_specific_area(
         "df_vertices": vertices,
         "df_forces": df_forces_reference if df_forces_reference is not None else pd.DataFrame(),
         "df_forces_by_stock": df_forces_by_stock,
-        "df_utilization_long": df_utilization_long,
-        "df_utilization_matrix": util_matrix,
-        "df_utilization_matrix_display": df_utilization_matrix_display,
-        "df_feasibility_matrix": feas_matrix,
-        "df_feasibility_matrix_display": df_feasibility_matrix_display,
-        "df_safe_options": df_safe_options,
-        "df_failure_reasons": df_failure_reasons,
-        "df_slots": df_slots,
-        "utilization_threshold": float(utilization_threshold),
-    }
-
-
-def compute_utilization_outputs_length_only(
-    df_vertices: pd.DataFrame,
-    df_edges: pd.DataFrame,
-    df_input_stock: pd.DataFrame,
-    bundle: dict[str, Any] | None = None,
-    model_prefix: str | None = None,
-    gnn_margin: float = 1.10,
-    utilization_threshold: float = 1.0,
-) -> dict[str, Any]:
-    """Compute feasibility using a length-only surrogate once per slot.
-
-    This mode predicts one axial force value per edge and then reuses those forces for
-    every stock candidate, which removes the repeated per-stock surrogate inference.
-    """
-    validate_feasibility_stage_notebook_inputs(
-        df_input_stock=df_input_stock,
-        df_vertices=df_vertices,
-        df_edges=df_edges,
-    )
-
-    vertices = df_vertices.copy()
-    if "Fz" not in vertices.columns:
-        vertices = assign_roof_load_fz(vertices)
-
-    stock = df_input_stock.copy()
-    stock["Member_ID"] = stock["Member_ID"].astype(str)
-    for numeric_col in ("Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"):
-        stock[numeric_col] = pd.to_numeric(stock[numeric_col], errors="coerce")
-
-    active_prefix = model_prefix
-    bundle_local = bundle
-    if bundle_local is None:
-        bundle_local, bundle_error = prepare_surrogate_bundle(active_prefix)
-        if bundle_local is None:
-            raise RuntimeError(bundle_error or "Could not load surrogate bundle.")
-
-    _validate_length_only_surrogate_compatibility(bundle=bundle_local, model_prefix=active_prefix)
-
-    _validate_surrogate_feature_availability(
-        df_vertices=vertices,
-        df_edges=df_edges,
-        bundle=bundle_local,
-    )
-
-    # Predict once for the geometry/slot set. This is the expensive step we want to keep single-pass.
-    df_forces_reference, _, _ = _predict_forces_with_surrogate(
-        df_vertices=vertices,
-        df_edges=df_edges,
-        bundle=bundle_local,
-        model_prefix=active_prefix,
-        edge_area_m2=None,
-        edge_feature_mode="length_only",
-    )
-
-    edge_ids = df_forces_reference["edge_id"].astype(str).tolist()
-    stock_ids = stock["Member_ID"].tolist()
-    util_matrix = np.full((len(edge_ids), len(stock_ids)), np.inf, dtype=float)
-    feas_matrix = np.full((len(edge_ids), len(stock_ids)), np.inf, dtype=float)
-
-    long_rows: list[dict[str, Any]] = []
-    failure_rows: list[dict[str, Any]] = []
-    force_rows: list[dict[str, Any]] = []
-
-    for i, (_, slot_force) in enumerate(df_forces_reference.iterrows()):
-        req_length_m = float(slot_force["length_m"])
-        req_force_kn = float(slot_force["axial_force_kn"])
-
-        for j, (_, stock_item) in enumerate(stock.iterrows()):
-            utilization = calculate_utilization_for_dataset(
-                stock_item,
-                req_force_kn=req_force_kn,
-                req_length_m=req_length_m,
-                gnn_margin=float(gnn_margin),
-            )
-
-            util_matrix[i, j] = utilization
-
-            geometry_reason = _classify_geometry_constraint(slot_force, stock_item)
-            utilization_failed = (not np.isfinite(utilization)) or (float(utilization) > float(utilization_threshold))
-            reasons = _collect_feasibility_reasons(slot_force, stock_item, utilization_failed=utilization_failed)
-            feasible = reasons == ["Passed"]
-            if feasible:
-                feas_matrix[i, j] = 0.0
-            else:
-                failure_rows.append(
-                    {
-                        "edge_id": str(slot_force["edge_id"]),
-                        "Member_ID": str(stock_item["Member_ID"]),
-                        "failure_reasons": ", ".join(reasons),
-                        "geometry_reason": geometry_reason,
-                        "utilization": float(utilization) if np.isfinite(utilization) else np.inf,
-                    }
-                )
-
-            long_rows.append(
-                {
-                    "edge_id": str(slot_force["edge_id"]),
-                    "Member_ID": str(stock_item["Member_ID"]),
-                    "length_m": req_length_m,
-                    "axial_force_kn": req_force_kn,
-                    "utilization": float(utilization) if np.isfinite(utilization) else np.inf,
-                    "is_feasible": bool(feasible),
-                    "failure_reasons": ", ".join(reasons),
-                }
-            )
-            force_rows.append(
-                {
-                    "edge_id": str(slot_force["edge_id"]),
-                    "Member_ID": str(stock_item["Member_ID"]),
-                    "length_m": req_length_m,
-                    "axial_force_kn": req_force_kn,
-                }
-            )
-
-    df_utilization_long = pd.DataFrame(long_rows)
-    df_failure_reasons = pd.DataFrame(failure_rows)
-    df_forces_by_stock = pd.DataFrame(force_rows)
-    df_utilization_matrix_display = pd.DataFrame(util_matrix, index=edge_ids, columns=stock_ids)
-    df_feasibility_matrix_display = pd.DataFrame(feas_matrix, index=edge_ids, columns=stock_ids)
-    df_safe_options = df_utilization_long.loc[df_utilization_long["is_feasible"]].copy()
-
-    df_slots = df_forces_reference[["edge_id", "length_m", "axial_force_kn"]].copy()
-    df_slots["Length_Req"] = (df_slots["length_m"] * 1000.0).round().astype(int)
-
-    df_req_dims = (
-        df_safe_options.sort_values(["edge_id", "utilization"], ascending=[True, False])
-        .drop_duplicates(subset=["edge_id"], keep="first")
-        [["edge_id", "Member_ID", "utilization"]]
-        .merge(
-            stock[["Member_ID", "Depth", "Width"]],
-            on="Member_ID",
-            how="left",
-        )
-        .rename(columns={"Depth": "Depth_Req", "Width": "Width_Req", "utilization": "governing_utilization"})
-    )
-
-    df_slots = df_slots.merge(df_req_dims[["edge_id", "Depth_Req", "Width_Req", "governing_utilization"]], on="edge_id", how="left")
-    df_slots["Area_Req"] = (pd.to_numeric(df_slots["Depth_Req"], errors="coerce") * pd.to_numeric(df_slots["Width_Req"], errors="coerce")) / 1_000_000.0
-
-    return {
-        "bundle": bundle_local,
-        "df_vertices": vertices,
-        "df_forces": df_forces_reference,
-        "df_forces_by_stock": df_forces_by_stock,
-        "df_utilization_long": df_utilization_long,
-        "df_utilization_matrix": util_matrix,
-        "df_utilization_matrix_display": df_utilization_matrix_display,
-        "df_feasibility_matrix": feas_matrix,
-        "df_feasibility_matrix_display": df_feasibility_matrix_display,
-        "df_safe_options": df_safe_options,
-        "df_failure_reasons": df_failure_reasons,
-        "df_slots": df_slots,
-        "utilization_threshold": float(utilization_threshold),
-    }
-
-def prepare_surrogate_bundle(model_prefix: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
-    """Try loading surrogate bundle once for re-use in iterative runs."""
-    active_prefix = model_prefix
-    try:
-        bundle = surrogate_io.load_surrogate_bundle(prefix_sm=active_prefix)
-        return bundle, None
-    except Exception as exc:
-        return None, f"Failed to load surrogate bundle '{active_prefix}': {exc}"
-
-
-def _validate_force_and_stock_inputs(
-    df_forces: pd.DataFrame,
-    df_input_stock: pd.DataFrame,
-) -> None:
-    required_force_cols = {"edge_id", "length_m", "axial_force_kn"}
-    missing_force = [c for c in required_force_cols if c not in df_forces.columns]
-    if missing_force:
-        raise ValueError("df_forces missing required columns: " + ", ".join(missing_force))
-
-    required_stock_cols = {"Member_ID", "Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"}
-    missing_stock = [c for c in required_stock_cols if c not in df_input_stock.columns]
-    if missing_stock:
-        raise ValueError("df_input_stock missing required columns: " + ", ".join(missing_stock))
-    
-def calculate_utilization_for_dataset(
-    row: pd.Series,
-    req_force_kn: float,
-    req_length_m: float,
-    gnn_margin: float = 1.10,
-) -> float:
-    """
-    - Calculates area for an element
-    - Uses area and surrogate model to calculate axial force with surrogate model
-    - Than uses that axial force to calculate Eurocode 5 utilization for one stock element
-
-    Args:
-        row: Row with at least `Depth`, `Width`, `f_c0k`, `f_tk`, `E_modulus_eff`.
-        req_length_m: Requested member length in meters for buckling calculation.
-        gnn_margin: Safety factor on predicted force (default 1.10).
-
-    Returns:
-        Utilization ratio. Values <= 1.0 are structurally acceptable.
-        Returns `np.inf` if the calculated capacity is invalid or non-positive.
-    """
-    h = float(row["Depth"])
-    b = float(row["Width"])
-    l_mm = float(req_length_m) * 1000.0
-    area = h * b
-
-    required_force_kn = float(req_force_kn) * float(gnn_margin)
-
-    f_c_k = float(row["f_c0k"])
-    e_0_mean = float(row["E_modulus_eff"])
-    f_t_k = float(row["f_tk"])
-
-    gamma_m = 1.3
-    k_mod = 0.8
-    f_c_d = (f_c_k * k_mod) / gamma_m
-    f_t_d = (f_t_k * k_mod) / gamma_m
-
-    if required_force_kn >= 0:
-        force_n = required_force_kn * 1000.0
-        capaciteit_n = area * f_t_d
-        if capaciteit_n <= 0:
-            return float(np.inf)
-        return force_n / capaciteit_n
-
-    force_n = abs(required_force_kn * 1000.0)
-    i_min = (max(h, b) * min(h, b) ** 3) / 12.0
-    i_radius = math.sqrt(i_min / area)
-    slenderness = l_mm / i_radius
-    rel_slenderness = (slenderness / math.pi) * math.sqrt(f_c_k / e_0_mean)
-    beta_c = 0.2
-    k_waarde = 0.5 * (1 + beta_c * (rel_slenderness - 0.3) + rel_slenderness**2)
-    k_c = 1 / (k_waarde + math.sqrt(max(0.0, k_waarde**2 - rel_slenderness**2)))
-
-    capaciteit_n = area * k_c * f_c_d
-    if capaciteit_n <= 0:
-        return float(np.inf)
-    return force_n / capaciteit_n
-
-
-def compute_utilization_outputs(
-    df_forces: pd.DataFrame,
-    df_input_stock: pd.DataFrame,
-    gnn_margin: float = 1.10,
-    utilization_threshold: float = 1.0,
-) -> dict[str, Any]:
-    """Build utilization and feasibility outputs for all slot-stock combinations."""
-    _validate_force_and_stock_inputs(df_forces=df_forces, df_input_stock=df_input_stock)
-
-    forces = df_forces.copy()
-    forces["edge_id"] = forces["edge_id"].astype(str)
-    forces["length_m"] = pd.to_numeric(forces["length_m"], errors="coerce")
-    forces["axial_force_kn"] = pd.to_numeric(forces["axial_force_kn"], errors="coerce")
-
-    stock = df_input_stock.copy()
-    stock["Member_ID"] = stock["Member_ID"].astype(str)
-    for numeric_col in ("Length", "Depth", "Width", "f_c0k", "f_tk", "E_modulus_eff"):
-        stock[numeric_col] = pd.to_numeric(stock[numeric_col], errors="coerce")
-
-    edge_ids = forces["edge_id"].tolist()
-    stock_ids = stock["Member_ID"].tolist()
-
-    util_matrix = np.full((len(edge_ids), len(stock_ids)), np.inf, dtype=float)
-    feas_matrix = np.full((len(edge_ids), len(stock_ids)), np.inf, dtype=float)
-
-    long_rows: list[dict[str, Any]] = []
-    failure_rows: list[dict[str, Any]] = []
-
-    for i, (_, slot) in enumerate(forces.iterrows()):
-        req_length_m = float(slot["length_m"])
-        req_force_kn = float(slot["axial_force_kn"])
-
-        for j, (_, stock_item) in enumerate(stock.iterrows()):
-            utilization = calculate_utilization_for_dataset(
-                stock_item,
-                req_force_kn=req_force_kn,
-                req_length_m=req_length_m,
-                gnn_margin=float(gnn_margin),
-            )
-
-            util_matrix[i, j] = utilization
-
-            geometry_reason = _classify_geometry_constraint(slot, stock_item)
-            utilization_failed = (not np.isfinite(utilization)) or (float(utilization) > float(utilization_threshold))
-            reasons = _collect_feasibility_reasons(slot, stock_item, utilization_failed=utilization_failed)
-            feasible = reasons == ["Passed"]
-            if feasible:
-                feas_matrix[i, j] = 0.0
-            else:
-                failure_rows.append(
-                    {
-                        "edge_id": str(slot["edge_id"]),
-                        "Member_ID": str(stock_item["Member_ID"]),
-                        "failure_reasons": ", ".join(reasons),
-                        "geometry_reason": geometry_reason,
-                        "utilization": float(utilization) if np.isfinite(utilization) else np.inf,
-                    }
-                )
-
-            long_rows.append(
-                {
-                    "edge_id": str(slot["edge_id"]),
-                    "Member_ID": str(stock_item["Member_ID"]),
-                    "length_m": req_length_m,
-                    "axial_force_kn": req_force_kn,
-                    "utilization": float(utilization) if np.isfinite(utilization) else np.inf,
-                    "is_feasible": bool(feasible),
-                    "failure_reasons": ", ".join(reasons),
-                }
-            )
-
-    df_utilization_long = pd.DataFrame(long_rows)
-    df_failure_reasons = pd.DataFrame(failure_rows)
-
-    df_utilization_matrix_display = pd.DataFrame(util_matrix, index=edge_ids, columns=stock_ids)
-    df_feasibility_matrix_display = pd.DataFrame(feas_matrix, index=edge_ids, columns=stock_ids)
-
-    df_safe_options = df_utilization_long.loc[df_utilization_long["is_feasible"]].copy()
-
-    df_slots = forces[["edge_id", "length_m", "axial_force_kn"]].copy()
-    df_slots["Length_Req"] = (df_slots["length_m"] * 1000.0).round().astype(int)
-
-    # Use the most critical feasible candidate (highest utilization <= threshold) to infer required section.
-    df_req_dims = (
-        df_safe_options.sort_values(["edge_id", "utilization"], ascending=[True, False])
-        .drop_duplicates(subset=["edge_id"], keep="first")
-        [["edge_id", "Member_ID", "utilization"]]
-        .merge(
-            stock[["Member_ID", "Depth", "Width"]],
-            on="Member_ID",
-            how="left",
-        )
-        .rename(columns={"Depth": "Depth_Req", "Width": "Width_Req", "utilization": "governing_utilization"})
-    )
-
-    df_slots = df_slots.merge(df_req_dims[["edge_id", "Depth_Req", "Width_Req", "governing_utilization"]], on="edge_id", how="left")
-    df_slots["Area_Req"] = (pd.to_numeric(df_slots["Depth_Req"], errors="coerce") * pd.to_numeric(df_slots["Width_Req"], errors="coerce")) / 1_000_000.0
-
-    return {
         "df_utilization_long": df_utilization_long,
         "df_utilization_matrix": util_matrix,
         "df_utilization_matrix_display": df_utilization_matrix_display,

@@ -17,10 +17,6 @@ import c25_feasibility_check as feasibility_check
 
 assign_roof_load_fz = feasibility_check.assign_roof_load_fz
 geometry_df_to_design_row = feasibility_check.geometry_df_to_design_row
-compute_utilization_outputs = feasibility_check.compute_utilization_outputs
-predict_forces_with_surrogate = feasibility_check._predict_forces_with_surrogate
-compute_utilization_outputs_with_stock_specific_area = feasibility_check.compute_utilization_outputs_with_stock_specific_area
-compute_utilization_outputs_length_only = feasibility_check.compute_utilization_outputs_length_only
 
 
 def _validate_feasibility_stage_notebook_inputs(
@@ -83,27 +79,6 @@ def run_feasibility_stage(
     if "Fz" not in df_vertices.columns:
         df_vertices = assign_roof_load_fz(df_vertices)
 
-    if feature_mode == "length_only":
-        outputs = compute_utilization_outputs_length_only(
-            df_vertices=df_vertices,
-            df_edges=df_edges,
-            df_input_stock=df_input_stock,
-            bundle=bundle,
-            model_prefix=active_prefix,
-            gnn_margin=float(gnn_margin),
-            utilization_threshold=float(utilization_threshold),
-        )
-    else:
-        outputs = compute_utilization_outputs_with_stock_specific_area(
-            df_vertices=df_vertices,
-            df_edges=df_edges,
-            df_input_stock=df_input_stock,
-            bundle=bundle,
-            model_prefix=active_prefix,
-            gnn_margin=float(gnn_margin),
-            utilization_threshold=float(utilization_threshold),
-        )
-
     df_forces = outputs["df_forces"]
     active_bundle = outputs["bundle"]
     prediction_mode = f"surrogate:{feature_mode}"
@@ -125,12 +100,7 @@ def run_feasibility_stage(
     return {
         "bundle": active_bundle,
         "df_vertices": df_vertices,
-        "df_forces": df_forces,
         "df_slots": outputs["df_slots"],
-        "df_utilization_long": outputs["df_utilization_long"],
-        "df_utilization_matrix": outputs["df_utilization_matrix_display"],
-        "df_utilization_matrix_values": outputs["df_utilization_matrix"],
-        "df_forces_by_stock": outputs["df_forces_by_stock"],
         "df_feasibility_matrix": outputs["df_feasibility_matrix_display"],
         "df_feasibility_matrix_values": outputs["df_feasibility_matrix"],
         "df_safe_options": outputs["df_safe_options"],
