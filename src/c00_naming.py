@@ -71,20 +71,6 @@ def build_run_id(dt: datetime | None = None) -> str:
     """Build a unique run identifier suitable as a filename prefix."""
     return f"ID{compact_timestamp(dt)}"
 
-
-def build_model_artifact_stem(
-    run_id: str,
-    learning_rate: float,
-    epochs: int,
-    final_val_r2: float | None,
-) -> str:
-    """Build a shared stem for model and scaler artifacts."""
-    return (
-        f"{run_id}_LR{format_learning_rate(learning_rate)}"
-        f"_EP{epochs}_R{format_r2_score(final_val_r2)}"
-    )
-
-
 def build_run_folder_name(
     run_id: str,
     dt: datetime | None = None,
