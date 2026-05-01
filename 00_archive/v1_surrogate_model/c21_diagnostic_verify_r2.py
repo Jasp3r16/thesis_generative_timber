@@ -12,7 +12,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, r2_score
 
 import config
-from c21_model_evaluation import compute_split_metrics, drop_non_finite_pairs
+from c21_model_evaluation_v3 import compute_split_metrics, drop_non_finite_pairs
 from src.c21_data_pipeline import load_v4_sources
 
 

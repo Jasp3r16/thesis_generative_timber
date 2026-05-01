@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import torch
 
 import config
-from c21_model_evaluation import (
+from c21_model_evaluation_v3 import (
     build_extremes_diagnostics_figure,
     build_error_distribution_figure,
     build_pred_residual_figure,
