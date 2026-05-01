@@ -46,8 +46,8 @@ else:
     EXPORT_PATH = ONEDRIVE_ROOT / "60_Research_Exports"
 
     # Subfolders inside the data inventory.
-    GH_DATA_PATH = DATA_PATH / "01_grasshopper_data"
-    RAW_DATA_PATH = DATA_PATH / "02_raw_data"
+    GEOM_DATA_PATH = DATA_PATH / "01_geometry_data"
+    GH_DATA_PATH = DATA_PATH / "02_grasshopper_data"
     TIMBER_STOCK_PATH = DATA_PATH / "03_timber_data"
 
     # Subfolders inside the research exports.
@@ -67,7 +67,7 @@ else:
     print(f"Data connected to OneDrive: {ONEDRIVE_ROOT.name}\n")
     
 print(f"GH data directory: {GH_DATA_PATH}")
-print(f"Raw data directory: {RAW_DATA_PATH}")
+print(f"Geometry data directory: {GEOM_DATA_PATH}")
 print(f"Export directory: {EXPORT_PATH}\n")
 
 # ==========================================
