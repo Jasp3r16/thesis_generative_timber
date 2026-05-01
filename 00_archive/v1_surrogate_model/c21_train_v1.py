@@ -24,7 +24,7 @@ from c21_data_pipeline import (
     validate_sample_coverage,
     build_graph_dataset,
 )
-from c21_surrogate_model import TrussEdgeNNConv, TrussEdgeNNConvV2
+from c21_surrogate_model_v1 import TrussEdgeNNConv, TrussEdgeNNConvV2
 
 
 def _select_model_class(model_variant: str):

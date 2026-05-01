@@ -12,8 +12,8 @@ import os
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-from src.c21_train import main
-from workflows.c21_slurm_evaluate import export_slurm_evaluation
+from c21_train_v1 import main
+from workflows.DB_c21_slurm_evaluate import export_slurm_evaluation
 
 if __name__ == "__main__":
     try:

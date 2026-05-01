@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 
 import config
-from c21_surrogate_model import TrussEdgeGNN, TrussEdgeGNNV2
+from c21_surrogate_model_v1 import TrussEdgeGNN, TrussEdgeGNNV2
 
 
 def _select_model_class(model_variant: str):
