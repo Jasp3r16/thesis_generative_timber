@@ -4,6 +4,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+import c21_surrogate_io as surrogate_io
+
 def _to_numeric_vertex_id(value: Any) -> int:
     text = str(value).strip()
     if text.lower().startswith("v"):
@@ -20,6 +22,13 @@ def _resolve_edge_id_column(df_edges: pd.DataFrame) -> str | None:
 
 def _resolve_edge_area_column(df_edges: pd.DataFrame) -> str | None:
     for candidate in ("Area", "area", "cross_section_area", "A"):
+        if candidate in df_edges.columns:
+            return candidate
+    return None
+
+
+def _resolve_edge_length_column(df_edges: pd.DataFrame) -> str | None:
+    for candidate in ("Length", "length_m", "length", "Length_m"):
         if candidate in df_edges.columns:
             return candidate
     return None
@@ -292,12 +301,17 @@ def _validate_surrogate_feature_availability(
 ) -> None:
     """Fail fast when required surrogate features/topology are not fully available."""
     run_manifest = bundle.get("run_manifest") or {}
+    scalers = bundle.get("scalers") or {}
 
     node_id_col = "vertex_index" if "vertex_index" in df_vertices.columns else "node_id"
     if node_id_col not in df_vertices.columns:
         raise ValueError("Surrogate guard: df_vertices must contain 'vertex_index' or 'node_id'.")
 
-    required_node_features = tuple(run_manifest.get("selected_node_continuous_cols") or ("x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz"))
+    required_node_features = tuple(
+        scalers.get("node_cols")
+        or run_manifest.get("selected_node_continuous_cols")
+        or ("x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz")
+    )
     missing_node_features = [f for f in required_node_features if f not in df_vertices.columns]
     if missing_node_features:
         raise ValueError(
@@ -305,16 +319,24 @@ def _validate_surrogate_feature_availability(
             + ", ".join(missing_node_features)
         )
 
-    required_edge_features = tuple(run_manifest.get("selected_edge_feature_cols") or ("Area", "Length"))
-    unsupported_edge_features = [f for f in required_edge_features if f not in {"Area", "Length"}]
+    required_edge_features = tuple(
+        scalers.get("edge_cols")
+        or run_manifest.get("selected_edge_feature_cols")
+        or ("Area", "Length", "E", "Iy", "Iz", "J", "EA/L")
+    )
+    supported_edge_features = {"Area", "Length", "E", "Iy", "Iz", "J", "EA/L"}
+    unsupported_edge_features = [f for f in required_edge_features if f not in supported_edge_features]
     if unsupported_edge_features:
         raise ValueError(
-            "Surrogate guard: current c25 stock-specific mode only supports edge features Area and Length. "
-            "Model requires unsupported edge features: "
+            "Surrogate guard: unsupported edge features requested by model: "
             + ", ".join(unsupported_edge_features)
         )
 
-    expected_edge_count = int(bundle["edge_index"].size(1) // 2)
+    edge_index = bundle.get("edge_index")
+    if edge_index is None:
+        raise ValueError("Surrogate guard: bundle missing edge_index.")
+
+    expected_edge_count = int(getattr(edge_index, "size", lambda dim: edge_index.shape[dim])(1))
     if int(len(df_edges)) != expected_edge_count:
         raise ValueError(
             "Surrogate guard: df_edges row count does not match model topology. "
@@ -322,9 +344,75 @@ def _validate_surrogate_feature_availability(
         )
 
 
+def _sorted_vertex_coords(df_vertices: pd.DataFrame) -> np.ndarray:
+    vertex_id_col = "vertex_index" if "vertex_index" in df_vertices.columns else "node_id"
+    if vertex_id_col not in df_vertices.columns:
+        raise ValueError("df_vertices must include 'vertex_index' or 'node_id'.")
+
+    ordered = df_vertices.copy()
+    ordered["_node_numeric"] = ordered[vertex_id_col].map(_to_numeric_vertex_id)
+    ordered = ordered.sort_values("_node_numeric").reset_index(drop=True)
+
+    coords = ordered[["x", "y", "z"]].to_numpy(dtype=float)
+    return coords
+
+
+def _edge_lengths_from_vertices(df_vertices: pd.DataFrame, edge_index: np.ndarray) -> np.ndarray:
+    coords = _sorted_vertex_coords(df_vertices)
+    starts = edge_index[0].astype(int)
+    ends = edge_index[1].astype(int)
+    return np.linalg.norm(coords[starts] - coords[ends], axis=1)
+
+
+def _build_edge_feature_frame(
+    edge_ids: list[str],
+    lengths_m: np.ndarray,
+    stock_item: pd.Series,
+    edge_cols: tuple[str, ...],
+) -> pd.DataFrame:
+    width_mm = float(stock_item["Width"])
+    depth_mm = float(stock_item["Depth"])
+    width_m = width_mm / 1000.0
+    depth_m = depth_mm / 1000.0
+    area_m2 = width_m * depth_m
+    iy_m4 = (width_m * (depth_m ** 3)) / 12.0
+    iz_m4 = (depth_m * (width_m ** 3)) / 12.0
+    j_m4 = iy_m4 + iz_m4
+    modulus_e = float(stock_item["E_modulus_eff"])
+
+    lengths_m = np.asarray(lengths_m, dtype=float)
+    lengths_m = np.where(lengths_m > 0.0, lengths_m, np.nan)
+    lengths_mm = lengths_m * 1000.0
+    area_mm2 = area_m2 * 1_000_000.0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ea_over_l = (modulus_e * area_mm2) / lengths_mm
+
+    payload: dict[str, Any] = {"edge_id": edge_ids}
+    for feature in edge_cols:
+        if feature == "Length":
+            payload[feature] = lengths_m
+        elif feature == "Area":
+            payload[feature] = float(area_m2)
+        elif feature == "E":
+            payload[feature] = float(modulus_e)
+        elif feature == "Iy":
+            payload[feature] = float(iy_m4)
+        elif feature == "Iz":
+            payload[feature] = float(iz_m4)
+        elif feature == "J":
+            payload[feature] = float(j_m4)
+        elif feature == "EA/L":
+            payload[feature] = ea_over_l
+        else:
+            raise ValueError(f"Unsupported edge feature '{feature}' for surrogate inference.")
+
+    return pd.DataFrame(payload)
+
+
 def _validate_length_only_surrogate_compatibility(bundle: dict[str, Any], model_prefix: str) -> None:
     """Fail fast when length-only mode is used with a non-length surrogate checkpoint."""
     run_manifest = bundle.get("run_manifest") or {}
+    scalers = bundle.get("scalers") or {}
     selected_edge_features = run_manifest.get("selected_edge_feature_cols")
 
     if isinstance(selected_edge_features, (list, tuple)) and len(selected_edge_features) > 0:
@@ -333,6 +421,15 @@ def _validate_length_only_surrogate_compatibility(bundle: dict[str, Any], model_
             raise ValueError(
                 "Length-only surrogate mode requires a checkpoint trained with edge feature schema ['Length']. "
                 f"Prefix '{model_prefix}' was trained with edge features: {selected_edge_features}"
+            )
+        return
+
+    if scalers.get("edge_cols"):
+        normalized = [str(feature).strip().lower() for feature in scalers.get("edge_cols", [])]
+        if normalized != ["length"]:
+            raise ValueError(
+                "Length-only surrogate mode requires a checkpoint trained with edge feature schema ['Length']. "
+                f"Prefix '{model_prefix}' was trained with edge features: {scalers.get('edge_cols')}"
             )
         return
 
@@ -347,6 +444,7 @@ def _validate_length_only_surrogate_compatibility(bundle: dict[str, Any], model_
 def _validate_area_length_surrogate_compatibility(bundle: dict[str, Any], model_prefix: str) -> None:
     """Fail fast when area-length mode is used with a non area-aware checkpoint."""
     run_manifest = bundle.get("run_manifest") or {}
+    scalers = bundle.get("scalers") or {}
     selected_edge_features = run_manifest.get("selected_edge_feature_cols")
 
     if isinstance(selected_edge_features, (list, tuple)) and len(selected_edge_features) > 0:
@@ -355,6 +453,15 @@ def _validate_area_length_surrogate_compatibility(bundle: dict[str, Any], model_
             raise ValueError(
                 "Area-length surrogate mode requires a checkpoint trained with an 'Area' edge feature. "
                 f"Prefix '{model_prefix}' was trained with edge features: {selected_edge_features}"
+            )
+        return
+
+    if scalers.get("edge_cols"):
+        normalized = [str(feature).strip().lower() for feature in scalers.get("edge_cols", [])]
+        if "area" not in normalized:
+            raise ValueError(
+                "Area-length surrogate mode requires a checkpoint trained with an 'Area' edge feature. "
+                f"Prefix '{model_prefix}' was trained with edge features: {scalers.get('edge_cols')}"
             )
         return
 
@@ -383,10 +490,11 @@ def compute_feasibility_with_stock_properties(
     model_prefix: str | None = None,
     gnn_margin: float = 1.10,
     utilization_threshold: float = 1.0,
+    safety_margin: float = 0.8,
+    failure_threshold: float | None = None,
+    apply_calibration: bool = True,
 ) -> dict[str, Any]:
-    """Compute feasibility by predicting a utilization feasibility binary, 0 is safe, 1 is unsafe.
-
-    """
+    """Compute feasibility by predicting failure probability, then thresholding."""
     validate_feasibility_stage_notebook_inputs(
         df_input_stock=df_input_stock,
         df_vertices=df_vertices,
@@ -418,21 +526,90 @@ def compute_feasibility_with_stock_properties(
     )
 
     stock_ids = stock["Member_ID"].tolist()
-    util_matrix: np.ndarray | None = None
-    feas_matrix: np.ndarray | None = None
-    edge_ids: list[str] = []
-    df_slots: pd.DataFrame | None = None
-    df_forces_reference: pd.DataFrame | None = None
+    edge_index = bundle_local["edge_index"]
+    if hasattr(edge_index, "detach"):
+        edge_index = edge_index.detach().cpu().numpy()
+
+    num_edges = int(edge_index.shape[1])
+    edge_id_col = _resolve_edge_id_column(df_edges)
+    if edge_id_col is not None:
+        edge_ids = df_edges[edge_id_col].astype(str).tolist()
+    else:
+        edge_ids = [f"e{i}" for i in range(num_edges)]
+
+    length_col = _resolve_edge_length_column(df_edges)
+    if length_col is not None:
+        lengths_m = pd.to_numeric(df_edges[length_col], errors="coerce").to_numpy(dtype=float)
+    else:
+        lengths_m = _edge_lengths_from_vertices(vertices, edge_index)
+
+    starts = edge_index[0].astype(int)
+    ends = edge_index[1].astype(int)
+    df_slots = pd.DataFrame({
+        "edge_id": edge_ids,
+        "V1": starts,
+        "V2": ends,
+        "length_m": lengths_m,
+    })
+
+    edge_cols = bundle_local.get("scalers", {}).get("edge_cols") or ()
+    if not edge_cols:
+        raise ValueError("Surrogate bundle missing edge feature schema.")
+    edge_cols = tuple(edge_cols)
+
+    threshold = surrogate_io.compute_failure_threshold(
+        bundle_local.get("calibration"),
+        safety_margin=safety_margin,
+        override_threshold=failure_threshold,
+    )
+
+    util_matrix = np.zeros((num_edges, len(stock_ids)), dtype=float)
+    feas_matrix = np.zeros((num_edges, len(stock_ids)), dtype=int)
 
     long_rows: list[dict[str, Any]] = []
     failure_rows: list[dict[str, Any]] = []
-    force_rows: list[dict[str, Any]] = []
+    forces_by_stock: list[dict[str, Any]] = []
 
     for j, (_, stock_item) in enumerate(stock.iterrows()):
-            
+        edge_features = _build_edge_feature_frame(edge_ids, lengths_m, stock_item, edge_cols)
+        preds = surrogate_io.predict_edge_failure_probabilities(
+            nodes_df=vertices,
+            edges_df=edge_features,
+            bundle=bundle_local,
+            apply_calibration=apply_calibration,
+        )
+        probs = preds["failure_prob_calibrated" if apply_calibration else "failure_prob_raw"].to_numpy(dtype=float)
 
-    if util_matrix is None or feas_matrix is None or df_slots is None:
-        raise ValueError("No feasibility data could be generated.")
+        length_ok = (float(stock_item["Length"]) / 1000.0) >= lengths_m
+        util_failed = probs >= threshold
+        is_feasible = (~util_failed) & length_ok
+
+        util_matrix[:, j] = probs
+        feas_matrix[:, j] = is_feasible.astype(int)
+
+        for i, edge_id in enumerate(edge_ids):
+            slot = df_slots.iloc[i]
+            utilization_failed = bool(util_failed[i])
+            reasons = _collect_feasibility_reasons(slot, stock_item, utilization_failed)
+            long_rows.append({
+                "edge_id": edge_id,
+                "Member_ID": stock_item["Member_ID"],
+                "utilization": float(probs[i]),
+                "failure_prob": float(probs[i]),
+                "threshold": float(threshold),
+                "is_feasible": bool(is_feasible[i]),
+                "length_m": float(lengths_m[i]),
+            })
+            failure_rows.append({
+                "edge_id": edge_id,
+                "Member_ID": stock_item["Member_ID"],
+                "failure_prob": float(probs[i]),
+                "reasons": ";".join(reasons),
+            })
+
+    df_utilization_long = pd.DataFrame(long_rows)
+    df_utilization_matrix_display = pd.DataFrame(util_matrix, index=edge_ids, columns=stock_ids)
+    df_feasibility_matrix_display = pd.DataFrame(feas_matrix, index=edge_ids, columns=stock_ids)
 
     df_failure_reasons = pd.DataFrame(failure_rows)
     df_feasibility_matrix_display = pd.DataFrame(feas_matrix, index=edge_ids, columns=stock_ids)
@@ -461,8 +638,8 @@ def compute_feasibility_with_stock_properties(
     return {
         "bundle": bundle_local,
         "df_vertices": vertices,
-        "df_forces": df_forces_reference if df_forces_reference is not None else pd.DataFrame(),
-        "df_forces_by_stock": df_forces_by_stock,
+        "df_forces": pd.DataFrame(),
+        "df_forces_by_stock": pd.DataFrame(forces_by_stock),
         "df_utilization_long": df_utilization_long,
         "df_utilization_matrix": util_matrix,
         "df_utilization_matrix_display": df_utilization_matrix_display,
@@ -472,4 +649,5 @@ def compute_feasibility_with_stock_properties(
         "df_failure_reasons": df_failure_reasons,
         "df_slots": df_slots,
         "utilization_threshold": float(utilization_threshold),
+        "failure_threshold": float(threshold),
     }

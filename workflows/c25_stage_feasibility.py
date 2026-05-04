@@ -45,6 +45,9 @@ def run_feasibility_stage(
     model_prefix_simple: str | None = None,
     gnn_margin: float = 1.10,
     utilization_threshold: float = 1.0,
+    safety_margin: float = 0.8,
+    failure_threshold: float | None = None,
+    apply_calibration: bool = True,
     export_slots_path: Path | None = None,
     force_mode: str = "surrogate",
     surrogate_edge_feature_mode: str = "length_only",
@@ -79,7 +82,19 @@ def run_feasibility_stage(
     if "Fz" not in df_vertices.columns:
         df_vertices = assign_roof_load_fz(df_vertices)
 
-    df_forces = outputs["df_forces"]
+    outputs = feasibility_check.compute_feasibility_with_stock_properties(
+        df_vertices=df_vertices,
+        df_edges=df_edges,
+        df_input_stock=df_input_stock,
+        bundle=bundle,
+        model_prefix=active_prefix,
+        gnn_margin=gnn_margin,
+        utilization_threshold=utilization_threshold,
+        safety_margin=safety_margin,
+        failure_threshold=failure_threshold,
+        apply_calibration=apply_calibration,
+    )
+
     active_bundle = outputs["bundle"]
     prediction_mode = f"surrogate:{feature_mode}"
 
@@ -95,6 +110,8 @@ def run_feasibility_stage(
         "feasible_pairs": int(outputs["df_safe_options"].shape[0]),
         "total_pairs": int(len(outputs["df_slots"]) * len(df_input_stock)),
         "utilization_threshold": float(utilization_threshold),
+        "failure_threshold": float(outputs.get("failure_threshold", float("nan"))),
+        "safety_margin": float(safety_margin),
     }
 
     return {
