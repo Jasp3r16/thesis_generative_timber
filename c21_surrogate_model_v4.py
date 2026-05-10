@@ -411,7 +411,7 @@ class TrussEdgeSafetyGNN(nn.Module):
                 in_channels=hidden_dim,
                 out_channels=hidden_dim,
                 nn=edge_mlp,
-                aggr='add',
+                aggr='mean',
             )
             self.nnconv_layers.append(nnconv)
 
