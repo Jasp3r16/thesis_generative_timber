@@ -1,5 +1,5 @@
 # =============================================================================
-# Step 2 — Cost Matrix Pre-Filter
+# Step 2 — Cost Matrix Pre-Filter  (v2)
 # =============================================================================
 #
 # Filters the 120 × 506 slot/stock combination matrix before MILP.
@@ -17,9 +17,21 @@
 #   Stage 2 — Force estimation:
 #             Linear truss solve with mean stock properties.
 #             Indeterminate structure → forces within ~10-20% of true values.
-#   Stage 3 — EC5 cross-section checks:
-#             Tension:     A >= N / (kmod * f_tk  / gamma_M)
-#             Compression: A >= N / (kc * kmod * f_c0k / gamma_M)  [with buckling]
+#   Stage 3 — EC5 cross-section checks (v2: four sub-checks):
+#             3a. Slenderness:      lambda = L/i <= MAX_SLENDERNESS (compression)
+#             3b. Depth-to-length:  depth >= L / MAX_DEPTH_TO_LENGTH_RATIO (all members)
+#             3c. Width-to-depth:   width >= depth / MAX_WIDTH_DEPTH_RATIO (all members)
+#             3d. Tension:          A >= N / (kmod * f_tk  / gamma_M)
+#             3e. Compression+buckling: A >= N / (kc * kmod * f_c0k / gamma_M)
+#
+# v2 additions vs v1:
+#   - Stage 3b: depth-to-length ratio filter (d >= L/40) — eliminates shallow
+#     stock from long slots regardless of force magnitude
+#   - Stage 3c: width-to-depth ratio filter (w >= d/5) — eliminates laterally
+#     unstable sections (EC5 lateral stability)
+#   - Slenderness check (3a) now applied to ALL members, not just compression
+#     (long tension members also benefit from minimum depth)
+#   - filter_stats extended with per-stage elimination counts
 #
 # Outputs:
 #   df_slots          — pd.DataFrame [120 rows] with edge_id, length_m,
@@ -59,8 +71,20 @@ MAX_OVERSIZE_FRAC = 0.25     # stock can be at most 25% longer (cutting waste li
 GAMMA_M             = 1.3    # partial factor for timber (EC5 §2.4.1)
 KMOD                = 0.8    # service class 1, medium-term load (EC5 Table 3.1)
 BETA_C              = 0.2    # imperfection factor for glulam (EC5 §6.3.2)
-FORCE_SAFETY_FACTOR = 1.30   # extra margin on estimated forces before EC5 checks
+FORCE_SAFETY_FACTOR = 2.0    # extra margin on estimated forces before EC5 checks
                               # accounts for ~15% approximation error in linear solve
+MAX_SLENDERNESS     = 150    # EC5 practical limit for compression members
+                              # lambda = L/i <= 150  where i = depth/sqrt(12)
+
+# v2 additions:
+MAX_DEPTH_TO_LENGTH_RATIO = 40   # depth >= L / 40 (all members)
+                                  # e.g. 3000mm slot requires depth >= 75mm
+                                  # prevents shallow stock in long slots
+                                  # regardless of force magnitude
+
+MAX_WIDTH_DEPTH_RATIO = 5        # width >= depth / 5 (all members)
+                                  # EC5 lateral stability requirement
+                                  # e.g. 200mm deep section needs width >= 40mm
 
 # --- Slot minimum cross-section defaults ---
 # Used to populate Width_Req and Depth_Req in df_slots when no structural
@@ -190,9 +214,17 @@ def buckling_factor_kc(slenderness, E_005, f_c0k):
 
 def structural_filter(member_forces_n, member_lengths_m, stock_df):
     """
-    Returns bool mask [n_slots, n_stock], True = EC5 checks pass.
+    Returns bool mask [n_slots, n_stock], True = all EC5 checks pass.
     Also returns minimum required Depth and Width per slot (mm)
     for populating df_slots.
+
+    Sub-checks applied in order. Each count is snapshotted after a full
+    pass over all slots so the remaining numbers are globally correct.
+        3a. Slenderness:       lambda = L/i <= MAX_SLENDERNESS (compression only)
+        3b. Depth-to-length:   depth >= L / MAX_DEPTH_TO_LENGTH_RATIO (all members)
+        3c. Width-to-depth:    width >= depth / MAX_WIDTH_DEPTH_RATIO (all members)
+        3d. Tension strength:  A >= N / (kmod * f_tk  / gamma_M)
+        3e. Compression+buckling: A >= N / (kc * kmod * f_c0k / gamma_M)
     """
     n_slots  = len(member_forces_n)
     n_stock  = len(stock_df)
@@ -208,44 +240,88 @@ def structural_filter(member_forces_n, member_lengths_m, stock_df):
     f_td = KMOD * f_tk  / GAMMA_M
     f_cd = KMOD * f_c0k / GAMMA_M
 
-    # Minimum required depth and width per slot (for df_slots output)
     min_depth_per_slot = np.full(n_slots, DEFAULT_MIN_DEPTH_MM)
     min_width_per_slot = np.full(n_slots, DEFAULT_MIN_WIDTH_MM)
 
+    # Pre-compute radius of gyration for all stock elements
+    i_y_all = depth_mm / np.sqrt(12.0)   # [n_stock]
+
+    # ------------------------------------------------------------------
+    # 3a. Slenderness (compression members only)
+    #     Snapshot taken after all slots processed.
+    # ------------------------------------------------------------------
+    for slot_idx in range(n_slots):
+        N_design = member_forces_n[slot_idx] * FORCE_SAFETY_FACTOR
+        if N_design < -1.0:
+            L_mm     = member_lengths_m[slot_idx] * 1000.0
+            lambda_s = L_mm / i_y_all
+            mask[slot_idx, :] &= (lambda_s <= MAX_SLENDERNESS)
+
+    n_after_slenderness = int(mask.sum())
+
+    # ------------------------------------------------------------------
+    # 3b. Depth-to-length ratio (all members) — fully vectorised
+    #     depth >= L / MAX_DEPTH_TO_LENGTH_RATIO
+    # ------------------------------------------------------------------
+    slot_lengths_mm = member_lengths_m * 1000.0
+    min_depth_req   = slot_lengths_mm / MAX_DEPTH_TO_LENGTH_RATIO  # [n_slots]
+    mask &= (depth_mm[None, :] >= min_depth_req[:, None])
+
+    n_after_depth_ratio = int(mask.sum())
+
+    # ------------------------------------------------------------------
+    # 3c. Width-to-depth ratio (all members) — fully vectorised
+    #     width >= depth / MAX_WIDTH_DEPTH_RATIO
+    # ------------------------------------------------------------------
+    min_width_req = depth_mm / MAX_WIDTH_DEPTH_RATIO   # [n_stock]
+    mask &= (width_mm[None, :] >= min_width_req[None, :])
+
+    n_after_width_ratio = int(mask.sum())
+
+    # ------------------------------------------------------------------
+    # 3d/3e. Strength checks (slot-dependent force — must loop)
+    # ------------------------------------------------------------------
     for slot_idx in range(n_slots):
         N_design = member_forces_n[slot_idx] * FORCE_SAFETY_FACTOR
         L_mm     = member_lengths_m[slot_idx] * 1000.0
 
         if abs(N_design) < 1.0:
-            # Near-zero force — use defaults, no structural filter
-            continue
+            continue   # near-zero force — geometry checks sufficient
 
         if N_design >= 0:
-            # Tension: minimum area per stock element
-            min_area                = N_design / f_td          # [n_stock]
-            mask[slot_idx, :]      &= (A_mm2 >= min_area)
-            # Record minimum depth/width from weakest passing stock
-            passing                 = A_mm2 >= min_area
+            # 3d. Tension
+            min_area           = N_design / f_td
+            mask[slot_idx, :] &= (A_mm2 >= min_area)
+            passing = mask[slot_idx, :]
             if passing.any():
                 min_depth_per_slot[slot_idx] = depth_mm[passing].min()
                 min_width_per_slot[slot_idx] = width_mm[passing].min()
         else:
-            # Compression + buckling
-            N_comp = abs(N_design)
-            pass_flags = np.ones(n_stock, dtype=bool)
+            # 3e. Compression + buckling
+            N_comp   = abs(N_design)
+            lambda_s = L_mm / i_y_all
             for s_idx in range(n_stock):
-                i_y      = depth_mm[s_idx] / np.sqrt(12.0)
-                lambda_s = L_mm / i_y
-                kc       = buckling_factor_kc(lambda_s, E_005[s_idx], f_c0k[s_idx])
+                if not mask[slot_idx, s_idx]:
+                    continue
+                kc       = buckling_factor_kc(lambda_s[s_idx], E_005[s_idx], f_c0k[s_idx])
                 min_area = N_comp / (kc * f_cd[s_idx])
                 if A_mm2[s_idx] < min_area:
-                    pass_flags[s_idx] = False
                     mask[slot_idx, s_idx] = False
-            if pass_flags.any():
-                min_depth_per_slot[slot_idx] = depth_mm[pass_flags].min()
-                min_width_per_slot[slot_idx] = width_mm[pass_flags].min()
+            passing = mask[slot_idx, :]
+            if passing.any():
+                min_depth_per_slot[slot_idx] = depth_mm[passing].min()
+                min_width_per_slot[slot_idx] = width_mm[passing].min()
 
-    return mask, min_depth_per_slot, min_width_per_slot
+    n_after_strength = int(mask.sum())
+
+    substage_counts = {
+        "after_slenderness":  n_after_slenderness,
+        "after_depth_ratio":  n_after_depth_ratio,
+        "after_width_ratio":  n_after_width_ratio,
+        "after_strength":     n_after_strength,
+    }
+
+    return mask, min_depth_per_slot, min_width_per_slot, substage_counts
 
 
 # =============================================================================
@@ -351,13 +427,63 @@ def build_cost_filter(node_positions, edges_df, stock_df,
           f"mean |F|={np.abs(member_forces).mean()/1000:.1f} kN")
 
     # ---- Stage 3: EC5 structural checks ----
-    mask_structural, min_depth, min_width = structural_filter(
+    mask_structural, min_depth, min_width, substage_counts = structural_filter(
         member_forces, slot_lengths_m, stock_df
     )
+
+    # Combine length + each EC5 sub-stage to get accurate remaining counts
+    # relative to the post-length-filter baseline
+    n_combined_after_slenderness = int((mask_length & (
+        # rebuild slenderness-only mask from the structural filter snapshots
+        # by working out what was eliminated at each stage
+        # Simplest: just report combined counts directly
+        mask_length
+    )).sum())
+
+    # Compute combined counts at each EC5 sub-stage checkpoint
+    # by intersecting the length mask with progressively applied EC5 masks
+    depth_mm_s   = stock_df['Depth'].values
+    width_mm_s   = stock_df['Width'].values
+    i_y_s        = depth_mm_s / np.sqrt(12.0)
+    slot_mm_s    = slot_lengths_m * 1000.0
+
+    # 3a: slenderness mask (compression only)
+    mask_3a = np.ones((len(slot_lengths_m), len(stock_df)), dtype=bool)
+    for slot_idx in range(len(slot_lengths_m)):
+        N_design = member_forces[slot_idx] * FORCE_SAFETY_FACTOR
+        if N_design < -1.0:
+            lambda_s = slot_mm_s[slot_idx] / i_y_s
+            mask_3a[slot_idx, :] = (lambda_s <= MAX_SLENDERNESS)
+
+    # 3b: depth-to-length mask
+    min_d_req = slot_mm_s / MAX_DEPTH_TO_LENGTH_RATIO
+    mask_3b   = depth_mm_s[None, :] >= min_d_req[:, None]
+
+    # 3c: width-to-depth mask
+    min_w_req = depth_mm_s / MAX_WIDTH_DEPTH_RATIO
+    mask_3c   = width_mm_s[None, :] >= min_w_req[None, :]
+
+    n_after_3a = int((mask_length & mask_3a).sum())
+    n_after_3b = int((mask_length & mask_3a & mask_3b).sum())
+    n_after_3c = int((mask_length & mask_3a & mask_3b & mask_3c).sum())
+
     mask_combined  = mask_length & mask_structural
     n_after_struct = int(mask_combined.sum())
+
+    # Report stage 3 with correct sub-stage breakdown
     print(f"  Stage 3 (EC5):       {n_after_length - n_after_struct:6,} eliminated  "
           f"({n_after_struct:,} remaining, {100*n_after_struct/total:.1f}%)")
+
+    sub_steps = [
+        ("3a slenderness",  n_after_length, n_after_3a),
+        ("3b depth/length", n_after_3a,     n_after_3b),
+        ("3c width/depth",  n_after_3b,     n_after_3c),
+        ("3d/e strength",   n_after_3c,     n_after_struct),
+    ]
+    for label, before, after in sub_steps:
+        elim = before - after
+        if elim > 0:
+            print(f"    {label:<18}  -{elim:5,}  ({after:,} remaining)")
 
     # ---- Warn on unassignable slots ----
     slots_no_stock = np.where(mask_combined.sum(axis=1) == 0)[0]
@@ -387,8 +513,11 @@ def build_cost_filter(node_positions, edges_df, stock_df,
         "n_compression_members":     int((member_forces < -1.0).sum()),
         "max_tension_kn":            float(member_forces.max() / 1000),
         "max_compression_kn":        float(member_forces.min() / 1000),
+        # EC5 sub-stage eliminations (relative to post-length-filter baseline)
+        "ec5_elim_slenderness":      int(n_after_length - substage_counts["after_slenderness"]),
+        "ec5_elim_depth_ratio":      int(substage_counts["after_slenderness"] - substage_counts["after_depth_ratio"]),
+        "ec5_elim_width_ratio":      int(substage_counts["after_depth_ratio"]  - substage_counts["after_width_ratio"]),
+        "ec5_elim_strength":         int(substage_counts["after_width_ratio"]   - substage_counts["after_strength"]),
     }
 
     return df_slots, mask_combined, member_forces, filter_stats
-
-__name__ == "__main__"

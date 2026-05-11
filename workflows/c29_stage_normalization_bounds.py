@@ -18,6 +18,23 @@ import pandas as pd
 import pulp
 
 
+# Default normalization constants used when no bounds are computed
+DEFAULT_NORMALIZATION_CONSTANTS = {
+    "C_max": 8.0,
+    "R_max": 100.0,
+    "W_max": 0.4,
+}
+
+
+def get_default_normalization_constants() -> dict[str, float]:
+    """Return explicit default normalization constants for external workflows."""
+    return {
+        "C_max": float(DEFAULT_NORMALIZATION_CONSTANTS["C_max"]),
+        "R_max": float(DEFAULT_NORMALIZATION_CONSTANTS["R_max"]),
+        "W_max": float(DEFAULT_NORMALIZATION_CONSTANTS["W_max"]),
+    }
+
+
 def _resolve_stock_state(enriched_stock: pd.DataFrame) -> pd.Series:
     columns_by_lower = {str(col).strip().lower(): col for col in enriched_stock.columns}
     for candidate in ("state_resolved", "state"):
@@ -320,3 +337,40 @@ def compute_normalization_bounds(
             "missing_waste_pairs_in_logs": int(missing_waste_pairs),
         },
     }
+
+def run_normalization_bounds_stage(
+    *,
+    cost_matrix: np.ndarray,
+    df_logs: pd.DataFrame,
+    enriched_stock: pd.DataFrame,
+    df_slots: pd.DataFrame,
+    reclaimed_marker: str = "RS",
+    new_marker: str = "NS",
+    new_stock_max_uses: int | None = 1,
+    solver_msg: bool = False,
+    print_summary: bool = True,
+) -> dict[str, Any]:
+    """Notebook-facing wrapper for computing exact normalization bounds."""
+    out = compute_normalization_bounds(
+        cost_matrix=cost_matrix,
+        df_logs=df_logs,
+        enriched_stock=enriched_stock,
+        df_slots=df_slots,
+        reclaimed_marker=reclaimed_marker,
+        new_marker=new_marker,
+        new_stock_max_uses=new_stock_max_uses,
+        solver_msg=solver_msg,
+    )
+
+    if print_summary:
+        status = out.get("status", "unknown")
+        constants = out.get("normalization_constants", {})
+        print(f"Bounds status: {status}")
+        print(
+            "Normalization constants "
+            f"C_max={constants.get('C_max')}, "
+            f"R_max={constants.get('R_max')}, "
+            f"W_max={constants.get('W_max')}"
+        )
+
+    return out
