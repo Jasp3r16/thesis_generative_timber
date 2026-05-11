@@ -8,23 +8,24 @@
 #
 # One forward pass → [120, 1] predictions → feasibility score for fitness.
 #
-# Changes vs v1:
-#   - prepare_stock_for_gnn() moved into module (was notebook cell code)
-#     Unit conversion (mm/N/mm² → m/N/m²) and section property calculation
-#     now live here, not scattered across notebook cells.
-#   - build_milp_assignment() moved into module (was notebook cell code)
-#     Converts df_results (string IDs) to [120] integer array.
-#     milp_assignment is also now produced by c27_stage_milp_v2 directly,
-#     but this function is kept as a fallback / standalone entry point.
-#   - run_gnn_stage() added — single orchestration function for the notebook
-#     cell. Replaces 30+ lines of notebook code with one call.
-#   - Stale TODO comments and placeholder code removed.
+# Changes vs v2:
+#   - _build_edge_features() now conditional on edge_index size — no longer
+#     hardcodes bidirectional duplication. If edge_index has 120 edges
+#     (unidirectional, current best config), edge_attr is [120, 7]. If 240
+#     (bidirectional), edge_attr is [240, 7]. Determined at runtime from
+#     model_bundle["edge_index"].shape[1].
+#   - gnn_feasibility() preds slice now conditional — takes [:120] only when
+#     edge_index has 240 edges; takes all 120 directly when unidirectional.
+#   - NUM_EDGES added alongside NUM_EDGES_PHYSICAL — set from edge_index at
+#     load time and stored in model_bundle for use in feature building.
+#   - load_gnn_model() stores num_edges in model_bundle.
+#   - BIDIRECTIONAL helper property derived from num_edges at runtime.
 #
-# Notebook cell usage (after load_gnn_model at startup):
+# Notebook cell usage (unchanged from v2):
 #
 #   gnn_out = stage_gnn.run_gnn_stage(
 #       node_positions  = node_positions,
-#       milp_assignment = milp_out["milp_assignment"],   # from c27
+#       milp_assignment = milp_out["milp_assignment"],
 #       df_input_stock  = df_input_stock,
 #       model_bundle    = model_bundle,
 #   )
@@ -49,7 +50,7 @@ from c21_surrogate_model_v4 import create_model
 # =============================================================================
 
 THRESHOLD          = 0.35    # P(unsafe) >= threshold → member predicted unsafe
-NUM_EDGES_PHYSICAL = 120     # physical members (before bidirectional duplication)
+NUM_EDGES_PHYSICAL = 120     # physical members — always 120 regardless of bi/uni
 
 # Edge feature columns — must match training order exactly
 EDGE_COLS = ["Area", "Length", "E", "Iy", "Iz", "J", "EA/L"]
@@ -91,22 +92,22 @@ def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
     """
     stock = df_input_stock.copy()
 
-    b_m  = stock["Width"].values        * 1e-3    # mm → m
-    h_m  = stock["Depth"].values        * 1e-3    # mm → m
-    L_m  = stock["Length"].values       * 1e-3    # mm → m
-    E_pa = stock["E_modulus_eff"].values * 1e6    # N/mm² → N/m² (Pa)
+    b_m  = stock["Width"].values         * 1e-3   # mm → m
+    h_m  = stock["Depth"].values         * 1e-3   # mm → m
+    L_m  = stock["Length"].values        * 1e-3   # mm → m
+    E_pa = stock["E_modulus_eff"].values  * 1e6   # N/mm² → N/m² (Pa)
 
     area_m2 = b_m * h_m
-    a_m = np.minimum(b_m, h_m)   # shorter dimension (Saint-Venant torsion)
-    c_m = np.maximum(b_m, h_m)   # longer dimension
+    a_m = np.minimum(b_m, h_m)
+    c_m = np.maximum(b_m, h_m)
 
-    stock["Area"]   = area_m2                                           # m²
-    stock["Length"] = L_m                                               # m
-    stock["E"]      = E_pa                                              # N/m²
-    stock["Iy"]     = b_m * h_m**3 / 12                                # m⁴
-    stock["Iz"]     = h_m * b_m**3 / 12                                # m⁴
-    stock["J"]      = a_m**3 * c_m / 3 * (1 - 0.63 * a_m / c_m)      # m⁴ (Saint-Venant)
-    stock["EA/L"]   = E_pa * area_m2 / L_m                             # N/m
+    stock["Area"]   = area_m2
+    stock["Length"] = L_m
+    stock["E"]      = E_pa
+    stock["Iy"]     = b_m * h_m**3 / 12
+    stock["Iz"]     = h_m * b_m**3 / 12
+    stock["J"]      = a_m**3 * c_m / 3 * (1 - 0.63 * a_m / c_m)
+    stock["EA/L"]   = E_pa * area_m2 / L_m
 
     return stock
 
@@ -116,8 +117,8 @@ def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 
 def build_milp_assignment(
-    df_results:    pd.DataFrame,
-    df_slots:      pd.DataFrame,
+    df_results:     pd.DataFrame,
+    df_slots:       pd.DataFrame,
     df_input_stock: pd.DataFrame,
 ) -> np.ndarray:
     """
@@ -164,7 +165,7 @@ def build_milp_assignment(
             "GNN edge features for these slots will use row 0 of stock_df.",
             stacklevel=2,
         )
-        milp_assignment[milp_assignment == -1] = 0   # safe fallback
+        milp_assignment[milp_assignment == -1] = 0
 
     return milp_assignment
 
@@ -184,13 +185,19 @@ def load_gnn_model(
     Load trained GNN model and all inference artefacts.
     Call ONCE before the GA loop; pass the returned bundle to run_gnn_stage().
 
+    num_edges is derived from edge_index.json at load time and stored in the
+    bundle — this determines whether edge features are built as [120,7] or
+    [240,7] and whether predictions are sliced or used directly.
+
     Returns
     -------
     model_bundle : dict
         {
           "model":       TrussEdgeSafetyGNN in eval mode,
           "norm_stats":  dict with node/edge means and stds as np.ndarray,
-          "edge_index":  torch.Tensor [2, 240] on device,
+          "edge_index":  torch.Tensor [2, num_edges] on device,
+          "num_edges":   int — 120 (unidirectional) or 240 (bidirectional),
+          "bidirectional": bool,
           "device":      str,
           "config":      dict from inference_config.json,
         }
@@ -222,22 +229,29 @@ def load_gnn_model(
     with open(edge_index_path, "r") as f:
         edge_index = torch.tensor(json.load(f), dtype=torch.long).to(device)
 
+    num_edges     = int(edge_index.shape[1])
+    bidirectional = num_edges == 2 * NUM_EDGES_PHYSICAL
+
     model.cache_topology(edge_index)
 
     print(f"[GNN] Model ready on {device}  |  "
-          f"edge_index: {edge_index.shape}  |  threshold: {THRESHOLD}")
+          f"edge_index: {edge_index.shape}  |  "
+          f"{'bidirectional' if bidirectional else 'unidirectional'}  |  "
+          f"threshold: {THRESHOLD}")
 
     return {
-        "model":      model,
-        "norm_stats": {
+        "model":         model,
+        "norm_stats":    {
             "node_means": node_means,
             "node_stds":  node_stds,
             "edge_means": edge_means,
             "edge_stds":  edge_stds,
         },
-        "edge_index": edge_index,
-        "device":     device,
-        "config":     inf_config,
+        "edge_index":    edge_index,
+        "num_edges":     num_edges,
+        "bidirectional": bidirectional,
+        "device":        device,
+        "config":        inf_config,
     }
 
 
@@ -274,18 +288,25 @@ def _build_edge_features(
     stock_df:        pd.DataFrame,
     device:          str,
     norm_stats:      dict,
+    bidirectional:   bool,
 ) -> torch.Tensor:
     """
-    Build normalised edge feature tensor [240, 7] from MILP assignment.
+    Build normalised edge feature tensor from MILP assignment.
 
     stock_df must already be in SI units — pass output of prepare_stock_for_gnn().
-    milp_assignment[i] = row index into stock_df for slot i.
-    Reverse edges (bidirectional) are handled by duplicating the [120, 7] array.
+    milp_assignment[i] = row index into stock_df for slot i (always 120 slots).
+
+    Output shape:
+        [120, 7] if unidirectional (current best config, BIDIRECTIONAL=False)
+        [240, 7] if bidirectional  (reverse edges duplicate forward features)
     """
-    assigned    = stock_df.iloc[milp_assignment][EDGE_COLS].values   # [120, 7]
-    assigned_bi = np.concatenate([assigned, assigned], axis=0)       # [240, 7]
-    edge_norm   = (assigned_bi - norm_stats["edge_means"]) / norm_stats["edge_stds"]
-    edge_norm   = np.clip(edge_norm, -5.0, 5.0).astype(np.float32)
+    assigned = stock_df.iloc[milp_assignment][EDGE_COLS].values   # [120, 7]
+
+    if bidirectional:
+        assigned = np.concatenate([assigned, assigned], axis=0)   # [240, 7]
+
+    edge_norm = (assigned - norm_stats["edge_means"]) / norm_stats["edge_stds"]
+    edge_norm = np.clip(edge_norm, -5.0, 5.0).astype(np.float32)
     return torch.tensor(edge_norm, dtype=torch.float32, device=device)
 
 
@@ -315,20 +336,25 @@ def gnn_feasibility(
     -------
     feasibility_score  : float [0,1] — fraction of members predicted safe
     unsafe_member_ids  : list[int]   — member indices predicted unsafe (0–119)
-    preds_physical     : np.ndarray [120] — raw P(unsafe) per member
+    preds_physical     : np.ndarray [120] — raw P(unsafe) per physical member
     """
-    device     = model_bundle["device"]
-    norm_stats = model_bundle["norm_stats"]
-    edge_index = model_bundle["edge_index"]
-    model      = model_bundle["model"]
+    device        = model_bundle["device"]
+    norm_stats    = model_bundle["norm_stats"]
+    edge_index    = model_bundle["edge_index"]
+    bidirectional = model_bundle["bidirectional"]
+    model         = model_bundle["model"]
 
     x         = _build_node_features(node_positions, device, norm_stats)
-    edge_attr = _build_edge_features(milp_assignment, stock_df, device, norm_stats)
+    edge_attr = _build_edge_features(
+        milp_assignment, stock_df, device, norm_stats, bidirectional
+    )
 
     with torch.no_grad():
-        preds = model(x, edge_index=edge_index, edge_attr=edge_attr)   # [240, 1]
+        preds = model(x, edge_index=edge_index, edge_attr=edge_attr)
 
-    preds_physical    = preds[:NUM_EDGES_PHYSICAL, 0].cpu().numpy()    # [120]
+    # Unidirectional: preds is [120, 1] — use all
+    # Bidirectional:  preds is [240, 1] — take first 120 (physical members)
+    preds_physical    = preds[:NUM_EDGES_PHYSICAL, 0].cpu().numpy()   # [120] always
     unsafe_flags      = preds_physical >= threshold
     unsafe_member_ids = np.where(unsafe_flags)[0].tolist()
     feasibility_score = float(1.0 - unsafe_flags.mean())
@@ -352,16 +378,12 @@ def run_gnn_stage(
     """
     Orchestrate the full GNN feasibility stage for one GA iteration.
 
-    Replaces the 30+ lines of notebook cell code with a single call.
-    Unit conversion and section properties are handled internally.
-
     Parameters
     ----------
     node_positions  : [39, 3] current node xyz from GA (metres)
     milp_assignment : [120] integer array from milp_out["milp_assignment"]
-                      (c27_stage_milp_v2) OR from build_milp_assignment().
-    df_input_stock  : raw stock inventory (complete_timber.csv) in original units.
-                      Unit conversion is done internally here.
+    df_input_stock  : raw stock inventory in original units (mm / N/mm²).
+                      Unit conversion is done internally.
     model_bundle    : output of load_gnn_model() — load once, reuse every iteration.
     threshold       : decision threshold (default 0.35)
     w_structural    : weight for structural penalty in fitness (default 0.3)
@@ -372,15 +394,13 @@ def run_gnn_stage(
     dict with keys:
         feasibility_score  — float [0,1]: fraction of members predicted safe
         structural_penalty — float: w_structural * (1 - feasibility_score)
-        unsafe_member_ids  — list[int]: member indices predicted unsafe
+        unsafe_member_ids  — list[int]: member indices predicted unsafe (0–119)
         preds_physical     — np.ndarray [120]: raw P(unsafe) per member
         n_unsafe           — int: number of unsafe members
         n_safe             — int: number of safe members
     """
-    # Convert stock to SI units + compute section properties
     stock_gnn = prepare_stock_for_gnn(df_input_stock)
 
-    # Forward pass
     feasibility_score, unsafe_member_ids, preds_physical = gnn_feasibility(
         node_positions  = node_positions,
         milp_assignment = milp_assignment,
@@ -394,7 +414,8 @@ def run_gnn_stage(
     n_safe   = NUM_EDGES_PHYSICAL - n_unsafe
 
     if print_summary:
-        print(f"\nGNN Feasibility Results:")
+        bidir_str = "bidirectional" if model_bundle["bidirectional"] else "unidirectional"
+        print(f"\n[GNN] Feasibility Results  ({bidir_str}, {model_bundle['num_edges']} edges):")
         print(f"  Feasibility score:  {feasibility_score:.4f}  "
               f"(1.0 = all members predicted safe)")
         print(f"  Safe members:       {n_safe} / {NUM_EDGES_PHYSICAL}")

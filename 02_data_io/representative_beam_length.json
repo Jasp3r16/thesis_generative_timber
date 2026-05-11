@@ -11,35 +11,35 @@
   "per_sample_results": [
     {
       "sample_id": 3648,
-      "average_length_m": 3.0716826397269212,
-      "average_length_mm": 3071.682639726921,
+      "average_length_m": 2.983896949270219,
+      "average_length_mm": 2983.896949270219,
       "edge_count": 120
     },
     {
       "sample_id": 819,
-      "average_length_m": 2.932811621295911,
-      "average_length_mm": 2932.811621295911,
+      "average_length_m": 3.008191643638845,
+      "average_length_mm": 3008.191643638845,
       "edge_count": 120
     },
     {
       "sample_id": 9012,
-      "average_length_m": 3.0794740622068546,
-      "average_length_mm": 3079.474062206855,
+      "average_length_m": 3.0658961362931008,
+      "average_length_mm": 3065.896136293101,
       "edge_count": 120
     },
     {
       "sample_id": 8024,
-      "average_length_m": 2.931511096583475,
-      "average_length_mm": 2931.511096583475,
+      "average_length_m": 2.9245543570202077,
+      "average_length_mm": 2924.5543570202076,
       "edge_count": 120
     },
     {
       "sample_id": 7314,
-      "average_length_m": 2.935594108376189,
-      "average_length_mm": 2935.594108376189,
+      "average_length_m": 2.9955424195252944,
+      "average_length_mm": 2995.5424195252945,
       "edge_count": 120
     }
   ],
-  "representative_length_m": 2.935594108376189,
-  "representative_length_mm": 2935.594108376189
+  "representative_length_m": 2.9955424195252944,
+  "representative_length_mm": 2995.5424195252945
 }
