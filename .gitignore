@@ -21,9 +21,11 @@ checkpoint_*.ipynb
 *.weights
 
 # === Data & Excel ===
+# except in 02_data_io
 ~$*.xlsx
 ~$*.xls
-*.csv
+*.csv 
+!02_data_io/*.csv
 
 # Als je per ongeluk een data-map binnen je repo maakt:
 data/
