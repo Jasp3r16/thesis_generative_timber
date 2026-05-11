@@ -9,7 +9,7 @@ import pandas as pd
 import torch
 
 import config
-from c21_surrogate_model_v3 import create_model
+from c21_surrogate_model_v4 import create_model
 
 
 def _resolve_prefix(prefix_sm: str | None) -> str:
