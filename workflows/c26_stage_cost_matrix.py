@@ -118,7 +118,7 @@ def prepare_stock_cost_inputs(df_stock_raw: pd.DataFrame) -> pd.DataFrame:
     return df_stock
 
 
-def calculate_cost_formula_v2(slot: pd.Series, stock_item: pd.Series) -> tuple[float, dict[str, float | str]]:
+def calculate_cost_formula(slot: pd.Series, stock_item: pd.Series) -> tuple[float, dict[str, float | str]]:
     """Compute the c26 v2 cost value for one slot-stock pair."""
     requirements = _slot_requirements(slot)
     geometry = _stock_geometry(stock_item)
@@ -177,120 +177,59 @@ def calculate_cost_formula_v2(slot: pd.Series, stock_item: pd.Series) -> tuple[f
     }
     return float(total_cost), components
 
-
-def calculate_cost_formula_v1(slot: pd.Series, stock_item: pd.Series) -> tuple[float, dict[str, float | str]]:
-    """Compute the legacy v1 cost value for one slot-stock pair."""
-    requirements = _slot_requirements(slot)
-    geometry = _stock_geometry(stock_item)
-
-    density = float(stock_item["Density_Resolved"])
-    distance_km = float(stock_item["Distance_Resolved"])
-    transport_factor = float(stock_item["TransportFactor_Resolved"])
-
-    req_length_m = requirements["length_m"]
-    req_area_m2 = requirements["area_m2"]
-    stock_length_m = geometry["length_m"]
-    stock_area_m2 = geometry["area_m2"]
-
-    v_req = req_area_m2 * req_length_m
-    v_stock = stock_area_m2 * stock_length_m
-    v_waste = max(0.0, stock_area_m2 * (stock_length_m - req_length_m))
-    v_over = max(0.0, v_stock - v_req)
-
-    mass_stock = v_stock * density
-    mass_waste = v_waste * density
-    trans_factor_km = transport_factor / 1000.0
-
-    e_embodied = v_stock * M_A1_A3
-    e_prep = v_stock * E_PREP_SAW
-    e_trans = mass_stock * distance_km * trans_factor_km
-    e_waste = mass_waste * E_OFFCUT
-    e_saw = 0.0 if np.isclose(stock_length_m, req_length_m) else E_PREP_SAW
-    e_opp = SCARCITY_PENALTY * (v_over + v_waste)
-    total_cost = e_embodied + e_prep + e_trans + e_waste + e_saw + e_opp
-
-    components: dict[str, float | str] = {
-        "branch": "legacy_v1",
-        "V_req": float(v_req),
-        "V_over": float(v_over),
-        "V_waste": float(v_waste),
-        "V_stock": float(v_stock),
-        "Mass_req": float(v_req * density),
-        "Mass_stock": float(mass_stock),
-        "Mass_waste": float(mass_waste),
-        "E_embodied": float(e_embodied),
-        "E_recovered": 0.0,
-        "E_transport": float(e_trans),
-        "E_prep": float(e_prep),
-        "E_waste": float(e_waste),
-        "E_scarcity": float(e_opp),
-        "TOTAL_Score": float(total_cost),
-    }
-    return float(total_cost), components
-
-def _calculate_cost_pair(
-    slot: pd.Series,
-    stock_item: pd.Series,
-    *,
-    cost_formula_version: str,
-) -> tuple[float, dict[str, float | str]]:
-    version = str(cost_formula_version).strip().lower()
-    if version == "v1":
-        return calculate_cost_formula_v1(slot, stock_item)
-    if version == "v2":
-        return calculate_cost_formula_v2(slot, stock_item)
-    raise ValueError("cost_formula_version must be 'v1' or 'v2'.")
-
-
 def build_cost_matrix(
     df_slots: pd.DataFrame,
-    df_stock_raw: pd.DataFrame,
-    df_utilization_matrix: pd.DataFrame | np.ndarray | None = None,
-    max_utilization_threshold: float = 1.0,
-    target_stock_ids: Sequence[str] | None = None,
-    cost_formula_version: str = "v2",
+    df_input_stock: pd.DataFrame,
+    feasibility_mask: np.ndarray,
     **_: Any,
 ) -> tuple[np.ndarray, pd.DataFrame, pd.DataFrame]:
-    """Build a feasibility-filtered cost matrix and detailed pair log."""
-    if df_utilization_matrix is None:
-        raise ValueError("df_utilization_matrix is required for c26 cost calculation.")
+    """Build a feasibility-filtered cost matrix and detailed pair log.
 
+    Parameters
+    ----------
+    df_slots : pd.DataFrame
+        Slot table from c25_stage_feasibility.build_df_slots() with columns
+        edge_id, length_m, Length_Req, Width_Req, Depth_Req.
+    df_input_stock : pd.DataFrame
+        Raw stock inventory (e.g. complete_timber.csv).
+    feasibility_mask : np.ndarray bool [n_slots, n_stock]
+        Boolean mask from c25_stage_feasibility.build_cost_filter().
+        True = combination is feasible; False = set to inf in cost matrix.
+    """
     if "edge_id" not in df_slots.columns:
         raise ValueError("df_slots must contain an edge_id column.")
 
-    stock = prepare_stock_cost_inputs(df_stock_raw)
+    stock = prepare_stock_cost_inputs(df_input_stock)
     slot_ids = df_slots["edge_id"].astype(str).tolist()
     stock_ids = stock["Member_ID"].astype(str).tolist()
-    utilization = _validate_utilization_matrix(df_utilization_matrix, slot_ids, stock_ids)
 
-    cost_matrix = np.full((len(slot_ids), len(stock_ids)), np.inf, dtype=float)
+    n_slots = len(slot_ids)
+    n_stock = len(stock_ids)
+
+    if feasibility_mask.shape != (n_slots, n_stock):
+        raise ValueError(
+            f"feasibility_mask shape {feasibility_mask.shape} does not match "
+            f"({n_slots}, {n_stock}) slots × stock."
+        )
+
+    cost_matrix = np.full((n_slots, n_stock), np.inf, dtype=float)
     logs: list[dict[str, Any]] = []
-    target_stock_set = {str(item) for item in target_stock_ids} if target_stock_ids is not None else None
 
     for i, slot_id in enumerate(slot_ids):
         slot = df_slots.iloc[i]
         for j, stock_id in enumerate(stock_ids):
             stock_item = stock.iloc[j]
-            util_value = utilization.iloc[i, j]
-            util_float = float(util_value) if pd.notna(util_value) else float("nan")
-            feasible = bool(np.isfinite(util_float) and util_float <= float(max_utilization_threshold))
+            feasible = bool(feasibility_mask[i, j])
 
             log_row: dict[str, Any] = {
                 "Slot_ID": str(slot_id),
                 "Stock_ID": str(stock_id),
-                "Utilization": util_float,
-                "Utilization_Threshold": float(max_utilization_threshold),
                 "Feasible": feasible,
                 "Branch": _resolve_stock_branch(stock_item),
-                "Formula_Version": str(cost_formula_version),
             }
 
             if feasible:
-                total_cost, components = _calculate_cost_pair(
-                    slot,
-                    stock_item,
-                    cost_formula_version=cost_formula_version,
-                )
+                total_cost, components = calculate_cost_formula(slot, stock_item)
                 cost_matrix[i, j] = float(total_cost)
                 log_row.update(
                     {
@@ -330,40 +269,7 @@ def build_cost_matrix(
                     }
                 )
 
-            if target_stock_set is None or stock_id in target_stock_set:
-                logs.append(log_row)
+            logs.append(log_row)
 
     df_logs = pd.DataFrame(logs)
-    df_logs.attrs["utilization_mode"] = "c25_feasibility_matrix"
-    df_logs.attrs["utilization_threshold"] = float(max_utilization_threshold)
-    df_logs.attrs["cost_formula_version"] = str(cost_formula_version)
     return cost_matrix, stock, df_logs
-
-
-def analyze_and_export_slot_logs(
-    df_logs: pd.DataFrame,
-    target_slot_for_analysis: str,
-    all_stock_ids: Sequence[str],
-    export_dir: Path,
-    display_fn: Any | None = None,
-    max_full_list_rows: int | None = None,
-    show_full_list: bool = True,
-) -> tuple[pd.DataFrame, pd.DataFrame, Path]:
-    """Prepare a compact per-slot analysis table and return the export path."""
-    analysis_export_path = export_dir / f"c26_depth_analysis_{target_slot_for_analysis}.csv"
-
-    if df_logs.empty:
-        empty = pd.DataFrame(columns=df_logs.columns)
-        return empty, empty, analysis_export_path
-
-    slot_mask = df_logs["Slot_ID"].astype(str).str.strip().str.lower() == str(target_slot_for_analysis).strip().lower()
-    df_slot = df_logs.loc[slot_mask].copy().sort_values(["Stock_ID"]).reset_index(drop=True)
-    df_slot_rs = df_slot[df_slot["Stock_ID"].astype(str).str.upper().str.startswith("RS")].copy().reset_index(drop=True)
-
-    if not show_full_list and max_full_list_rows is not None:
-        df_slot = df_slot.head(int(max_full_list_rows)).copy()
-
-    if display_fn is not None:
-        display_fn(df_slot)
-
-    return df_slot, df_slot_rs, analysis_export_path
