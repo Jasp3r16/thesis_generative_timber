@@ -55,14 +55,8 @@ else:
     SM_DATA_PATH = EXPORT_PATH / "02_surrogate_model_data"
     GA_DATA_PATH = EXPORT_PATH / "03_ga_data"
 
-    print("System loaded successfully.\n")
-    print(f"Code is running locally from: {REPO_ROOT.name}")
-    print(f"Data connected to OneDrive: {ONEDRIVE_ROOT.name}\n")
+    print(f"Config System loaded successfully, Code running locally from {REPO_ROOT.name} and Data is connected to OneDrive {ONEDRIVE_ROOT.name}.\n")
     
-print(f"GH data directory: {GH_DATA_PATH}")
-print(f"Geometry data directory: {GEOM_DATA_PATH}")
-print(f"Export directory: {EXPORT_PATH}\n")
-
 # ==========================================
 # 4. VISUALIZATION THEME (Centralized Color Palette)
 # ==========================================
