@@ -18,7 +18,7 @@ if str(SRC_PATH) not in sys.path:
 
 import c00_headquarter_params
 from c12_geometry_truss import generate_sample_vertices
-from c24_reconstruction import reconstruct_edges, build_geometry_overview, sample_random_design, _to_vertex_key
+from c12_reconstruction import reconstruct_edges, build_geometry_overview, sample_random_design, _to_vertex_key
 
 
 def run_random_geometry_stage(

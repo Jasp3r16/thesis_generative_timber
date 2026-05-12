@@ -135,6 +135,7 @@ def calculate_geometry_beam_statistics(df_vertices, edge_index, sample_id):
     dy = both['y1'].to_numpy(dtype=float) - both['y2'].to_numpy(dtype=float)
     dz = both['z1'].to_numpy(dtype=float) - both['z2'].to_numpy(dtype=float)
     lengths_m = np.sqrt(dx * dx + dy * dy + dz * dz)
+    lengths_mm = np.round(lengths_m * 1000.0, 1)
 
     edge_count = lengths_m.size
     avg_m = float(np.mean(lengths_m)) if edge_count > 0 else 0.0
@@ -164,7 +165,8 @@ def calculate_geometry_beam_statistics(df_vertices, edge_index, sample_id):
         'q1_m': round(q1_m, 3),
         'q1_mm': round(q1_m * 1000.0, 1),
         'q3_m': round(q3_m, 3),
-        'q3_mm': round(q3_m * 1000.0, 1)
+        'q3_mm': round(q3_m * 1000.0, 1),
+        'lengths_mm': lengths_mm.tolist()
     }
 
 
@@ -199,11 +201,13 @@ def generate_material_statistics(df_vertices, edge_index, sample_count, random_s
 
     per_sample_means_m = []
     per_sample_results = []
+    pooled_lengths_mm = []
 
     for sample_id in selected_sample_ids:
         result = calculate_geometry_beam_statistics(df_vertices, edge_index, sample_id)
         per_sample_results.append(result)
         per_sample_means_m.append(result['average_length_m'])
+        pooled_lengths_mm.extend(result.get('lengths_mm', []))
 
     sorted_means = sorted(per_sample_means_m)
     n = len(sorted_means)
@@ -232,12 +236,47 @@ def generate_material_statistics(df_vertices, edge_index, sample_count, random_s
         'edge_count': int(round(float(np.mean([r['edge_count'] for r in per_sample_results])))),
     }
 
+    pooled_array = np.array(pooled_lengths_mm, dtype=float)
+    if pooled_array.size > 0:
+        percentiles = np.percentile(pooled_array, [1, 5, 10, 25, 50, 75, 95, 99])
+        pooled_length_percentiles_mm = {
+            'p1_mm': round(float(percentiles[0]), 1),
+            'p5_mm': round(float(percentiles[1]), 1),
+            'p10_mm': round(float(percentiles[2]), 1),
+            'p25_mm': round(float(percentiles[3]), 1),
+            'p50_mm': round(float(percentiles[4]), 1),
+            'p75_mm': round(float(percentiles[5]), 1),
+            'p95_mm': round(float(percentiles[6]), 1),
+            'p99_mm': round(float(percentiles[7]), 1)
+        }
+    else:
+        pooled_length_percentiles_mm = {
+            'p1_mm': 0.0,
+            'p5_mm': 0.0,
+            'p10_mm': 0.0,
+            'p25_mm': 0.0,
+            'p50_mm': 0.0,
+            'p75_mm': 0.0,
+            'p95_mm': 0.0,
+            'p99_mm': 0.0
+        }
+
     return {
         'aggregated_metric': 'median_of_sample_means',
         'sample_count': sample_count,
         'selected_sample_ids': selected_sample_ids,
         'summary_statistics': summary_statistics,
+        'pooled_length_percentiles_mm': pooled_length_percentiles_mm,
+        'p1_mm': pooled_length_percentiles_mm['p1_mm'],
+        'p5_mm': pooled_length_percentiles_mm['p5_mm'],
+        'p10_mm': pooled_length_percentiles_mm['p10_mm'],
+        'p25_mm': pooled_length_percentiles_mm['p25_mm'],
+        'p50_mm': pooled_length_percentiles_mm['p50_mm'],
+        'p75_mm': pooled_length_percentiles_mm['p75_mm'],
+        'p95_mm': pooled_length_percentiles_mm['p95_mm'],
+        'p99_mm': pooled_length_percentiles_mm['p99_mm'],
         'representative_length_m': median_m,
         'representative_length_mm': median_m * 1000.0,
+        'pooled_lengths_mm': pooled_lengths_mm,
         'per_sample_results': per_sample_results,
     }
