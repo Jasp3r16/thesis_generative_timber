@@ -12,7 +12,7 @@ import pandas as pd
 
 def _get_params_module():
     """Lazy import to avoid circular dependencies with c22_params."""
-    import c22_params as params
+    import c16_params as params
     return params
 
 

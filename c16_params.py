@@ -1,6 +1,6 @@
 import json
 import config
-from c22_generation_timber import generate_length_tuple_from_average
+from c16_generation_timber import generate_length_tuple_from_average
 
 # --- RECLAIMED STOCK PARAMETERS ---
 # Typology B: strict, discrete cross-section library from historical nominal sizes

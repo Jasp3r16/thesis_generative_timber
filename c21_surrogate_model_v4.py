@@ -211,10 +211,10 @@ class FocalLoss(nn.Module):
     Why Use Focal Loss for Structural Safety?
     -------------------------------------------
     Timber truss datasets have extreme class imbalance:
-    - ~95% of members are SAFE (Utilization <= 1.0, label=0)
-    - ~5% of members are UNSAFE (Utilization > 1.0, label=1)
+    - ~85% of members are SAFE (Utilization <= 1.0, label=0)
+    - ~15% of members are UNSAFE (Utilization > 1.0, label=1)
 
-    A naive model achieves 95% accuracy by predicting "all safe" -- useless for
+    A naive model achieves 85% accuracy by predicting "all safe" -- useless for
     safety prediction.
 
     Focal Loss Solution:
@@ -232,7 +232,7 @@ class FocalLoss(nn.Module):
 
     Hyperparameter Tuning:
     - alpha: Balancing weight for positive (unsafe) class.
-             If ~5% unsafe, try alpha in [0.05, 0.2]. Default 0.1.
+             If ~15% unsafe, try alpha in [0.15, 0.3]. Default 0.1.
     - gamma: Focusing exponent. gamma=2.0 is standard.
              Increase to 3-4 if model still collapses to predicting all-safe.
     """
