@@ -9,6 +9,34 @@ from typing import Dict, Any
 import numpy as np
 import pandas as pd
 
+# Module-level precomputed source distributions to avoid reallocating dicts on each call
+_DEFAULT_SOURCES = {
+    "Germany": {"weight": 26, "base_distance": 300},
+    "Sweden": {"weight": 18, "base_distance": 1000},
+    "Belgium": {"weight": 12, "base_distance": 150},
+    "Baltic States": {"weight": 9, "base_distance": 1500},
+    "Netherlands": {"weight": 8, "base_distance": 50},
+    "Finland": {"weight": 8, "base_distance": 1800},
+    "Poland": {"weight": 5, "base_distance": 900},
+    "France": {"weight": 4, "base_distance": 500},
+    "Spain & Portugal": {"weight": 3, "base_distance": 1800},
+    "Other": {"weight": 7, "base_distance": 4000},
+}
+
+_EFFICIENT_SOURCES = {
+    "Germany": {"weight": 6, "base_distance": 300},
+    "Netherlands": {"weight": 4, "base_distance": 50},
+}
+
+# Precompute lists for fast sampling
+_DEFAULT_COUNTRIES = list(_DEFAULT_SOURCES.keys())
+_DEFAULT_WEIGHTS = [_DEFAULT_SOURCES[c]["weight"] for c in _DEFAULT_COUNTRIES]
+_DEFAULT_BASE = {c: _DEFAULT_SOURCES[c]["base_distance"] for c in _DEFAULT_COUNTRIES}
+
+_EFFICIENT_COUNTRIES = list(_EFFICIENT_SOURCES.keys())
+_EFFICIENT_WEIGHTS = [_EFFICIENT_SOURCES[c]["weight"] for c in _EFFICIENT_COUNTRIES]
+_EFFICIENT_BASE = {c: _EFFICIENT_SOURCES[c]["base_distance"] for c in _EFFICIENT_COUNTRIES}
+
 
 def _get_params_module():
     """Lazy import to avoid circular dependencies with c22_params."""
@@ -119,7 +147,7 @@ def _get_lca_properties(attribute_name: str) -> Dict[str, Any]:
     params = _get_params_module()
     return getattr(params, attribute_name)
 
-def assign_transport_distance(efficient: bool = False) -> tuple[str, float]:
+def assign_transport_distance(efficient: bool = False, random_state: int | None = None) -> tuple[str, float]:
     """
     Choose a random transport distance based on timber import shares in the Netherlands (2021).
     """
@@ -127,41 +155,33 @@ def assign_transport_distance(efficient: bool = False) -> tuple[str, float]:
     # Source definitions: (country, weight/share, average distance in km)
     # Distances are estimates to central Netherlands and can be fine-tuned
     # for the final LCA calculations in the thesis.
-    sources = {
-        "Germany": {"weight": 26, "base_distance": 300},
-        "Sweden": {"weight": 18, "base_distance": 1000},
-        "Belgium": {"weight": 12, "base_distance": 150},
-        "Baltic States": {"weight": 9, "base_distance": 1500},
-        "Netherlands": {"weight": 8, "base_distance": 50},
-        "Finland": {"weight": 8, "base_distance": 1800},
-        "Poland": {"weight": 5, "base_distance": 900},
-        "France": {"weight": 4, "base_distance": 500},
-        "Spain & Portugal": {"weight": 3, "base_distance": 1800},
-        "Other": {"weight": 7, "base_distance": 4000}  # Remaining 7%
-    }
-
+    # choose source lists based on mode
     if efficient:
-        sources = {
-            "Germany": {"weight": 6, "base_distance": 300},
-            "Netherlands": {"weight": 4, "base_distance": 50}
-                   }
+        country_names = _EFFICIENT_COUNTRIES
+        weights = _EFFICIENT_WEIGHTS
+        base_map = _EFFICIENT_BASE
+    else:
+        country_names = _DEFAULT_COUNTRIES
+        weights = _DEFAULT_WEIGHTS
+        base_map = _DEFAULT_BASE
 
-    # Split the data into lists for random.choices.
-    country_names = list(sources.keys())
-    weights = [sources[country]["weight"] for country in country_names]
+    # deterministic RNG when requested
+    if random_state is None:
+        rng = random
+    else:
+        rng = random.Random(random_state)
 
-    # 1. Choose a country based on weighted probabilities.
-    chosen_country = random.choices(country_names, weights=weights, k=1)[0]
-    base_dist = sources[chosen_country]["base_distance"]
+    chosen_country = rng.choices(country_names, weights=weights, k=1)[0]
+    base_dist = base_map[chosen_country]
 
-    # 2. Add variation (+/- 15%) for a more realistic spread.
+    # Variation +/- 15%
     variation = base_dist * 0.15
-    final_distance = random.uniform(base_dist - variation, base_dist + variation)
+    final_distance = rng.uniform(base_dist - variation, base_dist + variation)
 
     return chosen_country, round(final_distance, 2)
 
 
-def generate_new_stock(efficient: bool = False) -> pd.DataFrame:
+def generate_new_stock(efficient: bool = False, random_state: int | None = None) -> pd.DataFrame:
     """
     Generate catalog of new timber members with all length/depth/width combinations.
     
@@ -175,20 +195,33 @@ def generate_new_stock(efficient: bool = False) -> pd.DataFrame:
     
     # Pre-cache values to avoid repeated dict lookups.
     emission_range = lca_new["diesel_emission_factor_range"]
-    
+
     combinations = list(itertools.product(
-        params.TUPLE_LENGTHS, 
+        params.TUPLE_LENGTHS,
         params.DEPTH_WIDTH_COMBINATIONS
     ))
-    
+
     print(f"Generating catalog... {len(combinations)} beam types")
-    
+
+    # Prepare RNGs for reproducible sampling when requested
+    rng_py = random if random_state is None else random.Random(random_state)
+
+    # Choose countries in batch and sample emission factors
+    if efficient:
+        country_list = rng_py.choices(_EFFICIENT_COUNTRIES, weights=_EFFICIENT_WEIGHTS, k=len(combinations))
+        base_map = _EFFICIENT_BASE
+    else:
+        country_list = rng_py.choices(_DEFAULT_COUNTRIES, weights=_DEFAULT_WEIGHTS, k=len(combinations))
+        base_map = _DEFAULT_BASE
+
+    emission_factors = [round(rng_py.uniform(*emission_range), 4) for _ in range(len(combinations))]
+
     data = []
-    for idx, (length, (depth, width)) in enumerate(combinations):
-        # Generate unique distance data for each element.
-        origin_country, transport_dist = assign_transport_distance(efficient)
-        emission_factor = round(random.uniform(*emission_range), 4)
-        
+    for idx, ((length, (depth, width)), origin_country, emission_factor) in enumerate(zip(combinations, country_list, emission_factors)):
+        base_dist = base_map[origin_country]
+        variation = base_dist * 0.15
+        transport_dist = round(rng_py.uniform(base_dist - variation, base_dist + variation), 2)
+
         data.append({
             'Member_ID': f"NS_{idx:05d}",
             'State': 0,
@@ -200,14 +233,14 @@ def generate_new_stock(efficient: bool = False) -> pd.DataFrame:
             'Transport_Dist': transport_dist,
             'EmissionFactor': emission_factor,
         })
-    
+
     df_new = pd.DataFrame(data)
     print(f"Generated length tuple (mm): {params.TUPLE_LENGTHS}, with average used: {params.STRUCTURE_AVERAGE_LENGTH_MM}")
     print(f"New stock generated successfully! ({len(df_new)} elements)")
     return df_new
 
 
-def generate_reclaimed_stock() -> pd.DataFrame:
+def generate_reclaimed_stock(random_state: int | None = None) -> pd.DataFrame:
     """
     Generate reclaimed timber inventory from a discrete section library and
     stochastic bounded lengths.
@@ -256,18 +289,21 @@ def generate_reclaimed_stock() -> pd.DataFrame:
     remainder = stock_count % n_sections
     section_sequence = (section_library * full_cycles) + section_library[:remainder]
 
+    # Prepare RNGs
+    rng_py = random if random_state is None else random.Random(random_state)
+    rng_np = np.random.default_rng(random_state)
+
     inventory_list = []
     for idx, (width, depth) in enumerate(section_sequence):
-
-        sampled_length = np.random.normal(loc=mean_len, scale=std_len)
+        sampled_length = float(rng_np.normal(loc=mean_len, scale=std_len))
         bounded_length = float(np.clip(sampled_length, min_len, max_len))
         length = int(round(bounded_length / round_to) * round_to)
 
-        transport_dist = random.randint(*lca_reclaimed["transport_distance_range"])
-        if random.random() < prob_electric:
-            emission_factor = random.uniform(*electric_range)
+        transport_dist = rng_py.randint(*lca_reclaimed["transport_distance_range"])
+        if rng_py.random() < prob_electric:
+            emission_factor = rng_py.uniform(*electric_range)
         else:
-            emission_factor = random.uniform(*diesel_range)
+            emission_factor = rng_py.uniform(*diesel_range)
 
         inventory_list.append({
             'Member_ID': f"RS_{idx + 1:05d}",
@@ -317,8 +353,8 @@ def generate_mixed_stock_subset(
     requested_reclaimed = int(round(total_elements * reclaimed_ratio))
     requested_new = total_elements - requested_reclaimed
 
-    df_new = generate_new_stock(efficient)
-    df_reclaimed = generate_reclaimed_stock()
+    df_new = generate_new_stock(efficient, random_state=random_state)
+    df_reclaimed = generate_reclaimed_stock(random_state=random_state)
 
     available_new = len(df_new)
     available_reclaimed = len(df_reclaimed)

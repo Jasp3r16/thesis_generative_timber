@@ -1,10 +1,41 @@
 import json
+from functools import lru_cache
+
 import config
 from c16_generation_timber import generate_length_tuple_from_average
 
-# --- RECLAIMED STOCK PARAMETERS ---
-# Typology B: strict, discrete cross-section library from historical nominal sizes
-# with a fixed planing allowance.
+DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM = 3000
+
+@lru_cache(maxsize=1)
+def _load_json_file(json_path: str) -> dict:
+    with open(json_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _load_summary_statistics() -> dict:
+    json_path = str(config.DATA_IO_PATH / "representative_beam_statistics.json")
+    try:
+        data = _load_json_file(json_path)
+        return dict(data["summary_statistics"])
+    except (FileNotFoundError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        print(
+            f"Warning: could not load representative_beam_statistics.json ({exc}). "
+            f"Using default structure length {DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM} mm."
+        )
+
+summary_statistics = _load_summary_statistics()
+
+average_length_mm = float(summary_statistics["average_length_mm"])
+min_length_mm = float(summary_statistics["min_length_mm"])
+max_length_mm = float(summary_statistics["max_length_mm"])
+total_length_mm = float(summary_statistics["total_length_mm"])
+edge_count = int(summary_statistics["edge_count"])
+
+print(f"Loaded summary statistics: average_length_mm={average_length_mm}, min_length_mm={min_length_mm}, max_length_mm={max_length_mm}, total_length_mm={total_length_mm}, edge_count={edge_count}")
+
+# ================================
+# RECLAIMED STOCK PARAMETERS
+# ================================
 RECLAIMED_HISTORICAL_CROSS_SECTIONS_MM = [
     (60, 160),
     (70, 180),
@@ -20,13 +51,13 @@ RECLAIMED_CROSS_SECTION_LIBRARY_MM = [
 ]
 
 # Finite reclaimed inventory size and stochastic length model.
-RECLAIMED_STOCK_COUNT = 64
-RECLAIMED_LENGTH_DISTRIBUTION = "normal"  # supported: "normal"
-RECLAIMED_LENGTH_MIN_MM = 1400
-RECLAIMED_LENGTH_MAX_MM = 5200
-RECLAIMED_LENGTH_MEAN_MM = 3200
-RECLAIMED_LENGTH_STD_MM = 450
+RECLAIMED_STOCK_COUNT = 70
 RECLAIMED_LENGTH_ROUND_TO_MM = 50
+RECLAIMED_LENGTH_STD_MM = 450
+RECLAIMED_LENGTH_DISTRIBUTION = "normal"  # supported: "normal"
+RECLAIMED_LENGTH_MIN_MM = min_length_mm - 500
+RECLAIMED_LENGTH_MAX_MM = max_length_mm + 500
+RECLAIMED_LENGTH_MEAN_MM = average_length_mm
 
 # LCA assumptions for reclaimed timber.
 RECLAIMED_TIMBER_LCA = {
@@ -37,22 +68,12 @@ RECLAIMED_TIMBER_LCA = {
 }
 
 # --- PARAMETERS NEW STOCK (CATALOGUS) ---
-DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM = 3000
-
-json_path = config.DATA_IO_PATH / 'representative_beam_length.json'
-with open(json_path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-value = float(data["representative_length_mm"])
-if value == 0:
-    print(f"Warning: zero value found in {json_path}: {value}. Falling back to default.")
-    value = DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM
-
-STRUCTURE_AVERAGE_LENGTH_MM = value
 LENGTH_INCREMENT_MM = 300
 LENGTH_LIBRARY_SIZE = 13
 LENGTH_ROUND_TO_MM = 50
-MIN_LENGTH_MM = 1400
-MAX_LENGTH_MM = 5200
+STRUCTURE_AVERAGE_LENGTH_MM = average_length_mm
+MIN_LENGTH_MM = min_length_mm - LENGTH_INCREMENT_MM
+MAX_LENGTH_MM = max_length_mm + LENGTH_INCREMENT_MM
 
 TUPLE_LENGTHS = generate_length_tuple_from_average(
     mean_length_mm=STRUCTURE_AVERAGE_LENGTH_MM,

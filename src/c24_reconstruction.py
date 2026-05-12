@@ -79,12 +79,13 @@ def _validate_edge_index(edge_index):
         raise ValueError("edge_index cannot be empty")
 
 
-def calculate_average_beam_length_for_sample(df_vertices, edge_index, sample_id):
+def calculate_geometry_beam_statistics(df_vertices, edge_index, sample_id):
     """
-    Calculate the average beam length for a single structure (sample_id).
+    Calculate comprehensive beam length statistics for a single structure (sample_id).
 
     Returns:
-        dict with average length in meters and millimeters.
+        dict with average, min, max, total length and additional distribution statistics
+        in both meters and millimeters.
     """
     required_cols = {'sample_id', 'vertex_index', 'x', 'y', 'z'}
     missing_cols = required_cols - set(df_vertices.columns)
@@ -93,44 +94,83 @@ def calculate_average_beam_length_for_sample(df_vertices, edge_index, sample_id)
 
     _validate_edge_index(edge_index)
 
-    df_sample = df_vertices[df_vertices['sample_id'] == sample_id]
+    df_sample = df_vertices[df_vertices['sample_id'] == sample_id].copy()
     if df_sample.empty:
         raise ValueError(f"No vertices found for sample_id={sample_id}")
 
-    v_dict = df_sample.set_index('vertex_index').to_dict('index')
+    # Normalize vertex ids in the sample for robust joins
+    df_sample['vertex_index_norm'] = df_sample['vertex_index'].astype(str).apply(_normalize_vertex_id)
+
     sources, targets = edge_index
+    edges_df = pd.DataFrame({
+        'V1': [_normalize_vertex_id(v) for v in sources],
+        'V2': [_normalize_vertex_id(v) for v in targets]
+    })
 
-    lengths_m = []
-    for v1_raw, v2_raw in zip(sources, targets):
-        v1_id = _normalize_vertex_id(v1_raw)
-        v2_id = _normalize_vertex_id(v2_raw)
+    # Merge coordinates for both ends in a vectorized manner
+    left = edges_df.merge(
+        df_sample[['vertex_index_norm', 'x', 'y', 'z']],
+        left_on='V1',
+        right_on='vertex_index_norm',
+        how='left'
+    ).rename(columns={'x': 'x1', 'y': 'y1', 'z': 'z1'}).drop(columns=['vertex_index_norm'])
 
-        if v1_id not in v_dict or v2_id not in v_dict:
-            raise KeyError(
-                f"Edge refers to missing vertex index: {v1_id} or {v2_id}"
-            )
+    both = left.merge(
+        df_sample[['vertex_index_norm', 'x', 'y', 'z']],
+        left_on='V2',
+        right_on='vertex_index_norm',
+        how='left'
+    ).rename(columns={'x': 'x2', 'y': 'y2', 'z': 'z2'}).drop(columns=['vertex_index_norm'])
 
-        pt1 = v_dict[v1_id]
-        pt2 = v_dict[v2_id]
+    # Identify missing vertices (if any)
+    missing_mask = both[['x1', 'y1', 'z1', 'x2', 'y2', 'z2']].isnull().any(axis=1)
+    if missing_mask.any():
+        missing_rows = both[missing_mask]
+        missing_v1 = missing_rows.loc[missing_rows[['x1', 'y1', 'z1']].isnull().any(axis=1), 'V1'].unique().tolist()
+        missing_v2 = missing_rows.loc[missing_rows[['x2', 'y2', 'z2']].isnull().any(axis=1), 'V2'].unique().tolist()
+        raise KeyError(f"Edge refers to missing vertex index(es): {missing_v1 + missing_v2}")
 
-        dx = pt1['x'] - pt2['x']
-        dy = pt1['y'] - pt2['y']
-        dz = pt1['z'] - pt2['z']
-        lengte_m = math.sqrt(dx**2 + dy**2 + dz**2)
-        lengths_m.append(lengte_m)
+    # Vectorized distance computation
+    dx = both['x1'].to_numpy(dtype=float) - both['x2'].to_numpy(dtype=float)
+    dy = both['y1'].to_numpy(dtype=float) - both['y2'].to_numpy(dtype=float)
+    dz = both['z1'].to_numpy(dtype=float) - both['z2'].to_numpy(dtype=float)
+    lengths_m = np.sqrt(dx * dx + dy * dy + dz * dz)
 
-    avg_m = sum(lengths_m) / len(lengths_m)
+    edge_count = lengths_m.size
+    avg_m = float(np.mean(lengths_m)) if edge_count > 0 else 0.0
+    min_m = float(np.min(lengths_m)) if edge_count > 0 else 0.0
+    max_m = float(np.max(lengths_m)) if edge_count > 0 else 0.0
+    total_m = float(np.sum(lengths_m)) if edge_count > 0 else 0.0
+    std_m = float(np.std(lengths_m)) if edge_count > 1 else 0.0
+    median_m = float(np.median(lengths_m)) if edge_count > 0 else 0.0
+    q1_m = float(np.percentile(lengths_m, 25)) if edge_count > 0 else 0.0
+    q3_m = float(np.percentile(lengths_m, 75)) if edge_count > 0 else 0.0
+
     return {
         'sample_id': sample_id,
-        'average_length_m': avg_m,
-        'average_length_mm': avg_m * 1000.0,
-        'edge_count': len(lengths_m)
+        'edge_count': int(edge_count),
+        'average_length_m': round(avg_m, 3),
+        'average_length_mm': round(avg_m * 1000.0, 1),
+        'median_length_m': round(median_m, 3),
+        'median_length_mm': round(median_m * 1000.0, 1),
+        'min_length_m': round(min_m, 3),
+        'min_length_mm': round(min_m * 1000.0, 1),
+        'max_length_m': round(max_m, 3),
+        'max_length_mm': round(max_m * 1000.0, 1),
+        'total_length_m': round(total_m, 3),
+        'total_length_mm': round(total_m * 1000.0, 1),
+        'std_dev_m': round(std_m, 3),
+        'std_dev_mm': round(std_m * 1000.0, 1),
+        'q1_m': round(q1_m, 3),
+        'q1_mm': round(q1_m * 1000.0, 1),
+        'q3_m': round(q3_m, 3),
+        'q3_mm': round(q3_m * 1000.0, 1)
     }
 
 
-def calculate_representative_beam_length(df_vertices, edge_index, sample_count, random_state=None):
+def generate_material_statistics(df_vertices, edge_index, sample_count, random_state=None):
     """
-    Calculate a robust representative beam length from randomly selected samples.
+    Generate comprehensive material statistics from randomly selected structure samples.
 
     The function selects `sample_count` unique sample_ids from the dataset and takes
     the median of the per-sample average beam lengths to dampen outliers.
@@ -142,7 +182,7 @@ def calculate_representative_beam_length(df_vertices, edge_index, sample_count, 
         random_state: Optional seed for reproducible sample selection.
 
     Returns:
-        dict with representative length in m and mm, plus traceable details.
+        dict with representative length in m and mm, plus detailed per-sample statistics.
     """
     if not isinstance(sample_count, int) or sample_count <= 0:
         raise ValueError("sample_count must be a positive integer")
@@ -161,7 +201,7 @@ def calculate_representative_beam_length(df_vertices, edge_index, sample_count, 
     per_sample_results = []
 
     for sample_id in selected_sample_ids:
-        result = calculate_average_beam_length_for_sample(df_vertices, edge_index, sample_id)
+        result = calculate_geometry_beam_statistics(df_vertices, edge_index, sample_id)
         per_sample_results.append(result)
         per_sample_means_m.append(result['average_length_m'])
 
@@ -172,35 +212,32 @@ def calculate_representative_beam_length(df_vertices, edge_index, sample_count, 
     else:
         median_m = (sorted_means[n // 2 - 1] + sorted_means[n // 2]) / 2.0
 
+    summary_statistics = {
+        'average_length_m': round(float(np.mean([r['average_length_m'] for r in per_sample_results])), 3),
+        'average_length_mm': round(float(np.mean([r['average_length_mm'] for r in per_sample_results])), 1),
+        'median_length_m': round(float(np.mean([r['median_length_m'] for r in per_sample_results])), 3),
+        'median_length_mm': round(float(np.mean([r['median_length_mm'] for r in per_sample_results])), 1),
+        'min_length_m': round(float(np.mean([r['min_length_m'] for r in per_sample_results])), 3),
+        'min_length_mm': round(float(np.mean([r['min_length_mm'] for r in per_sample_results])), 1),
+        'max_length_m': round(float(np.mean([r['max_length_m'] for r in per_sample_results])), 3),
+        'max_length_mm': round(float(np.mean([r['max_length_mm'] for r in per_sample_results])), 1),
+        'total_length_m': round(float(np.mean([r['total_length_m'] for r in per_sample_results])), 3),
+        'total_length_mm': round(float(np.mean([r['total_length_mm'] for r in per_sample_results])), 1),
+        'std_dev_m': round(float(np.mean([r['std_dev_m'] for r in per_sample_results])), 3),
+        'std_dev_mm': round(float(np.mean([r['std_dev_mm'] for r in per_sample_results])), 1),
+        'q1_m': round(float(np.mean([r['q1_m'] for r in per_sample_results])), 3),
+        'q1_mm': round(float(np.mean([r['q1_mm'] for r in per_sample_results])), 1),
+        'q3_m': round(float(np.mean([r['q3_m'] for r in per_sample_results])), 3),
+        'q3_mm': round(float(np.mean([r['q3_mm'] for r in per_sample_results])), 1),
+        'edge_count': int(round(float(np.mean([r['edge_count'] for r in per_sample_results])))),
+    }
+
     return {
         'aggregated_metric': 'median_of_sample_means',
         'sample_count': sample_count,
         'selected_sample_ids': selected_sample_ids,
-        'per_sample_results': per_sample_results,
+        'summary_statistics': summary_statistics,
         'representative_length_m': median_m,
-        'representative_length_mm': median_m * 1000.0
+        'representative_length_mm': median_m * 1000.0,
+        'per_sample_results': per_sample_results,
     }
-
-
-def calculate_representative_beam_length_from_files(
-    vertices_csv_path,
-    edge_index_json_path,
-    sample_count,
-    random_state=None
-):
-    """
-    Convenience wrapper that reads vertices CSV and edge_index JSON.
-    """
-    vertices_path = Path(vertices_csv_path)
-    edge_path = Path(edge_index_json_path)
-
-    df_vertices = pd.read_csv(vertices_path)
-    with edge_path.open('r', encoding='utf-8') as f:
-        edge_index = json.load(f)
-
-    return calculate_representative_beam_length(
-        df_vertices=df_vertices,
-        edge_index=edge_index,
-        sample_count=sample_count,
-        random_state=random_state
-    )
