@@ -374,10 +374,10 @@ def generate_new_stock(efficient: bool = False, random_state: int | None = None)
         primary_lengths = tuple(params.TUPLE_LENGTHS)
 
     tail_count_each = int(getattr(params, "NEW_STOCK_TAIL_LENGTH_COUNT", 4))
-    short_tail_min = max(params.LENGTH_ROUND_TO_MM, int(round((structure_min_mm - tail_margin_mm) / params.LENGTH_ROUND_TO_MM) * params.LENGTH_ROUND_TO_MM))
+    short_tail_min = max(params.LENGTH_INCREMENT_MM, int((structure_min_mm - tail_margin_mm) // params.LENGTH_INCREMENT_MM) * params.LENGTH_INCREMENT_MM)
     short_tail_max = int(round((primary_lengths[0] - tail_margin_mm) / params.LENGTH_ROUND_TO_MM) * params.LENGTH_ROUND_TO_MM)
     long_tail_min = int(round((primary_lengths[-1] + tail_margin_mm) / params.LENGTH_ROUND_TO_MM) * params.LENGTH_ROUND_TO_MM)
-    long_tail_max = int(round((structure_max_mm + tail_margin_mm) / params.LENGTH_ROUND_TO_MM) * params.LENGTH_ROUND_TO_MM)
+    long_tail_max = int(round((structure_max_mm + tail_margin_mm + 2 * params.LENGTH_INCREMENT_MM) / params.LENGTH_ROUND_TO_MM) * params.LENGTH_ROUND_TO_MM)
 
     short_tail = _sample_weighted_tail_lengths(
         min_length_mm=short_tail_min,
@@ -391,7 +391,7 @@ def generate_new_stock(efficient: bool = False, random_state: int | None = None)
         min_length_mm=long_tail_min,
         max_length_mm=long_tail_max,
         increment_mm=params.LENGTH_INCREMENT_MM,
-        n_lengths=tail_count_each,
+        n_lengths=tail_count_each + 2,
         random_state=None if random_state is None else random_state + 1,
         direction="long",
     )
@@ -410,33 +410,53 @@ def generate_new_stock(efficient: bool = False, random_state: int | None = None)
     short_tail = tuple(v for v in short_tail if v not in primary_set)
     long_tail = tuple(v for v in long_tail if v not in primary_set)
 
-    tail_section_count = int(getattr(params, "NEW_STOCK_TAIL_SECTION_COUNT", 6))
-    tail_sections = _sample_tail_section_combinations(
-        list(params.DEPTH_WIDTH_COMBINATIONS),
-        tail_section_count,
-        random_state,
-    )
+    min_tail_sections = int(getattr(params, "NEW_STOCK_TAIL_SECTION_COUNT", 6))
+    all_sections = list(params.DEPTH_WIDTH_COMBINATIONS)
+    max_tail_sections = max(min_tail_sections, len(all_sections) // 2)
 
-    primary_combinations = list(itertools.product(primary_lengths, params.DEPTH_WIDTH_COMBINATIONS))
-    tail_combinations = list(itertools.product(short_tail + long_tail, tail_sections))
+    def _graduated_tail_sections(tail_lengths: tuple, closest_is_last: bool) -> list[tuple[int, list]]:
+        """Assign graduated section subsets: more sections for lengths closer to the primary block."""
+        n = len(tail_lengths)
+        result = []
+        for i, length in enumerate(tail_lengths):
+            if n <= 1:
+                proximity = 1.0
+            elif closest_is_last:
+                proximity = i / (n - 1)
+            else:
+                proximity = (n - 1 - i) / (n - 1)
+            n_secs = max(min_tail_sections, round(min_tail_sections + proximity * (max_tail_sections - min_tail_sections)))
+            seed = None if random_state is None else random_state + i
+            secs = _sample_tail_section_combinations(all_sections, n_secs, seed)
+            result.append((length, secs))
+        return result
+
+    # short_tail sorted ascending: last index (e.g. 1500) is closest to primary (1800)
+    short_tail_sections = _graduated_tail_sections(short_tail, closest_is_last=True)
+    # long_tail sorted ascending: first index (e.g. 4500) is closest to primary (4200)
+    long_tail_sections = _graduated_tail_sections(long_tail, closest_is_last=False)
+
+    primary_combinations = list(itertools.product(primary_lengths, all_sections))
+    n_tail = sum(len(secs) for _, secs in short_tail_sections + long_tail_sections)
 
     print(
-        "Generating catalog... "
-        f"primary={len(primary_combinations)} beam types, tail={len(tail_combinations)} beam types"
+        f"\nGenerating catalog...\n"
+        f"  primary={len(primary_combinations)} beam types, tail={n_tail} beam types"
     )
 
     # Prepare RNGs for reproducible sampling when requested
     rng_py = random if random_state is None else random.Random(random_state)
 
     # Choose countries in batch and sample emission factors
+    n_total = len(primary_combinations) + n_tail
     if efficient:
-        country_list = rng_py.choices(_EFFICIENT_COUNTRIES, weights=_EFFICIENT_WEIGHTS, k=len(primary_combinations) + len(tail_combinations))
+        country_list = rng_py.choices(_EFFICIENT_COUNTRIES, weights=_EFFICIENT_WEIGHTS, k=n_total)
         base_map = _EFFICIENT_BASE
     else:
-        country_list = rng_py.choices(_DEFAULT_COUNTRIES, weights=_DEFAULT_WEIGHTS, k=len(primary_combinations) + len(tail_combinations))
+        country_list = rng_py.choices(_DEFAULT_COUNTRIES, weights=_DEFAULT_WEIGHTS, k=n_total)
         base_map = _DEFAULT_BASE
 
-    emission_factors = [round(rng_py.uniform(*emission_range), 4) for _ in range(len(primary_combinations) + len(tail_combinations))]
+    emission_factors = [round(rng_py.uniform(*emission_range), 4) for _ in range(n_total)]
 
     data = []
     idx = 0
@@ -466,23 +486,38 @@ def generate_new_stock(efficient: bool = False, random_state: int | None = None)
                 })
                 idx += 1
 
-    _append_rows([(l, "primary", 1.0) for l in primary_lengths], list(params.DEPTH_WIDTH_COMBINATIONS))
-    _append_rows([(l, "short_tail", 0.05) for l in short_tail], tail_sections)
-    _append_rows([(l, "long_tail", 0.05) for l in long_tail], tail_sections)
+    _append_rows([(l, "primary", 1.0) for l in primary_lengths], all_sections)
+    for length, secs in short_tail_sections:
+        _append_rows([(length, "short_tail", 0.05)], secs)
+    for length, secs in long_tail_sections:
+        _append_rows([(length, "long_tail", 0.05)], secs)
 
     df_new = pd.DataFrame(data)
+    short_tail_n_secs = {l: len(s) for l, s in short_tail_sections}
+    long_tail_n_secs = {l: len(s) for l, s in long_tail_sections}
+    n_primary = (df_new['Length_Category'] == 'primary').sum()
+    n_short = (df_new['Length_Category'] == 'short_tail').sum()
+    n_long = (df_new['Length_Category'] == 'long_tail').sum()
+    length_counts = df_new.groupby('Length').size().sort_index()
+    length_summary = "\n".join(f"    {int(l)} mm: {c}" for l, c in length_counts.items())
+
     print(
-        "Length source stats (new stock): "
-        f"primary from pooled p5-p95 -> primary_lengths={primary_lengths}; "
-        f"short tail from structural min-x to primary-start-x -> {short_tail}; "
-        f"long tail from primary-end+x to structural max+x -> {long_tail}"
+        f"\nLength source stats (new stock):"
+        f"\n  primary      (p5–p95):  {primary_lengths}"
+        f"\n  short tail   (min→p5):  {short_tail}"
+        f"\n  long tail    (p95→max): {long_tail}"
     )
     print(
-        "Generated length sets (mm): "
-        f"primary={primary_lengths}, short_tail={short_tail}, long_tail={long_tail}, "
-        f"tail_margin_mm={tail_margin_mm}, tail_section_count={len(tail_sections)}"
+        f"\nGenerated lengths — tail_margin_mm={tail_margin_mm}"
+        f"\n  Sections per tail length (graduated {min_tail_sections}..{max_tail_sections}):"
+        f"\n    short tail: {short_tail_n_secs}"
+        f"\n    long tail:  {long_tail_n_secs}"
     )
-    print(f"New stock generated successfully! ({len(df_new)} elements)")
+    print(
+        f"\nNew stock generated: {len(df_new)} elements total"
+        f"\n  primary={n_primary}, short_tail={n_short}, long_tail={n_long}"
+        f"\n\nElements per length:\n{length_summary}\n"
+    )
     return df_new
 
 
