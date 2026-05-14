@@ -34,37 +34,35 @@ edge_count = int(summary_statistics["edge_count"])
 print(f"Loaded summary statistics: average_length_mm={average_length_mm}, min_length_mm={min_length_mm}, max_length_mm={max_length_mm}, total_length_mm={total_length_mm}, edge_count={edge_count}")
 
 # ================================
-# RECLAIMED STOCK PARAMETERS
+# RECLAIMED STOCK — DONOR BUILDING
 # ================================
-RECLAIMED_HISTORICAL_CROSS_SECTIONS_MM = [
-    (60, 160),
-    (70, 180),
-    (80, 240),
-    (90, 220),
-    (100, 200),
-    (120, 240),
-]
-RECLAIMED_PLANING_ALLOWANCE_MM = 10
-RECLAIMED_CROSS_SECTION_LIBRARY_MM = [
-    (width_nom - RECLAIMED_PLANING_ALLOWANCE_MM, depth_nom - RECLAIMED_PLANING_ALLOWANCE_MM)
-    for width_nom, depth_nom in RECLAIMED_HISTORICAL_CROSS_SECTIONS_MM
+# Parametric donor building: 3-storey Dutch residential, mixed-bay timber floors.
+# Member types define structural role, nominal section, count per floor, and bay span.
+# Lengths are bay span minus a random cut loss of 0-20 mm with NO rounding.
+# Cross-sections are nominal dimensions minus planing allowance per dimension.
+
+RECLAIMED_PLANING_ALLOWANCE_MM = 10  # mm removed per dimension during light planing
+
+DONOR_BUILDING_FLOORS = 3
+DONOR_BUILDING_SURVIVAL_RATE = 0.75  # fraction of elements passing visual inspection
+
+# Each entry: (role, nominal_width_mm, nominal_depth_mm, count_per_floor, span_mm)
+DONOR_BUILDING_MEMBER_TYPES = [
+    ("primary_beam",    120, 240, 12, 4500),
+    ("secondary_joist",  80, 200, 15, 3000),
+    ("short_joist",      70, 180,  9, 1800),
+    ("edge_beam",       100, 200,  8, 2700),
 ]
 
-# Finite reclaimed inventory size and stochastic length model.
-RECLAIMED_STOCK_COUNT = 70
-RECLAIMED_LENGTH_ROUND_TO_MM = 50
-RECLAIMED_LENGTH_STD_MM = 450
-RECLAIMED_LENGTH_DISTRIBUTION = "normal"  # supported: "normal"
-RECLAIMED_LENGTH_MIN_MM = min_length_mm - 500
-RECLAIMED_LENGTH_MAX_MM = max_length_mm + 500
-RECLAIMED_LENGTH_MEAN_MM = average_length_mm
+# Cut loss applied per element during deconstruction: uniform random int in [0, CUT_LOSS_MAX_MM]
+RECLAIMED_CUT_LOSS_MAX_MM = 20
 
-# LCA assumptions for reclaimed timber.
+# LCA assumptions for reclaimed timber (unchanged).
 RECLAIMED_TIMBER_LCA = {
-    "transport_distance_range": (5, 240),              # Delft location: (local, Groningen)
+    "transport_distance_range": (5, 240),
     "diesel_emission_factor_range": (0.17, 0.18),
     "electric_emission_factor_range": (0.02, 0.05),
-    "electric_transport_probability": 0.30,            # 30% chance that local transport uses an e-truck                       # 1 = de-nailing and planing required
+    "electric_transport_probability": 0.30,
 }
 
 # --- PARAMETERS NEW STOCK (CATALOGUS) ---

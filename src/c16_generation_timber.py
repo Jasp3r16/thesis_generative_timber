@@ -523,86 +523,80 @@ def generate_new_stock(efficient: bool = False, random_state: int | None = None)
 
 def generate_reclaimed_stock(random_state: int | None = None) -> pd.DataFrame:
     """
-    Generate reclaimed timber inventory from a discrete section library and
-    stochastic bounded lengths.
-    
+    Generate reclaimed timber inventory from a parametric donor building.
+
+    The donor building is a 3-storey Dutch residential structure with a
+    mixed-bay timber floor system. Each member type has a fixed structural
+    role, nominal cross-section, count per floor, and bay span.
+
+    Lengths are bay span minus a uniform random cut loss of 0-20 mm.
+    Lengths are NOT rounded to any standard grid, producing genuinely
+    non-standard values that challenge the MILP assignment.
+
+    A per-role survival filter retains the top 75% of elements by length
+    (removing the shortest, most-damaged elements). All surviving elements
+    enter the active inventory — no subsampling.
+
     Returns:
-        pd.DataFrame: Inventory with columns for geometry, mechanical, and LCA properties
+        pd.DataFrame: Inventory with columns for geometry, mechanical,
+                      and LCA properties, plus 'Donor_Role' metadata.
     """
     mech_reclaimed = _get_mech_props_by_class("C18")
     mech_row = _mechanical_props_row(mech_reclaimed)
     lca_reclaimed = _get_lca_reclaimed()
     params = _get_params_module()
-    
-    # Pre-cache values.
+
+    planing = int(params.RECLAIMED_PLANING_ALLOWANCE_MM)
+    floors = int(params.DONOR_BUILDING_FLOORS)
+    survival_rate = float(params.DONOR_BUILDING_SURVIVAL_RATE)
+    cut_loss_max = int(params.RECLAIMED_CUT_LOSS_MAX_MM)
+    member_types = list(params.DONOR_BUILDING_MEMBER_TYPES)
+
     prob_electric = lca_reclaimed["electric_transport_probability"]
     electric_range = lca_reclaimed["electric_emission_factor_range"]
     diesel_range = lca_reclaimed["diesel_emission_factor_range"]
-    
-    stock_count = int(params.RECLAIMED_STOCK_COUNT)
-    if stock_count <= 0:
-        raise ValueError("RECLAIMED_STOCK_COUNT must be > 0")
 
-    section_library = list(params.RECLAIMED_CROSS_SECTION_LIBRARY_MM)
-    if not section_library:
-        raise ValueError("RECLAIMED_CROSS_SECTION_LIBRARY_MM cannot be empty")
-
-    length_distribution = str(params.RECLAIMED_LENGTH_DISTRIBUTION).lower()
-    round_to = int(params.RECLAIMED_LENGTH_ROUND_TO_MM)
-
-    percentiles = _get_pooled_length_percentiles_mm()
-    p1_mm = float(percentiles["p1_mm"])
-    p5_mm = float(percentiles["p5_mm"])
-    p25_mm = float(percentiles["p25_mm"])
-    p50_mm = float(percentiles["p50_mm"])
-    p75_mm = float(percentiles["p75_mm"])
-    p95_mm = float(percentiles["p95_mm"])
-    p99_mm = float(percentiles["p99_mm"])
-
-    # Percentile-driven reclaimed lengths: scarce tails, dense mid-range.
-    min_len = int(round(p1_mm))
-    max_len = int(round(p99_mm))
-    mean_len = float(p50_mm)
-    std_len = max((p95_mm - p5_mm) / 3.29, float(round_to))
-    if min_len > max_len:
-        raise ValueError("RECLAIMED_LENGTH_MIN_MM must be <= RECLAIMED_LENGTH_MAX_MM")
-    if std_len <= 0:
-        raise ValueError("RECLAIMED_LENGTH_STD_MM must be > 0")
-    if round_to <= 0:
-        raise ValueError("RECLAIMED_LENGTH_ROUND_TO_MM must be > 0")
-    if length_distribution != "normal":
-        raise ValueError("Only RECLAIMED_LENGTH_DISTRIBUTION='normal' is supported")
-
-    # Build a balanced ordered sequence so each section appears equally.
-    # (difference at most 1 when stock_count is not divisible).
-    n_sections = len(section_library)
-    full_cycles = stock_count // n_sections
-    remainder = stock_count % n_sections
-    section_sequence = (section_library * full_cycles) + section_library[:remainder]
-
-    # Prepare RNGs
     rng_py = random if random_state is None else random.Random(random_state)
     rng_np = np.random.default_rng(random_state)
 
+    # --- Step 1: Generate raw pool from donor building ---
+    raw_pool = []
+    for role, nom_w, nom_d, count_per_floor, span_mm in member_types:
+        net_w = nom_w - planing
+        net_d = nom_d - planing
+        for floor in range(floors):
+            for _ in range(count_per_floor):
+                cut_loss = int(rng_np.integers(0, cut_loss_max + 1))
+                length = span_mm - cut_loss  # NOT rounded
+                raw_pool.append({
+                    "role": role,
+                    "net_w": net_w,
+                    "net_d": net_d,
+                    "span_mm": span_mm,
+                    "cut_loss_mm": cut_loss,
+                    "length_mm": length,
+                    "floor": floor + 1,
+                })
+
+    df_raw = pd.DataFrame(raw_pool)
+    print(f"Donor building raw pool: {len(df_raw)} elements across {floors} floors")
+
+    # --- Step 2: Apply per-role survival filter ---
+    # Remove bottom (1 - survival_rate) fraction by length within each role.
+    # Shortest elements are most likely to be damaged or unusable.
+    survived = []
+    for role, group in df_raw.groupby("role"):
+        threshold = group["length_mm"].quantile(1.0 - survival_rate)
+        kept = group[group["length_mm"] >= threshold].copy()
+        survived.append(kept)
+        print(f"  {role}: {len(group)} raw -> {len(kept)} survived")
+
+    df_survived = pd.concat(survived, ignore_index=True)
+    print(f"Total surviving elements: {len(df_survived)}")
+
+    # --- Step 3: Assign LCA properties and build final inventory ---
     inventory_list = []
-    for idx, (width, depth) in enumerate(section_sequence):
-        sampled_length = float(rng_np.normal(loc=mean_len, scale=std_len))
-        bounded_length = float(np.clip(sampled_length, min_len, max_len))
-        length = int(round(bounded_length / round_to) * round_to)
-
-        if length < p5_mm:
-            length_category = "short_tail"
-            availability_probability = 0.05
-        elif length > p95_mm:
-            length_category = "long_tail"
-            availability_probability = 0.05
-        elif length < p25_mm or length > p75_mm:
-            length_category = "primary"
-            availability_probability = 0.3
-        else:
-            length_category = "primary"
-            availability_probability = 1.0
-
+    for idx, row in enumerate(df_survived.itertuples(index=False)):
         transport_dist = rng_py.randint(*lca_reclaimed["transport_distance_range"])
         if rng_py.random() < prob_electric:
             emission_factor = rng_py.uniform(*electric_range)
@@ -610,29 +604,37 @@ def generate_reclaimed_stock(random_state: int | None = None) -> pd.DataFrame:
             emission_factor = rng_py.uniform(*diesel_range)
 
         inventory_list.append({
-            'Member_ID': f"RS_{idx + 1:05d}",
-            'State': 1,  # 1 = Reclaimed
-            'Length': float(length),
-            'Depth': float(depth),
-            'Width': float(width),
-            'Length_Category': length_category,
-            'Availability_Probability': float(availability_probability),
+            "Member_ID": f"RS_{idx + 1:05d}",
+            "State": 1,
+            "Length": float(row.length_mm),
+            "Depth": float(row.net_d),
+            "Width": float(row.net_w),
+            "Donor_Role": row.role,
+            "Cut_Loss_mm": int(row.cut_loss_mm),
             **mech_row,
-            'Origin_Country': "Netherlands",
-            'Transport_Dist': transport_dist,
-            'EmissionFactor': round(emission_factor, 4),
+            "Origin_Country": "Netherlands",
+            "Transport_Dist": float(transport_dist),
+            "EmissionFactor": round(emission_factor, 4),
         })
-    
+
     df_reclaimed = pd.DataFrame(inventory_list)
-    min_length = int(df_reclaimed['Length'].min())
-    max_length = int(df_reclaimed['Length'].max())
-    print(
-        "Length source stats (reclaimed stock): "
-        f"mean from pooled p50={p50_mm:.1f} mm, spread from p5-p95={p5_mm:.1f}-{p95_mm:.1f} mm",
-        f"hard bounds from pooled p1-p99={p1_mm:.1f}-{p99_mm:.1f} mm"
-    )
-    print(f"Reclaimed length range (mm): {min_length} to {max_length}")
-    print(f"Reclaimed stock generated successfully! ({len(df_reclaimed)} elements)")
+
+    # --- Step 4: Print summary ---
+    print(f"\nReclaimed stock summary:")
+    print(f"  Total elements: {len(df_reclaimed)}")
+    print(f"  Length mean:    {df_reclaimed['Length'].mean():.1f} mm")
+    print(f"  Length std:     {df_reclaimed['Length'].std():.1f} mm")
+    print(f"  Length min:     {df_reclaimed['Length'].min():.0f} mm")
+    print(f"  Length max:     {df_reclaimed['Length'].max():.0f} mm")
+    print(f"  Unique lengths: {df_reclaimed['Length'].nunique()}")
+    print(f"\n  By role:")
+    for role, grp in df_reclaimed.groupby("Donor_Role"):
+        net_w = grp["Width"].iloc[0]
+        net_d = grp["Depth"].iloc[0]
+        print(f"    {role}: {len(grp)} elements, "
+              f"{grp['Length'].min():.0f}–{grp['Length'].max():.0f} mm, "
+              f"section {net_w:.0f}x{net_d:.0f} mm")
+
     return df_reclaimed
 
 
