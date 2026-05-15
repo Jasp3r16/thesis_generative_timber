@@ -145,15 +145,15 @@ def _build_node_rows(
             "vertex_index": row["vertex_index"],
             "layer":        row["layer"],       # "top" or "bottom"
             "attribute":    row["attribute"],   # "support", "load", or "hinges"
-            "x":  float(row["x"]),
-            "y":  float(row["y"]),
-            "z":  float(row["z"]),
+            "x":  round(float(row["x"]), 4),
+            "y":  round(float(row["y"]), 4),
+            "z":  round(float(row["z"]), 4),
             "Tx": 1.0 if is_support else 0.0,
             "Ty": 1.0 if is_support else 0.0,
             "Tz": 1.0 if is_support else 0.0,
-            "Rx": 1.0 if is_support else 0.0,
-            "Ry": 1.0 if is_support else 0.0,
-            "Rz": 1.0 if is_support else 0.0,
+            "Rx": 0.0,
+            "Ry": 0.0,
+            "Rz": 0.0,
             "Fz": float(_LOAD_PER_NODE_N) if is_load else 0.0,
         })
     return rows
@@ -185,17 +185,17 @@ def _build_edge_rows(
             "V2":              int(edge["V2"]),
             "strength_class":  str(s["strength_class"]),
             # GNN edge features (NEW_EDGE_COLS):
-            "Width_m":         float(s["Width_m"]),
-            "Depth_m":         float(s["Depth_m"]),
-            "Length":          float(s["Length"]),
-            "E":               float(s["E"]),
-            "Iy":              float(s["Iy"]),
-            "Iz":              float(s["Iz"]),
-            "J":               float(s["J"]),
-            "EA/L":            float(s["EA/L"]),
-            "N_mean_EA":       float(member_forces[i]),
+            "Depth_m":         round(float(s["Depth_m"]), 4),   # 0.1 mm precision
+            "Width_m":         round(float(s["Width_m"]), 4),   # 0.1 mm precision
+            "Length":          round(float(s["Length"]), 3),    # 1 mm precision
+            "E":               round(float(s["E"])),            # integer Pa
+            "Iy":              round(float(s["Iy"]), 8),        # m⁴, ~4 sig figs
+            "Iz":              round(float(s["Iz"]), 9),        # m⁴, ~4 sig figs
+            "J":               round(float(s["J"]), 8),         # m⁴, ~4 sig figs
+            "EA/L":            round(float(s["EA/L"]), 1),      # 0.1 N/m precision
+            "N_mean_EA":       round(float(member_forces[i]), 2),
             # Reference columns (ignored by c21_surrogate_training):
-            "member_length_m": float(lengths_m[i]),
+            "member_length_m": round(float(lengths_m[i]), 4),
             "assigned_stock":  str(s.get("Member_ID", "")),
         })
     return rows
