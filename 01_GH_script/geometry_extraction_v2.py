@@ -49,6 +49,12 @@ if input_load_data or dict_vert_name not in sc.sticky or dict_edge_name not in s
                     'strength_class': row.get('strength_class', '').strip().lower(),
                     'Width_m':        float(row.get('Width_m', 0)),
                     'Depth_m':        float(row.get('Depth_m', 0)),
+                    'Length':         float(row.get('Length', 0)),
+                    'E':              float(row.get('E', 0)),
+                    'Iy':             float(row.get('Iy', 0)),
+                    'Iz':             float(row.get('Iz', 0)),
+                    'J':              float(row.get('J', 0)),
+                    'EA_over_L':      float(row.get('EA/L', 0)),
                     'N_mean_EA':      float(row.get('N_mean_EA', 0)),
                 })
         
@@ -81,10 +87,17 @@ LoadPointMarkers = []  # Binary marker list (1 for support, 0 for others)
 EdgeIndex = []  # (source_vertex_index, target_vertex_index) tuples for readable GH output
 EdgeIndexPyG = [[], []]  # [sources, targets] numeric 2xE format for PyTorch Geometric
 AverageConnectivity = 0.0  # Mean node degree for the current sample graph
-IsCc24 = []    # Binary: 1 = C24 timber, 0 = C18 timber (per edge, same order as Lines)
-Depth = []     # Section depth in metres per edge
-Width = []     # Section width in metres per edge
-N_mean_EA = [] # Mean-EA axial force estimate per edge (N), for dataset export
+IsCc24 = []       # Binary: 1 = C24 timber, 0 = C18 timber (per edge, same order as Lines)
+StrengthClass = []# Strength class string per edge: "c24" or "c18"
+Depth = []        # Section depth in cm per edge
+Width = []        # Section width in cm per edge
+StockLength = []  # Stock element length per edge (m)
+E_list = []       # Elastic modulus per edge (Pa), pass-through from training CSV
+Iy_list = []      # Second moment of area strong axis per edge (m4)
+Iz_list = []      # Second moment of area weak axis per edge (m4)
+J_list = []       # Torsional constant per edge (m4)
+EAL_list = []     # Axial stiffness EA/L per edge (N/m)
+N_mean_EA = []    # Mean-EA axial force estimate per edge (N), for dataset export
 point_lookup = {}
 degree_count = dict((v_idx, 0) for v_idx in current_verts.keys())
 
@@ -139,9 +152,17 @@ for i, edge in enumerate(current_edges):
         EdgeIndexPyG[1].append(idx2)
         degree_count[idx1] += 1
         degree_count[idx2] += 1
-        IsCc24.append(1 if edge.get('strength_class', '') == 'c24' else 0)
-        Depth.append(edge.get('Depth_m', 0.0))
-        Width.append(edge.get('Width_m', 0.0))
+        sc_str = edge.get('strength_class', '')
+        IsCc24.append(1 if sc_str == 'c24' else 0)
+        StrengthClass.append(sc_str)
+        Depth.append(edge.get('Depth_m', 0.0) * 100.0)
+        Width.append(edge.get('Width_m', 0.0) * 100.0)
+        StockLength.append(edge.get('Length', 0.0))
+        E_list.append(edge.get('E', 0.0))
+        Iy_list.append(edge.get('Iy', 0.0))
+        Iz_list.append(edge.get('Iz', 0.0))
+        J_list.append(edge.get('J', 0.0))
+        EAL_list.append(edge.get('EA_over_L', 0.0))
         N_mean_EA.append(edge.get('N_mean_EA', 0.0))
 
 if degree_count:
