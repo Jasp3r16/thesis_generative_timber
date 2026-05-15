@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from workflows.c29_stage_normalization_bounds import get_default_normalization_constants
+from workflows.c28_stage_normalization_bounds import get_default_normalization_constants
 
 
 # ============================================================================
