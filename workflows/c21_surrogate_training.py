@@ -311,6 +311,11 @@ def run_preprocessing(
             lambda g: (g["Utilization"] > 1).sum()
         )
         print(unsafe_per_sample.describe())
+        print(unsafe_per_sample.value_counts().sort_index().head(20))
+        zero_ids = unsafe_per_sample[unsafe_per_sample == 0].index
+        if len(zero_ids):
+            print(f"\nEdge feature stats for {len(zero_ids)} all-safe samples:")
+            print(edges_df[edges_df[sample_id_col].isin(zero_ids)][edge_cols].describe())
 
     return {
         "model": model, "loss_fn": loss_fn, "focal_alpha": focal_alpha,
@@ -725,8 +730,9 @@ def run_evaluation(
     ax = axes[0]
     ax.hist(test_probs_arr[test_true==0], bins=40, alpha=0.65, label=f"Safe (n={(test_true==0).sum()})",   color=C["primary"], edgecolor=C["white"])
     ax.hist(test_probs_arr[test_true==1], bins=40, alpha=0.65, label=f"Unsafe (n={(test_true==1).sum()})", color=C["danger"],  edgecolor=C["white"])
-    ax.axvline(thr_primary, color=C["primary"], lw=2, linestyle="--", label=f"val-tuned ({thr_primary:.2f})")
-    ax.axvline(0.5, color=C["black"], lw=1.2, linestyle="--", label="thr=0.50")
+    ax.axvline(thr_primary,      color=C["primary"], lw=2,   linestyle="--", label=f"val-tuned ({thr_primary:.2f})")
+    ax.axvline(threshold_safety, color=C["accent"],  lw=1.5, linestyle=":",  label=f"safety ({threshold_safety:.2f})")
+    ax.axvline(0.5,              color=C["black"],   lw=1.2, linestyle="--", label="thr=0.50")
     ax.set_xlabel("P(unsafe)"); ax.set_ylabel("Count"); ax.set_title("Score Distribution by True Class"); ax.legend(fontsize=8)
     ax = axes[1]
     bins = np.linspace(0,1,41)
