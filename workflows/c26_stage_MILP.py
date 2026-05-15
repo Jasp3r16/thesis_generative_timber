@@ -1,5 +1,20 @@
 from __future__ import annotations
 
+# =============================================================================
+# c26_stage_MILP.py
+# Changes:
+#   1. varValue == 1 -> > 0.5  (float equality on binary vars is fragile)
+#   2. solver_time_limit parameter added (default 30 s); CBC timeout wired in
+#   3. new_stock_max_uses=None skips new-item constraint loop entirely
+#      (previously added <= 120 dead constraints for every new item)
+#   4. new_stock_max_uses default changed 1 -> None (new stock reusable by default)
+#   5. _resolve_stock_state uses >= 0.5 threshold (consistent with c25)
+#   6. _identify_stock_groups double fallback removed (redundant with _resolve_stock_state)
+#   7. valid_matches removed from return dict (up to 60k tuples per call, unused downstream)
+#   8. CBC seeded with RandomSeed 0 for reproducible solve order
+#   9. Docstring: c26_stage_cost_matrix -> c25_stage_cost_matrix
+# =============================================================================
+
 from typing import Any
 
 import numpy as np
@@ -18,7 +33,7 @@ def _resolve_stock_state(enriched_stock: pd.DataFrame) -> pd.Series:
         if column is not None:
             values = pd.to_numeric(enriched_stock[column], errors="coerce")
             if not values.isna().any():
-                return values.clip(lower=0.0, upper=1.0).astype(int)
+                return (values >= 0.5).astype(int)
 
     member_ids = enriched_stock["Member_ID"].astype(str).str.strip().str.upper()
     return pd.Series(
@@ -29,17 +44,10 @@ def _resolve_stock_state(enriched_stock: pd.DataFrame) -> pd.Series:
 
 def _identify_stock_groups(
     enriched_stock: pd.DataFrame,
-    reclaimed_marker: str,
-    new_marker: str,
 ) -> tuple[list[str], list[str]]:
-    stock_items  = enriched_stock["Member_ID"].astype(str).tolist()
-    stock_state  = _resolve_stock_state(enriched_stock)
+    stock_state     = _resolve_stock_state(enriched_stock)
     reclaimed_items = enriched_stock.loc[stock_state == 1, "Member_ID"].astype(str).tolist()
     new_items       = enriched_stock.loc[stock_state == 0, "Member_ID"].astype(str).tolist()
-    if not reclaimed_items:
-        reclaimed_items = [item for item in stock_items if reclaimed_marker in item]
-    if not new_items:
-        new_items = [item for item in stock_items if new_marker in item]
     return reclaimed_items, new_items
 
 
@@ -71,7 +79,6 @@ def _build_milp_assignment(
     """
     n_slots = len(df_slots)
 
-    # Build index lookups
     slot_id_to_idx  = {
         str(eid): int(i)
         for i, eid in enumerate(df_slots["edge_id"].astype(str))
@@ -111,8 +118,9 @@ def run_milp_stage(
     stock_df_raw:              pd.DataFrame | None = None,
     reclaimed_marker:          str = "RS",
     new_marker:                str = "NS",
-    new_stock_max_uses:        int | None = 1,
+    new_stock_max_uses:        int | None = None,
     solver_msg:                bool = False,
+    solver_time_limit:         int = 30,
     raise_on_infeasible_slots: bool = True,
 ) -> dict[str, Any]:
     """
@@ -121,7 +129,7 @@ def run_milp_stage(
     Parameters
     ----------
     cost_matrix : np.ndarray float [n_slots, n_stock]
-        LCA cost matrix from c26_stage_cost_matrix.build_cost_matrix().
+        LCA cost matrix from c25_stage_cost_matrix.build_cost_matrix().
         inf entries are infeasible and will not be selected.
 
     enriched_stock : pd.DataFrame
@@ -143,11 +151,18 @@ def run_milp_stage(
         Prefix identifying new stock items. Default "NS".
 
     new_stock_max_uses : int | None
-        Maximum times a new stock element can be assigned.
-        None = unlimited. Default 1.
+        Maximum times a new stock element can be assigned across all slots.
+        None = unlimited (default) — new elements are orderable in any quantity.
+        Set to 1 to treat new elements as single-use (same as reclaimed).
+        Reclaimed elements are always limited to one use regardless of this setting.
 
     solver_msg : bool
         Whether to print CBC solver output. Default False.
+
+    solver_time_limit : int
+        Maximum CBC solve time in seconds. Default 30.
+        Timeout returns status "Not Solved"; the evaluator treats this as a
+        penalty candidate.
 
     raise_on_infeasible_slots : bool
         If True, raise ValueError when any slot has no feasible stock.
@@ -163,15 +178,12 @@ def run_milp_stage(
                              Row index into stock_df_raw per slot. Pass to gnn_feasibility().
         infeasible_slots   — list[str]: slot IDs with no feasible stock option
         infeasible_slot_count — int
-        valid_matches      — list[tuple[str, str]] (stock_id, slot_id) pairs considered
         summary            — dict: slots, reclaimed_items, new_items, assignments, etc.
     """
     stock_items        = enriched_stock["Member_ID"].astype(str).tolist()
     construction_slots = df_slots["edge_id"].astype(str).tolist()
 
-    reclaimed_items, new_items = _identify_stock_groups(
-        enriched_stock, reclaimed_marker, new_marker
-    )
+    reclaimed_items, new_items = _identify_stock_groups(enriched_stock)
 
     # ---- Build match lists from finite cost matrix entries ----
     finite_positions = np.argwhere(np.isfinite(cost_matrix))
@@ -205,12 +217,11 @@ def run_milp_stage(
             "milp_assignment":      None,
             "infeasible_slots":     infeasible_slots,
             "infeasible_slot_count": int(len(infeasible_slots)),
-            "valid_matches":        valid_matches,
             "summary": {
                 "slots":             int(len(construction_slots)),
                 "reclaimed_items":   int(len(reclaimed_items)),
                 "new_items":         int(len(new_items)),
-                "new_stock_max_uses": None if new_stock_max_uses is None else int(new_stock_max_uses),
+                "new_stock_max_uses": new_stock_max_uses,
                 "assignments":       0,
             },
         }
@@ -228,7 +239,7 @@ def run_milp_stage(
     for slot_id, options in slot_to_stocks.items():
         problem += pulp.lpSum(x[(stock_id, slot_id)] for stock_id in options) == 1
 
-    # Reclaimed elements: each can only be used once (physical constraint)
+    # Reclaimed elements: each physical piece can only be used once
     for stock_id in reclaimed_items:
         if stock_id in stock_to_slots and stock_to_slots[stock_id]:
             problem += (
@@ -236,21 +247,23 @@ def run_milp_stage(
                 <= 1
             )
 
-    # New elements: limit reuse to new_stock_max_uses
-    for stock_id in new_items:
-        if stock_id in stock_to_slots and stock_to_slots[stock_id]:
-            limit = (
-                int(len(construction_slots))
-                if new_stock_max_uses is None
-                else int(new_stock_max_uses)
-            )
-            problem += (
-                pulp.lpSum(x[(stock_id, slot_id)] for slot_id in stock_to_slots[stock_id])
-                <= limit
-            )
+    # New elements: add use-limit constraint only when explicitly restricted
+    # new_stock_max_uses=None means unlimited — no constraint needed
+    if new_stock_max_uses is not None:
+        for stock_id in new_items:
+            if stock_id in stock_to_slots and stock_to_slots[stock_id]:
+                problem += (
+                    pulp.lpSum(x[(stock_id, slot_id)] for slot_id in stock_to_slots[stock_id])
+                    <= int(new_stock_max_uses)
+                )
 
     # ---- Solve ----
-    pulp.PULP_CBC_CMD(msg=solver_msg).solve(problem)
+    solver = pulp.PULP_CBC_CMD(
+        msg=solver_msg,
+        timeLimit=solver_time_limit,
+        options=["RandomSeed 0"],
+    )
+    solver.solve(problem)
     status = pulp.LpStatus[problem.status]
 
     # ---- Extract results ----
@@ -258,18 +271,17 @@ def run_milp_stage(
         total_cost = float(pulp.value(problem.objective))
         rows = [
             {
-                "edge_id":          slot_id,
-                "assigned_timber":  stock_id,
-                "CO2_Penalty":      float(costs[(stock_id, slot_id)]),
+                "edge_id":         slot_id,
+                "assigned_timber": stock_id,
+                "CO2_Penalty":     float(costs[(stock_id, slot_id)]),
             }
             for stock_id, slot_id in valid_matches
-            if x[(stock_id, slot_id)].varValue == 1
+            if x[(stock_id, slot_id)].varValue is not None
+            and x[(stock_id, slot_id)].varValue > 0.5
         ]
         df_results = pd.DataFrame(rows)
 
     elif status in ("Infeasible", "Undefined", "Not Solved"):
-        # Solver could not find a feasible solution — e.g. new_stock_max_uses
-        # too restrictive to cover all slots with available stock.
         print(
             f"  [MILP] Solver returned '{status}' — "
             f"check stock pool coverage and new_stock_max_uses={new_stock_max_uses}."
@@ -293,12 +305,11 @@ def run_milp_stage(
         "milp_assignment":       milp_assignment,
         "infeasible_slots":      infeasible_slots,
         "infeasible_slot_count": int(len(infeasible_slots)),
-        "valid_matches":         valid_matches,
         "summary": {
             "slots":              int(len(construction_slots)),
             "reclaimed_items":    int(len(reclaimed_items)),
             "new_items":          int(len(new_items)),
-            "new_stock_max_uses": None if new_stock_max_uses is None else int(new_stock_max_uses),
+            "new_stock_max_uses": new_stock_max_uses,
             "assignments":        int(len(df_results)),
         },
     }

@@ -14,6 +14,14 @@
 #   7. _compute_one_time_normalization_constants() catches stock-composition
 #      ValueErrors immediately (skips remaining probes) vs transient errors
 #      (continues retrying).
+#   8. evaluate_design_candidate() accepts prepared_stock (pre-computed output
+#      of stage_cost.prepare_stock_cost_inputs) and forwards it to
+#      build_cost_matrix() — avoids repeating the stock prep on every GA call.
+#   9. evaluate_design_candidate() accepts prepared_gnn_stock (pre-computed
+#      output of stage_gnn.prepare_stock_for_gnn) and passes it to
+#      run_gnn_stage() — avoids copying and converting the stock DataFrame on
+#      every GNN call. Also passes support_nodes / load_nodes from the derived
+#      geometry so GNN receives correct boundary condition features.
 #
 # Changes vs v3 (carried forward):
 #   1. v_idx derivation added to _compute_one_time_normalization_constants().
@@ -138,7 +146,7 @@ def _compute_one_time_normalization_constants(
         }
 
     attempts           = max(int(config_dict.get("bounds_probe_attempts", 8)), 1)
-    new_stock_max_uses = config_dict.get("new_stock_max_uses", 1)
+    new_stock_max_uses = config_dict.get("new_stock_max_uses", None)
 
     for attempt_idx in range(attempts):
         try:
@@ -265,6 +273,8 @@ def evaluate_design_candidate(
     max_generations:      int  = 1,
     sample_id:            int  = 0,
     verbose:              bool = False,
+    prepared_stock:       "pd.DataFrame | None" = None,
+    prepared_gnn_stock:  "pd.DataFrame | None" = None,
 ) -> dict:
     """
     Evaluate one design candidate through the full pipeline.
@@ -286,6 +296,7 @@ def evaluate_design_candidate(
         "waste_total":         float("inf"),
         "gnn_feasibility":     None,
         "gnn_unsafe_members":  None,
+        "preds_physical":      None,
         "w_structural":        None,
         "df_vertices":         None,
         "df_edges":            None,
@@ -326,13 +337,14 @@ def evaluate_design_candidate(
             df_slots         = df_slots,
             df_input_stock   = df_stock,
             feasibility_mask = feasibility_mask,
+            prepared_stock   = prepared_stock,
         )
         if verbose:
             finite_entries = int(np.isfinite(cost_matrix).sum())
             print(f"    ✓ cost matrix | {finite_entries:,} finite entries")
 
         # ---- MILP -----------------------------------------------------------
-        new_stock_max_uses = config_dict.get("new_stock_max_uses", 1)
+        new_stock_max_uses = config_dict.get("new_stock_max_uses", None)
         milp_out = stage_milp.run_milp_stage(
             cost_matrix    = cost_matrix,
             enriched_stock = stock_prepared,
@@ -384,9 +396,13 @@ def evaluate_design_candidate(
                     df_input_stock  = df_stock,
                     model_bundle    = model_bundle,
                     print_summary   = False,
+                    stock_df        = prepared_gnn_stock,
+                    support_nodes   = support_nodes,
+                    load_nodes      = load_nodes,
                 )
                 gnn_feasibility    = float(gnn_out["feasibility_score"])
                 gnn_unsafe_members = gnn_out["unsafe_member_ids"]
+                preds_physical     = gnn_out["preds_physical"]
                 if verbose:
                     print(f"    ✓ GNN         | feasibility={gnn_feasibility:.2%}, "
                           f"unsafe={len(gnn_unsafe_members)} members")
@@ -438,6 +454,7 @@ def evaluate_design_candidate(
             "df_vertices":    df_vertices,
             "df_edges":       df_edges,
             "df_results":     df_results,
+            "preds_physical": preds_physical if MODEL_PREFIX else None,
         })
 
         if verbose:

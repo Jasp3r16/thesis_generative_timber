@@ -65,7 +65,23 @@ def _resolve_prefix(prefix_sm: str | None) -> str:
         raise FileNotFoundError(
             "No surrogate model checkpoint (.pth) found in SM_EXPORT_PATH."
         )
-    return checkpoint_candidates[0].stem
+    import warnings
+    chosen = checkpoint_candidates[0]
+    if len(checkpoint_candidates) > 1:
+        warnings.warn(
+            f"prefix_sm not set and prefix_sm.txt not found. Multiple checkpoints "
+            f"exist — loading most recent: '{chosen.name}'. Pass prefix_sm "
+            "explicitly to avoid loading the wrong model.",
+            stacklevel=3,
+        )
+    else:
+        warnings.warn(
+            f"prefix_sm not set and prefix_sm.txt not found. Derived prefix from "
+            f"'{chosen.name}' — artifact lookup may fail if the filename stem does "
+            "not match the export prefix. Create prefix_sm.txt to avoid this.",
+            stacklevel=3,
+        )
+    return chosen.stem
 
 
 def _resolve_artifact_dir(prefix_sm: str) -> Path:
@@ -81,6 +97,14 @@ def _resolve_artifact_dir(prefix_sm: str) -> Path:
     if hits:
         return hits[0].parent
 
+    import warnings
+    warnings.warn(
+        f"No artifact directory found for prefix '{prefix_sm}'. "
+        "Falling back to SM_EXPORT_PATH root — scalers and edge_index may not "
+        "match the checkpoint if multiple models exist there. "
+        "Create a named subdirectory or ensure prefix_sm.txt is current.",
+        stacklevel=3,
+    )
     return config.SM_EXPORT_PATH
 
 
@@ -308,6 +332,7 @@ def load_surrogate_bundle(
         "bidirectional": bidirectional,
         "scalers":       scalers,
         "norm_stats":    norm_stats,
+        "config":        inf_config,
         "artifact_dir":  artifact_dir,
         "model_path":    model_path,
     }

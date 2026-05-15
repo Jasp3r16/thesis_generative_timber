@@ -1,67 +1,54 @@
-# =============================================================================
-# Step 5 — GNN Structural Feasibility Check
-# =============================================================================
-#
-# Evaluates the structural feasibility of a complete MILP assignment using
-# the trained TrussEdgeSafetyGNN surrogate model. Called once per GA iteration
-# after MILP produces a complete slot→stock assignment.
-#
-# One forward pass → [120, 1] predictions → feasibility score for fitness.
-#
-# Changes vs v2:
-#   - _build_edge_features() now conditional on edge_index size — no longer
-#     hardcodes bidirectional duplication. If edge_index has 120 edges
-#     (unidirectional, current best config), edge_attr is [120, 7]. If 240
-#     (bidirectional), edge_attr is [240, 7]. Determined at runtime from
-#     model_bundle["edge_index"].shape[1].
-#   - gnn_feasibility() preds slice now conditional — takes [:120] only when
-#     edge_index has 240 edges; takes all 120 directly when unidirectional.
-#   - NUM_EDGES added alongside NUM_EDGES_PHYSICAL — set from edge_index at
-#     load time and stored in model_bundle for use in feature building.
-#   - load_gnn_model() stores num_edges in model_bundle.
-#   - BIDIRECTIONAL helper property derived from num_edges at runtime.
-#
-# Notebook cell usage (unchanged from v2):
-#
-#   gnn_out = stage_gnn.run_gnn_stage(
-#       node_positions  = node_positions,
-#       milp_assignment = milp_out["milp_assignment"],
-#       df_input_stock  = df_input_stock,
-#       model_bundle    = model_bundle,
-#   )
-#   feasibility_score  = gnn_out["feasibility_score"]
-#   structural_penalty = gnn_out["structural_penalty"]
-
 from __future__ import annotations
 
-import json
-from pathlib import Path
+# =============================================================================
+# c27_stage_GNN.py — GNN Structural Feasibility Stage
+# =============================================================================
+#
+# Changes vs v2:
+#   1. load_gnn_model() removed — dead loader that duplicated c21_surrogate_io.
+#      Use load_surrogate_bundle() from c21_surrogate_io exclusively.
+#      Removed json / Path / config / create_model imports (only needed there).
+#   2. prepare_stock_for_gnn() now called once before the GA loop, not inside
+#      run_gnn_stage(). Pass pre-converted stock as stock_df to run_gnn_stage()
+#      and gnn_feasibility() to avoid a full DataFrame copy per evaluation.
+#   3. support_nodes / load_nodes accepted as explicit parameters in
+#      _build_node_features, gnn_feasibility, and run_gnn_stage — defaulting to
+#      the hardcoded 5x3-grid constants. GA evaluator now passes the dynamically
+#      derived values so the GNN receives correct boundary condition features.
+#   4. build_milp_assignment raises ValueError on unassigned slots instead of
+#      silently substituting row 0 (corrupted GNN features with no warning).
+#   5. threshold=None in gnn_feasibility — resolves from bundle["config"]
+#      ["recommended_threshold"] when not explicitly set, so the training-tuned
+#      threshold is used automatically.
+#   6. w_structural default changed 0.3 -> 0.0; structural_penalty is for
+#      notebook convenience only — the GA evaluator reads feasibility_score
+#      directly and passes structural_infeasibility to run_fitness_stage.
+#   7. Stale module name references fixed in docstrings.
+
+import warnings
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import torch
 
-import config
-from c21_surrogate_model_v4 import create_model
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-THRESHOLD          = 0.35    # P(unsafe) >= threshold → member predicted unsafe
-NUM_EDGES_PHYSICAL = 120     # physical members — always 120 regardless of bi/uni
+THRESHOLD          = 0.35
+NUM_EDGES_PHYSICAL = 120
 
-# Edge feature columns — must match training order exactly
 EDGE_COLS = ["Area", "Length", "E", "Iy", "Iz", "J", "EA/L"]
-
-# Node feature columns — must match training order exactly
 NODE_COLS = ["x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz"]
 
-# Boundary conditions (fixed per problem)
-SUPPORT_NODES   = [0, 5, 18, 23]
-LOAD_NODES      = [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22]
-LOAD_PER_NODE_N = -13_500.0   # 270 kN / 20 nodes, downward = negative
+# Default boundary conditions for the 5×3 grid topology.
+# Pass support_nodes / load_nodes explicitly when the geometry differs.
+_DEFAULT_SUPPORT_NODES   = [0, 5, 18, 23]
+_DEFAULT_LOAD_NODES      = [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                             16, 17, 19, 20, 21, 22]
+LOAD_PER_NODE_N = -13_500.0   # 270 kN / 20 load nodes, downward = negative
 
 
 # =============================================================================
@@ -73,9 +60,12 @@ def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
     Convert raw stock CSV (mm / N/mm²) to SI units (m / N/m²) and compute
     section properties needed as GNN edge features.
 
-    Must be called once before the GA loop (stock properties don't change).
-    Pass the returned DataFrame as stock_df to gnn_feasibility() and
-    run_gnn_stage().
+    Call ONCE before the GA loop and pass the returned DataFrame as stock_df
+    to gnn_feasibility() / run_gnn_stage(). Stock properties do not change
+    between GA evaluations.
+
+    Note: "Length" in the returned copy is in metres (not mm). The input
+    DataFrame is not modified.
 
     Input columns required:
         Width, Depth, Length  — mm
@@ -83,7 +73,7 @@ def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
 
     Output columns added / overwritten:
         Area   m²   — cross-sectional area
-        Length m    — member length
+        Length m    — member length (overwritten, metres)
         E      N/m² — elastic modulus
         Iy     m⁴   — second moment of area (strong axis)
         Iz     m⁴   — second moment of area (weak axis)
@@ -92,14 +82,14 @@ def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
     """
     stock = df_input_stock.copy()
 
-    b_m  = stock["Width"].values         * 1e-3   # mm → m
-    h_m  = stock["Depth"].values         * 1e-3   # mm → m
-    L_m  = stock["Length"].values        * 1e-3   # mm → m
-    E_pa = stock["E_modulus_eff"].values  * 1e6   # N/mm² → N/m² (Pa)
+    b_m  = stock["Width"].values         * 1e-3
+    h_m  = stock["Depth"].values         * 1e-3
+    L_m  = stock["Length"].values        * 1e-3
+    E_pa = stock["E_modulus_eff"].values  * 1e6
 
     area_m2 = b_m * h_m
-    a_m = np.minimum(b_m, h_m)
-    c_m = np.maximum(b_m, h_m)
+    a_m     = np.minimum(b_m, h_m)
+    c_m     = np.maximum(b_m, h_m)
 
     stock["Area"]   = area_m2
     stock["Length"] = L_m
@@ -113,7 +103,7 @@ def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
 
 
 # =============================================================================
-# MILP ASSIGNMENT BUILDER — fallback if c27 didn't produce milp_assignment
+# MILP ASSIGNMENT BUILDER — fallback if stock_df_raw not passed to c26
 # =============================================================================
 
 def build_milp_assignment(
@@ -124,9 +114,9 @@ def build_milp_assignment(
     """
     Convert MILP result DataFrame to [n_slots] integer index array.
 
-    Prefer using milp_out["milp_assignment"] from c27_stage_milp_v2 directly.
-    Use this function only as a fallback when stock_df_raw was not passed to
-    run_milp_stage(), or when constructing the assignment manually.
+    Prefer using milp_out["milp_assignment"] from c26_stage_MILP directly —
+    it is built inside run_milp_stage() when stock_df_raw is provided.
+    Use this function only as a fallback when building the assignment manually.
 
     Parameters
     ----------
@@ -138,6 +128,10 @@ def build_milp_assignment(
     -------
     milp_assignment : np.ndarray int [n_slots]
         milp_assignment[i] = row index into df_input_stock for slot i.
+
+    Raises
+    ------
+    ValueError if any slot has no matching assignment in df_results.
     """
     slot_id_to_idx  = {
         str(eid): int(i)
@@ -159,100 +153,13 @@ def build_milp_assignment(
 
     unassigned = int((milp_assignment == -1).sum())
     if unassigned > 0:
-        import warnings
-        warnings.warn(
-            f"build_milp_assignment: {unassigned} slot(s) unassigned (index=-1). "
-            "GNN edge features for these slots will use row 0 of stock_df.",
-            stacklevel=2,
+        raise ValueError(
+            f"build_milp_assignment: {unassigned} slot(s) have no matching stock "
+            "assignment in df_results. Ensure the MILP completed with Optimal status "
+            "and that df_results contains an entry for every edge_id in df_slots."
         )
-        milp_assignment[milp_assignment == -1] = 0
 
     return milp_assignment
-
-
-# =============================================================================
-# MODEL LOADER — call once at GA startup
-# =============================================================================
-
-def load_gnn_model(
-    ckpt_path:             Path,
-    norm_stats_path:       Path,
-    edge_index_path:       Path,
-    inference_config_path: Path,
-    device:                str = "cpu",
-) -> dict[str, Any]:
-    """
-    Load trained GNN model and all inference artefacts.
-    Call ONCE before the GA loop; pass the returned bundle to run_gnn_stage().
-
-    num_edges is derived from edge_index.json at load time and stored in the
-    bundle — this determines whether edge features are built as [120,7] or
-    [240,7] and whether predictions are sliced or used directly.
-
-    Returns
-    -------
-    model_bundle : dict
-        {
-          "model":       TrussEdgeSafetyGNN in eval mode,
-          "norm_stats":  dict with node/edge means and stds as np.ndarray,
-          "edge_index":  torch.Tensor [2, num_edges] on device,
-          "num_edges":   int — 120 (unidirectional) or 240 (bidirectional),
-          "bidirectional": bool,
-          "device":      str,
-          "config":      dict from inference_config.json,
-        }
-    """
-    with open(inference_config_path, "r") as f:
-        inf_config = json.load(f)
-
-    model = create_model(
-        node_features_dim = inf_config["node_features_dim"],
-        edge_features_dim = inf_config["edge_features_dim"],
-        hidden_dim        = inf_config["hidden_dim"],
-        num_layers        = inf_config["num_layers"],
-        dropout_p         = inf_config["dropout_p"],
-        device            = device,
-    )
-
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-    model.load_state_dict(ckpt["model_state_dict"])
-    model.eval()
-    print(f"[GNN] Loaded checkpoint from epoch {ckpt.get('best_epoch', '?') + 1}  "
-          f"val_loss={ckpt.get('best_val_loss', float('nan')):.6f}")
-
-    norm_stats = torch.load(norm_stats_path, map_location="cpu")
-    node_means = np.array([norm_stats["node_means"][c] for c in NODE_COLS])
-    node_stds  = np.array([norm_stats["node_stds"][c]  for c in NODE_COLS])
-    edge_means = np.array([norm_stats["edge_means"][c] for c in EDGE_COLS])
-    edge_stds  = np.array([norm_stats["edge_stds"][c]  for c in EDGE_COLS])
-
-    with open(edge_index_path, "r") as f:
-        edge_index = torch.tensor(json.load(f), dtype=torch.long).to(device)
-
-    num_edges     = int(edge_index.shape[1])
-    bidirectional = num_edges == 2 * NUM_EDGES_PHYSICAL
-
-    model.cache_topology(edge_index)
-
-    print(f"[GNN] Model ready on {device}  |  "
-          f"edge_index: {edge_index.shape}  |  "
-          f"{'bidirectional' if bidirectional else 'unidirectional'}  |  "
-          f"threshold: {THRESHOLD}")
-
-    return {
-        "model":         model,
-        "norm_stats":    {
-            "node_means": node_means,
-            "node_stds":  node_stds,
-            "edge_means": edge_means,
-            "edge_stds":  edge_stds,
-        },
-        "edge_index":    edge_index,
-        "num_edges":     num_edges,
-        "bidirectional": bidirectional,
-        "device":        device,
-        "config":        inf_config,
-    }
 
 
 # =============================================================================
@@ -261,10 +168,15 @@ def load_gnn_model(
 
 def _build_node_features(
     node_positions: np.ndarray,
-    device:         str,
+    device:         str | "torch.device",
     norm_stats:     dict,
+    support_nodes:  list[int] | None = None,
+    load_nodes:     list[int] | None = None,
 ) -> torch.Tensor:
-    """Build normalised node feature tensor [39, 10]."""
+    """Build normalised node feature tensor [n_nodes, 10]."""
+    support_nodes = support_nodes if support_nodes is not None else _DEFAULT_SUPPORT_NODES
+    load_nodes    = load_nodes    if load_nodes    is not None else _DEFAULT_LOAD_NODES
+
     n_nodes = node_positions.shape[0]
     x_raw   = np.zeros((n_nodes, len(NODE_COLS)), dtype=np.float32)
 
@@ -272,10 +184,10 @@ def _build_node_features(
     x_raw[:, 1] = node_positions[:, 1]   # y
     x_raw[:, 2] = node_positions[:, 2]   # z
 
-    for node in SUPPORT_NODES:
+    for node in support_nodes:
         x_raw[node, 3:9] = 1.0           # Tx Ty Tz Rx Ry Rz = fixed
 
-    for node in LOAD_NODES:
+    for node in load_nodes:
         x_raw[node, 9] = LOAD_PER_NODE_N # Fz
 
     x_norm = (x_raw - norm_stats["node_means"]) / norm_stats["node_stds"]
@@ -286,7 +198,7 @@ def _build_node_features(
 def _build_edge_features(
     milp_assignment: np.ndarray,
     stock_df:        pd.DataFrame,
-    device:          str,
+    device:          str | "torch.device",
     norm_stats:      dict,
     bidirectional:   bool,
 ) -> torch.Tensor:
@@ -297,8 +209,8 @@ def _build_edge_features(
     milp_assignment[i] = row index into stock_df for slot i (always 120 slots).
 
     Output shape:
-        [120, 7] if unidirectional (current best config, BIDIRECTIONAL=False)
-        [240, 7] if bidirectional  (reverse edges duplicate forward features)
+        [120, 7] if unidirectional
+        [240, 7] if bidirectional (reverse edges duplicate forward features)
     """
     assigned = stock_df.iloc[milp_assignment][EDGE_COLS].values   # [120, 7]
 
@@ -319,18 +231,24 @@ def gnn_feasibility(
     milp_assignment: np.ndarray,
     stock_df:        pd.DataFrame,
     model_bundle:    dict,
-    threshold:       float = THRESHOLD,
+    threshold:       float | None = None,
+    support_nodes:   list[int] | None = None,
+    load_nodes:      list[int] | None = None,
 ) -> tuple[float, list[int], np.ndarray]:
     """
     Single forward pass — evaluate structural feasibility of MILP assignment.
 
     Parameters
     ----------
-    node_positions  : [39, 3] current node xyz from GA (metres)
+    node_positions  : [n_nodes, 3] current node xyz from GA (metres)
     milp_assignment : [120] row indices into stock_df (SI units)
     stock_df        : stock DataFrame in SI units (from prepare_stock_for_gnn)
-    model_bundle    : output of load_gnn_model()
-    threshold       : decision threshold (default THRESHOLD = 0.35)
+    model_bundle    : output of load_surrogate_bundle() from c21_surrogate_io
+    threshold       : decision threshold for P(unsafe). When None, reads from
+                      bundle["config"]["recommended_threshold"], falling back
+                      to module constant THRESHOLD (0.35).
+    support_nodes   : node indices with fixed supports. None → default 5x3 grid.
+    load_nodes      : node indices with applied load. None → default 5x3 grid.
 
     Returns
     -------
@@ -338,13 +256,20 @@ def gnn_feasibility(
     unsafe_member_ids  : list[int]   — member indices predicted unsafe (0–119)
     preds_physical     : np.ndarray [120] — raw P(unsafe) per physical member
     """
+    if threshold is None:
+        threshold = float(
+            model_bundle.get("config", {}).get("recommended_threshold", THRESHOLD)
+        )
+
     device        = model_bundle["device"]
     norm_stats    = model_bundle["norm_stats"]
     edge_index    = model_bundle["edge_index"]
     bidirectional = model_bundle["bidirectional"]
     model         = model_bundle["model"]
 
-    x         = _build_node_features(node_positions, device, norm_stats)
+    x         = _build_node_features(
+        node_positions, device, norm_stats, support_nodes, load_nodes
+    )
     edge_attr = _build_edge_features(
         milp_assignment, stock_df, device, norm_stats, bidirectional
     )
@@ -352,8 +277,6 @@ def gnn_feasibility(
     with torch.no_grad():
         preds = model(x, edge_index=edge_index, edge_attr=edge_attr)
 
-    # Unidirectional: preds is [120, 1] — use all
-    # Bidirectional:  preds is [240, 1] — take first 120 (physical members)
     preds_physical    = preds[:NUM_EDGES_PHYSICAL, 0].cpu().numpy()   # [120] always
     unsafe_flags      = preds_physical >= threshold
     unsafe_member_ids = np.where(unsafe_flags)[0].tolist()
@@ -363,7 +286,7 @@ def gnn_feasibility(
 
 
 # =============================================================================
-# ORCHESTRATION — single call for notebook cell
+# ORCHESTRATION — single call per GA iteration
 # =============================================================================
 
 def run_gnn_stage(
@@ -371,23 +294,35 @@ def run_gnn_stage(
     milp_assignment: np.ndarray,
     df_input_stock:  pd.DataFrame,
     model_bundle:    dict,
-    threshold:       float = THRESHOLD,
-    w_structural:    float = 0.3,
-    print_summary:   bool  = True,
+    threshold:       float | None = None,
+    w_structural:    float        = 0.0,
+    print_summary:   bool         = True,
+    stock_df:        "pd.DataFrame | None" = None,
+    support_nodes:   list[int] | None      = None,
+    load_nodes:      list[int] | None      = None,
 ) -> dict[str, Any]:
     """
     Orchestrate the full GNN feasibility stage for one GA iteration.
 
     Parameters
     ----------
-    node_positions  : [39, 3] current node xyz from GA (metres)
+    node_positions  : [n_nodes, 3] current node xyz from GA (metres)
     milp_assignment : [120] integer array from milp_out["milp_assignment"]
-    df_input_stock  : raw stock inventory in original units (mm / N/mm²).
-                      Unit conversion is done internally.
-    model_bundle    : output of load_gnn_model() — load once, reuse every iteration.
-    threshold       : decision threshold (default 0.35)
-    w_structural    : weight for structural penalty in fitness (default 0.3)
-    print_summary   : whether to print the GNN result summary
+    df_input_stock  : raw stock inventory (mm / N/mm²). Ignored when stock_df
+                      is provided.
+    model_bundle    : output of load_surrogate_bundle() — load once, reuse.
+    threshold       : P(unsafe) decision threshold. None → read from bundle.
+    w_structural    : weight for structural_penalty in return dict.
+                      For notebook convenience only — the GA evaluator reads
+                      feasibility_score directly and ignores structural_penalty.
+                      Default 0.0 (penalty term off unless explicitly set).
+    print_summary   : whether to print the GNN result summary.
+    stock_df        : pre-prepared stock table (output of prepare_stock_for_gnn).
+                      When provided, df_input_stock is ignored and
+                      prepare_stock_for_gnn() is not called. Pass this to avoid
+                      repeating the conversion on every GA evaluation.
+    support_nodes   : node indices with fixed supports. None → default 5x3 grid.
+    load_nodes      : node indices with applied load. None → default 5x3 grid.
 
     Returns
     -------
@@ -396,17 +331,20 @@ def run_gnn_stage(
         structural_penalty — float: w_structural * (1 - feasibility_score)
         unsafe_member_ids  — list[int]: member indices predicted unsafe (0–119)
         preds_physical     — np.ndarray [120]: raw P(unsafe) per member
-        n_unsafe           — int: number of unsafe members
-        n_safe             — int: number of safe members
+        n_unsafe           — int
+        n_safe             — int
     """
-    stock_gnn = prepare_stock_for_gnn(df_input_stock)
+    if stock_df is None:
+        stock_df = prepare_stock_for_gnn(df_input_stock)
 
     feasibility_score, unsafe_member_ids, preds_physical = gnn_feasibility(
         node_positions  = node_positions,
         milp_assignment = milp_assignment,
-        stock_df        = stock_gnn,
+        stock_df        = stock_df,
         model_bundle    = model_bundle,
         threshold       = threshold,
+        support_nodes   = support_nodes,
+        load_nodes      = load_nodes,
     )
 
     structural_penalty = float(w_structural * (1.0 - feasibility_score))
@@ -415,13 +353,18 @@ def run_gnn_stage(
 
     if print_summary:
         bidir_str = "bidirectional" if model_bundle["bidirectional"] else "unidirectional"
+        thr       = threshold if threshold is not None else float(
+            model_bundle.get("config", {}).get("recommended_threshold", THRESHOLD)
+        )
         print(f"\n[GNN] Feasibility Results  ({bidir_str}, {model_bundle['num_edges']} edges):")
         print(f"  Feasibility score:  {feasibility_score:.4f}  "
               f"(1.0 = all members predicted safe)")
         print(f"  Safe members:       {n_safe} / {NUM_EDGES_PHYSICAL}")
         print(f"  Unsafe members:     {n_unsafe} / {NUM_EDGES_PHYSICAL}")
-        print(f"  Structural penalty: {structural_penalty:.4f}  "
-              f"(w_structural={w_structural})")
+        print(f"  Threshold:          {thr:.2f}")
+        if w_structural > 0.0:
+            print(f"  Structural penalty: {structural_penalty:.4f}  "
+                  f"(w_structural={w_structural})")
         if unsafe_member_ids:
             preview = unsafe_member_ids[:20]
             suffix  = "..." if n_unsafe > 20 else ""
