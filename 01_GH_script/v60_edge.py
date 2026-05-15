@@ -44,6 +44,7 @@ EXPECTED_INPUTS = (
 	"Iy_list",
 	"Iz_list",
 	"J_list",
+	"EAL_list",
 	"N_mean_EA_list",
 	"write_header",
 )
@@ -253,6 +254,7 @@ E_list         = _as_list(_in.get("E_list"))
 Iy_list        = _as_list(_in.get("Iy_list"))
 Iz_list        = _as_list(_in.get("Iz_list"))
 J_list         = _as_list(_in.get("J_list"))
+EAL_list       = _as_list(_in.get("EAL_list"))
 N_mean_EA_list = _as_list(_in.get("N_mean_EA_list"))
 
 has_E_input         = _in.get("E_list")         is not None and len(E_list) > 0
@@ -331,18 +333,16 @@ else:
 				continue
 
 			edge_id   = _value_by_index_or_scalar(edge_id_list, i, default_value=i)
-			W_value   = _to_float(_value_by_index_or_scalar(W_list,         i, default_value=0.0))
-			D_value   = _to_float(_value_by_index_or_scalar(D_list,         i, default_value=0.0))
-			L_value   = _to_float(_value_by_index_or_scalar(length_list,    i, default_value=0.0))
-			E_value   = _to_float(_value_by_index_or_scalar(E_list,         i, default_value=0.0))
-			Iy_value  = _to_float(_value_by_index_or_scalar(Iy_list,        i, default_value=0.0))
-			Iz_value  = _to_float(_value_by_index_or_scalar(Iz_list,        i, default_value=0.0))
-			J_value   = _to_float(_value_by_index_or_scalar(J_list,         i, default_value=0.0))
-			N_ea      = _to_float(_value_by_index_or_scalar(N_mean_EA_list, i, default_value=0.0))
+			W_value   = _to_float(_value_by_index_or_scalar(W_list,          i, default_value=0.0))
+			D_value   = _to_float(_value_by_index_or_scalar(D_list,          i, default_value=0.0))
+			L_value   = _to_float(_value_by_index_or_scalar(length_list,     i, default_value=0.0))
+			E_value   = _to_float(_value_by_index_or_scalar(E_list,          i, default_value=0.0))
+			Iy_value  = _to_float(_value_by_index_or_scalar(Iy_list,         i, default_value=0.0))
+			Iz_value  = _to_float(_value_by_index_or_scalar(Iz_list,         i, default_value=0.0))
+			J_value   = _to_float(_value_by_index_or_scalar(J_list,          i, default_value=0.0))
+			eal_value = _to_float(_value_by_index_or_scalar(EAL_list,        i, default_value=0.0))
+			N_ea      = _to_float(_value_by_index_or_scalar(N_mean_EA_list,  i, default_value=0.0))
 			util      = _to_float(_value_by_index_or_scalar(utilization_list, i, default_value=0.0))
-
-			area    = W_value * D_value
-			ea_over_l = (E_value * area / L_value) if L_value != 0.0 else 0.0
 
 			row = [
 				sample,
@@ -356,7 +356,7 @@ else:
 				_format_fixed_number(Iy_value,  MECH_PROP_DECIMALS),
 				_format_fixed_number(Iz_value,  MECH_PROP_DECIMALS),
 				_format_fixed_number(J_value,   MECH_PROP_DECIMALS),
-				_format_fixed_number(ea_over_l, MECH_PROP_DECIMALS),
+				_format_fixed_number(eal_value, MECH_PROP_DECIMALS),
 				_format_fixed_number(N_ea,      UTILIZATION_DECIMALS, min_significant_digits=None),
 				_format_fixed_number(util,      UTILIZATION_DECIMALS, min_significant_digits=None),
 			]
