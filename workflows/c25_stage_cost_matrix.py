@@ -161,9 +161,9 @@ def _compute_lca_vectors(
     # Volumes
     v_req       = req_area_m2  * req_length_m
     v_stock     = stk_area_m2  * stk_length_m
-    v_waste = np.maximum(0.0, stk_area_m2  * (stk_length_m - req_length_m))
-    v_over  = np.maximum(0.0, (stk_area_m2 - req_area_m2) * req_length_m)  # total waste if we cut to length first, then trim section (worst case)
-    # only v_waste is used because Timber elements are typically only cross-cut to length, not ripped lengthwise, to preserve their structural grading and integrity As a result, the oversized beam is installed into the structure as-is.
+    v_waste_len = np.maximum(0.0, stk_area_m2  * (stk_length_m - req_length_m))
+    v_waste_sec = np.maximum(0.0, (stk_area_m2 - req_area_m2) * req_length_m)
+    v_waste     = v_waste_len + v_waste_sec
 
     # Masses
     mass_req   = v_req   * density
@@ -191,6 +191,8 @@ def _compute_lca_vectors(
         "stk_area_m2":  stk_area_m2,
         "v_req":        v_req,
         "v_stock":      v_stock,
+        "v_waste_len":  v_waste_len,
+        "v_waste_sec":  v_waste_sec,
         "v_waste":      v_waste,
         "mass_req":     mass_req,
         "mass_stock":   mass_stock,

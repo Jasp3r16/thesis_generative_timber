@@ -8,9 +8,9 @@
 #      milp_assignment is now built once inside run_milp_stage() and read from
 #      milp_out["milp_assignment"] directly — stage_gnn.build_milp_assignment()
 #      is no longer called in the evaluator.
-#   6. _normalize_bounds_constants() splits validation into specific error
-#      messages per constant (C_max / R_max / W_max) instead of a single
-#      catch-all. R_max = 0.0 now names the stock composition cause and fix.
+#   6. _normalize_bounds_constants() validates C_max and R_max. W_max removed
+#      — waste is no longer a fitness term (captured by LCA cost in c25).
+#      R_max = 0.0 now names the stock composition cause and fix.
 #   7. _compute_one_time_normalization_constants() catches stock-composition
 #      ValueErrors immediately (skips remaining probes) vs transient errors
 #      (continues retrying).
@@ -56,15 +56,13 @@ def _resolve_weight_config(
         return {
             "omega_1": float(weights.get("omega_1", 1.0)),
             "omega_2": float(weights.get("omega_2", 1.0)),
-            "omega_3": float(weights.get("omega_3", 1.0)),
             "omega_4": float(w_structural),
         }
     strategy = str(config_dict.get("weight_strategy", "balanced")).strip().lower()
     base = {
-        "cost-dominant":  {"omega_1": 1.0, "omega_2": 0.6, "omega_3": 0.8},
-        "reuse-dominant": {"omega_1": 0.8, "omega_2": 1.0, "omega_3": 0.8},
-        "waste-dominant": {"omega_1": 0.8, "omega_2": 0.6, "omega_3": 1.0},
-    }.get(strategy, {"omega_1": 1.0, "omega_2": 1.0, "omega_3": 1.0})
+        "cost-dominant":  {"omega_1": 1.2, "omega_2": 0.6},
+        "reuse-dominant": {"omega_1": 0.8, "omega_2": 1.2},
+    }.get(strategy, {"omega_1": 1.0, "omega_2": 1.0})
     base["omega_4"] = float(w_structural)
     return base
 
@@ -86,7 +84,6 @@ def _normalize_bounds_constants(constants: dict) -> dict:
     out = {
         "C_max": float(constants.get("C_max", np.nan)),
         "R_max": float(constants.get("R_max", np.nan)),
-        "W_max": float(constants.get("W_max", np.nan)),
     }
     if not all(np.isfinite(list(out.values()))):
         raise ValueError(f"Normalization constants contain non-finite values: {out}")
@@ -101,11 +98,6 @@ def _normalize_bounds_constants(constants: dict) -> dict:
         raise ValueError(
             f"C_max = {out['C_max']}: maximum assignment cost is zero or negative. "
             "Check that the cost matrix contains at least one finite positive entry."
-        )
-    if out["W_max"] <= 0.0:
-        raise ValueError(
-            f"W_max = {out['W_max']}: maximum waste volume is zero or negative. "
-            "Check that the stock pool contains elements longer than their assigned slots."
         )
     return out
 
@@ -134,7 +126,7 @@ def _compute_one_time_normalization_constants(
     config_dict:  dict,
 ) -> tuple[dict, dict]:
     """
-    Derive C_max / R_max / W_max by running the full pipeline on random
+    Derive C_max / R_max by running the full pipeline on random
     probe designs once before the GA loop starts.
     """
     defaults = stage_fitness.get_default_normalization_constants()
@@ -292,8 +284,7 @@ def evaluate_design_candidate(
         "fitness_result":      None,
         "milp_status":         None,
         "total_cost":          float("inf"),
-        "reuse_rate":          0.0,
-        "waste_total":         float("inf"),
+        "reuse_fraction":      0.0,
         "gnn_feasibility":     None,
         "gnn_unsafe_members":  None,
         "preds_physical":      None,
@@ -448,9 +439,8 @@ def evaluate_design_candidate(
             "fitness":        float(fitness_result["fitness"]),
             "reason":         None,
             "fitness_result": fitness_result,
-            "total_cost":     float(fitness_result.get("cost_raw", total_cost)),
-            "reuse_rate":     float(fitness_result.get("reuse_rate", 0.0)),
-            "waste_total":    float(fitness_result.get("waste_total", 0.0)),
+            "total_cost":      float(fitness_result.get("cost_raw", total_cost)),
+            "reuse_fraction":  float(fitness_result.get("reuse_fraction", 0.0)),
             "df_vertices":    df_vertices,
             "df_edges":       df_edges,
             "df_results":     df_results,
@@ -461,8 +451,7 @@ def evaluate_design_candidate(
             print(
                 f"    ✓ fitness     | fitness={result['fitness']:.4f}, "
                 f"cost={result['total_cost']:.2f}, "
-                f"reuse={result['reuse_rate']:.1f}%, "
-                f"waste={result['waste_total']:.4f}, "
+                f"reuse={result['reuse_fraction']:.3f}, "
                 f"ω4={w_structural:.2f}"
             )
 

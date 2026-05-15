@@ -2,15 +2,19 @@
 
 This module computes design-specific maxima for:
 - MILP assignment cost (C_max)
-- assignment waste (W_max)
-- achievable reclaimed reuse rate (R_max)
+- achievable volume-weighted reclaimed reuse fraction (R_max, in [0, 1])
 
-It reuses the assignment constraints from the c27 stage so bounds are
+W_max (waste) is computed and returned under bounds["max_waste"] for
+informational purposes only — waste is not a fitness term. It is already
+captured by the LCA cost components (C3/C4 streams) in c25_stage_cost_matrix.
+
+It reuses the assignment constraints from c26_stage_MILP so bounds are
 compatible with the same feasible search space.
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
 import numpy as np
@@ -18,11 +22,13 @@ import pandas as pd
 import pulp
 
 
-# Default normalization constants used when no bounds are computed
+# Default normalization constants used when no bounds are computed.
+# R_max = 1.0 because reuse_fraction is now volume-weighted and lives in [0, 1].
+# 1.0 is a valid upper bound (fraction cannot exceed 1), but is loose when
+# reclaimed stock is scarce — run compute_normalization_bounds() for a tight value.
 DEFAULT_NORMALIZATION_CONSTANTS = {
     "C_max": 8.0,
-    "R_max": 100.0,
-    "W_max": 0.4,
+    "R_max": 1.0,
 }
 
 
@@ -31,7 +37,6 @@ def get_default_normalization_constants() -> dict[str, float]:
     return {
         "C_max": float(DEFAULT_NORMALIZATION_CONSTANTS["C_max"]),
         "R_max": float(DEFAULT_NORMALIZATION_CONSTANTS["R_max"]),
-        "W_max": float(DEFAULT_NORMALIZATION_CONSTANTS["W_max"]),
     }
 
 
@@ -91,14 +96,15 @@ def _build_connectivity(
     construction_slots: list[str],
     stock_items: list[str],
 ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    slot_to_stock = {
-        slot_id: [stock_id for stock_id, matched_slot in valid_matches if matched_slot == slot_id]
-        for slot_id in construction_slots
-    }
-    stock_to_slots = {
-        stock_id: [slot_id for matched_stock, slot_id in valid_matches if matched_stock == stock_id]
-        for stock_id in stock_items
-    }
+    # O(n_valid_matches) single-pass build — previously O(n_slots × n_valid_matches)
+    _slot_to_stock: defaultdict[str, list[str]] = defaultdict(list)
+    _stock_to_slots: defaultdict[str, list[str]] = defaultdict(list)
+    for stock_id, slot_id in valid_matches:
+        _slot_to_stock[slot_id].append(stock_id)
+        _stock_to_slots[stock_id].append(slot_id)
+
+    slot_to_stock  = {s: _slot_to_stock.get(s, [])  for s in construction_slots}
+    stock_to_slots = {k: _stock_to_slots.get(k, []) for k in stock_items}
     return slot_to_stock, stock_to_slots
 
 
@@ -148,7 +154,8 @@ def _solve_extreme_assignment(
     selected_pairs = [
         (stock_id, slot_id)
         for stock_id, slot_id in valid_matches
-        if x[(stock_id, slot_id)].varValue == 1
+        if x[(stock_id, slot_id)].varValue is not None
+        and x[(stock_id, slot_id)].varValue > 0.5
     ]
 
     objective_value = float(pulp.value(problem.objective)) if status == "Optimal" else float("nan")
@@ -158,6 +165,23 @@ def _solve_extreme_assignment(
         "objective_value": objective_value,
         "selected_pairs": selected_pairs,
     }
+
+
+def _build_stock_volume_lookup(enriched_stock: pd.DataFrame) -> dict[str, float]:
+    """Build member_id → volume (mm³) lookup from enriched_stock dimensions."""
+    cols = {str(c).strip().lower(): c for c in enriched_stock.columns}
+    w_col = cols.get("width")
+    d_col = cols.get("depth")
+    l_col = cols.get("length")
+    if not all([w_col, d_col, l_col]):
+        return {}
+    member_ids = enriched_stock["Member_ID"].astype(str).str.strip()
+    volumes = (
+        pd.to_numeric(enriched_stock[w_col], errors="coerce").fillna(1.0)
+        * pd.to_numeric(enriched_stock[d_col], errors="coerce").fillna(1.0)
+        * pd.to_numeric(enriched_stock[l_col], errors="coerce").fillna(1.0)
+    )
+    return dict(zip(member_ids, volumes))
 
 
 def _build_waste_coefficients(
@@ -202,10 +226,11 @@ def compute_normalization_bounds(
     df_slots: pd.DataFrame,
     reclaimed_marker: str = "RS",
     new_marker: str = "NS",
-    new_stock_max_uses: int | None = 1,
+    new_stock_max_uses: int | None = None,
     solver_msg: bool = False,
 ) -> dict[str, Any]:
-    """Compute C_max, W_max, and achievable R_max using auxiliary MILP objectives."""
+    """Compute C_max and R_max (volume-weighted reuse fraction) using auxiliary MILP solves.
+    Also computes W_max informally for reporting — it is not used in fitness."""
     if cost_matrix.ndim != 2:
         raise ValueError("cost_matrix must be 2D")
 
@@ -244,7 +269,6 @@ def compute_normalization_bounds(
             "normalization_constants": {
                 "C_max": float("nan"),
                 "R_max": float("nan"),
-                "W_max": float("nan"),
             },
             "bounds": {},
             "metadata": {
@@ -289,12 +313,21 @@ def compute_normalization_bounds(
         solver_msg=solver_msg,
     )
 
-    reuse_coeffs = {
-        (stock_id, slot_id): float(1.0 if stock_id in reclaimed_items else 0.0)
+    # Volume-weighted reuse coefficients: only reclaimed pieces contribute.
+    # When dimension data is absent, fall back to count-based (vol=1 for all).
+    vol_lookup     = _build_stock_volume_lookup(enriched_stock)
+    reclaimed_set  = set(reclaimed_items)
+    all_vol_coeffs = {
+        (stock_id, slot_id): vol_lookup.get(stock_id, 1.0)
         for stock_id, slot_id in valid_matches
     }
-    max_reuse_count = _solve_extreme_assignment(
-        objective_name="maximize_reuse_count",
+    reuse_coeffs = {
+        (stock_id, slot_id): (vol_lookup.get(stock_id, 1.0) if stock_id in reclaimed_set else 0.0)
+        for stock_id, slot_id in valid_matches
+    }
+
+    max_reuse_vol = _solve_extreme_assignment(
+        objective_name="maximize_reuse_volume",
         objective_coeffs=reuse_coeffs,
         valid_matches=valid_matches,
         construction_slots=construction_slots,
@@ -308,32 +341,44 @@ def compute_normalization_bounds(
         solver_msg=solver_msg,
     )
 
-    slot_count = max(int(len(construction_slots)), 1)
-    reuse_max_pct = float(max_reuse_count["objective_value"] / slot_count * 100.0) if max_reuse_count["status"] == "Optimal" else float("nan")
+    # R_max = reclaimed_vol / total_vol for the max-reclaimed assignment.
+    # This is a lower bound on the achievable fraction (the denominator may be
+    # smaller for a different assignment), so normalize_metrics clips correctly.
+    if max_reuse_vol["status"] == "Optimal":
+        rec_vol   = float(max_reuse_vol["objective_value"])
+        total_vol = sum(all_vol_coeffs.get(pair, 1.0) for pair in max_reuse_vol["selected_pairs"])
+        r_max     = float(np.clip(rec_vol / total_vol if total_vol > 0.0 else 1.0, 0.0, 1.0))
+    else:
+        r_max = float("nan")
+    # Keep max_reuse_count alias for return dict backward compat
+    max_reuse_count = max_reuse_vol
 
-    c_max = float(max_cost["objective_value"]) if max_cost["status"] == "Optimal" else float("nan")
+    c_max = float(max_cost["objective_value"])  if max_cost["status"]  == "Optimal" else float("nan")
     w_max = float(max_waste["objective_value"]) if max_waste["status"] == "Optimal" else float("nan")
 
+    all_solved = all(
+        r["status"] == "Optimal" for r in (max_cost, max_waste, max_reuse_count)
+    )
     return {
-        "status": "Optimal" if all(result["status"] == "Optimal" for result in (max_cost, max_waste, max_reuse_count)) else "Partial",
+        "status": "Optimal" if all_solved else "Partial",
         "normalization_constants": {
             "C_max": c_max,
-            "R_max": reuse_max_pct,
-            "W_max": w_max,
+            "R_max": r_max,
         },
         "bounds": {
-            "max_cost": max_cost,
-            "max_waste": max_waste,
-            "max_reuse_count": max_reuse_count,
-            "max_reuse_rate_pct": reuse_max_pct,
+            "max_cost":            max_cost,
+            "max_waste":           max_waste,          # informational — not used in fitness
+            "max_reuse_vol":       max_reuse_count,
+            "max_reuse_fraction":  r_max,
         },
         "metadata": {
-            "slots": int(len(construction_slots)),
-            "stock_items": int(len(stock_items)),
-            "reclaimed_items": int(len(reclaimed_items)),
-            "new_items": int(len(new_items)),
-            "new_stock_max_uses": None if new_stock_max_uses is None else int(new_stock_max_uses),
-            "valid_pairs": int(len(valid_matches)),
+            "slots":               int(len(construction_slots)),
+            "stock_items":         int(len(stock_items)),
+            "reclaimed_items":     int(len(reclaimed_items)),
+            "new_items":           int(len(new_items)),
+            "new_stock_max_uses":  None if new_stock_max_uses is None else int(new_stock_max_uses),
+            "valid_pairs":         int(len(valid_matches)),
+            "vol_lookup_entries":  int(len(vol_lookup)),
             "missing_waste_pairs_in_logs": int(missing_waste_pairs),
         },
     }
@@ -346,7 +391,7 @@ def run_normalization_bounds_stage(
     df_slots: pd.DataFrame,
     reclaimed_marker: str = "RS",
     new_marker: str = "NS",
-    new_stock_max_uses: int | None = 1,
+    new_stock_max_uses: int | None = None,
     solver_msg: bool = False,
     print_summary: bool = True,
 ) -> dict[str, Any]:
@@ -369,8 +414,7 @@ def run_normalization_bounds_stage(
         print(
             "Normalization constants "
             f"C_max={constants.get('C_max')}, "
-            f"R_max={constants.get('R_max')}, "
-            f"W_max={constants.get('W_max')}"
+            f"R_max={constants.get('R_max')}"
         )
 
     return out
