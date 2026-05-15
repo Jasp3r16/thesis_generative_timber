@@ -1,17 +1,24 @@
 # =============================================================================
-# c30_ga_evaluator_v4.py — Design Evaluator + One-Time Bounds
+# c23_ga_evaluator.py — Design Evaluator + One-Time Bounds
 # =============================================================================
 #
-# Changes vs v3:
-#   1. v_idx derivation added to _compute_one_time_normalization_constants()
-#      — was missing, causing KeyError 'v_idx' on all 8 probe attempts.
-#   2. Duplicate v_idx derivation block removed from evaluate_design_candidate()
-#      — was done twice with slightly different variable names.
-#   3. milp_assignment built from df_results via stage_gnn.build_milp_assignment()
-#      — stage_milp.run_milp_stage() does not return milp_assignment directly.
-#   4. build_logs=True added to build_cost_matrix() in bounds probe
-#      — df_logs was None (build_logs defaults to False), crashing
-#      stage_bounds.run_normalization_bounds_stage() on df_logs.columns.
+# Changes vs v4:
+#   5. stock_df_raw=df_stock added to run_milp_stage() in both
+#      evaluate_design_candidate() and _compute_one_time_normalization_constants().
+#      milp_assignment is now built once inside run_milp_stage() and read from
+#      milp_out["milp_assignment"] directly — stage_gnn.build_milp_assignment()
+#      is no longer called in the evaluator.
+#   6. _normalize_bounds_constants() splits validation into specific error
+#      messages per constant (C_max / R_max / W_max) instead of a single
+#      catch-all. R_max = 0.0 now names the stock composition cause and fix.
+#   7. _compute_one_time_normalization_constants() catches stock-composition
+#      ValueErrors immediately (skips remaining probes) vs transient errors
+#      (continues retrying).
+#
+# Changes vs v3 (carried forward):
+#   1. v_idx derivation added to _compute_one_time_normalization_constants().
+#   2. Duplicate v_idx derivation removed from evaluate_design_candidate().
+#   3. build_logs=True added to build_cost_matrix() in bounds probe.
 
 import warnings
 import numpy as np
@@ -75,8 +82,23 @@ def _normalize_bounds_constants(constants: dict) -> dict:
     }
     if not all(np.isfinite(list(out.values()))):
         raise ValueError(f"Normalization constants contain non-finite values: {out}")
-    if any(v <= 0.0 for v in out.values()):
-        raise ValueError(f"Normalization constants must be strictly positive: {out}")
+    if out["R_max"] <= 0.0:
+        raise ValueError(
+            "R_max = 0.0: the stock pool contains no reclaimed elements and the "
+            "reuse objective cannot be normalised. Either supply reclaimed stock, "
+            "or set GA_CONFIG['fitness_weights']['omega_2'] = 0.0 to disable the "
+            "reuse component before running the GA."
+        )
+    if out["C_max"] <= 0.0:
+        raise ValueError(
+            f"C_max = {out['C_max']}: maximum assignment cost is zero or negative. "
+            "Check that the cost matrix contains at least one finite positive entry."
+        )
+    if out["W_max"] <= 0.0:
+        raise ValueError(
+            f"W_max = {out['W_max']}: maximum waste volume is zero or negative. "
+            "Check that the stock pool contains elements longer than their assigned slots."
+        )
     return out
 
 
@@ -151,6 +173,7 @@ def _compute_one_time_normalization_constants(
                 cost_matrix    = cost_matrix,
                 enriched_stock = stock_prepared,
                 df_slots       = df_slots,
+                stock_df_raw              = df_stock,
                 reclaimed_marker          = "RS",
                 new_marker                = "NS",
                 new_stock_max_uses        = (
@@ -195,6 +218,22 @@ def _compute_one_time_normalization_constants(
                 "status":  bounds_out.get("status"),
                 "attempt": attempt_idx + 1,
             }
+
+        except ValueError as exc:
+            msg = str(exc)
+            if any(k in msg for k in ("R_max", "C_max", "W_max")):
+                # Stock composition problem — retrying will not help.
+                warnings.warn(
+                    f"Bounds probe failed due to stock composition: {exc}\n"
+                    "Falling back to defaults. Check GA_CONFIG fitness weights.",
+                    stacklevel=2,
+                )
+                return defaults, {
+                    "source": "defaults",
+                    "reason": f"stock composition: {exc}",
+                }
+            print(f"  [bounds probe {attempt_idx+1}] value error: {exc} — retrying")
+            continue
 
         except Exception as exc:
             print(f"  [bounds probe {attempt_idx+1}] exception: {exc} — retrying")
@@ -267,6 +306,8 @@ def evaluate_design_candidate(
         df_vertices, node_positions, support_nodes, load_nodes = _derive_node_roles(
             geo_out["df_vertices"]
         )
+        if verbose:
+            print(f"    ✓ geometry    | {len(df_vertices)} nodes, {len(df_edges)} edges")
 
         # ---- feasibility (slots + member forces) ----------------------------
         df_slots, feasibility_mask, member_forces, _ = stage_feas.build_cost_filter(
@@ -276,6 +317,9 @@ def evaluate_design_candidate(
             support_nodes  = support_nodes,
             load_nodes     = load_nodes,
         )
+        if verbose:
+            n_feasible = int(feasibility_mask.sum())
+            print(f"    ✓ feasibility | {n_feasible:,} feasible slot/stock pairs")
 
         # ---- cost matrix ----------------------------------------------------
         cost_matrix, stock_prepared, _ = stage_cost.build_cost_matrix(
@@ -283,6 +327,9 @@ def evaluate_design_candidate(
             df_input_stock   = df_stock,
             feasibility_mask = feasibility_mask,
         )
+        if verbose:
+            finite_entries = int(np.isfinite(cost_matrix).sum())
+            print(f"    ✓ cost matrix | {finite_entries:,} finite entries")
 
         # ---- MILP -----------------------------------------------------------
         new_stock_max_uses = config_dict.get("new_stock_max_uses", 1)
@@ -290,6 +337,7 @@ def evaluate_design_candidate(
             cost_matrix    = cost_matrix,
             enriched_stock = stock_prepared,
             df_slots       = df_slots,
+            stock_df_raw              = df_stock,
             reclaimed_marker          = "RS",
             new_marker                = "NS",
             new_stock_max_uses        = (
@@ -302,42 +350,54 @@ def evaluate_design_candidate(
 
         result["milp_status"] = milp_out["status"]
         if milp_out["status"] != "Optimal":
+            if verbose:
+                print(f"    ✗ MILP        | status={milp_out['status']} → PENALIZED")
             result["status"] = "PENALIZED"
             result["reason"] = f"MILP status: {milp_out['status']}"
             return result
 
         df_results = milp_out["df_results"]
         total_cost = milp_out["total_cost"]
+        if verbose:
+            print(f"    ✓ MILP        | status=Optimal, cost={total_cost:.4f}, "
+                  f"{len(df_results)} assignments")
 
-        # ---- GNN feasibility (on actual MILP assignment) --------------------
-        # Fix #3: build milp_assignment from df_results — stage_milp does not
-        # return it directly. build_milp_assignment() maps string edge/stock IDs
-        # to integer row indices into df_stock as required by run_gnn_stage().
+        # ---- GNN feasibility (on MILP assignment built inside run_milp_stage) --
         gnn_feasibility    = 1.0
         gnn_unsafe_members = []
 
         if MODEL_PREFIX:
-            milp_assignment = stage_gnn.build_milp_assignment(
-                df_results     = df_results,
-                df_slots       = df_slots,
-                df_input_stock = df_stock,
-            )
-            model_bundle = bundle if bundle is not None else load_surrogate_bundle(prefix_sm=MODEL_PREFIX)
-            gnn_out = stage_gnn.run_gnn_stage(
-                node_positions  = node_positions,
-                milp_assignment = milp_assignment,
-                df_input_stock  = df_stock,
-                model_bundle    = model_bundle,
-                print_summary   = False,
-            )
-            gnn_feasibility    = float(gnn_out["feasibility_score"])
-            gnn_unsafe_members = gnn_out["unsafe_member_ids"]
+            milp_assignment = milp_out.get("milp_assignment")
+            if milp_assignment is None:
+                warnings.warn(
+                    "milp_out['milp_assignment'] is None — GNN stage skipped. "
+                    "Ensure stock_df_raw is passed to run_milp_stage().",
+                    stacklevel=2,
+                )
+                if verbose:
+                    print(f"    - GNN         | skipped (milp_assignment is None)")
+            else:
+                model_bundle = bundle if bundle is not None else load_surrogate_bundle(prefix_sm=MODEL_PREFIX)
+                gnn_out = stage_gnn.run_gnn_stage(
+                    node_positions  = node_positions,
+                    milp_assignment = milp_assignment,
+                    df_input_stock  = df_stock,
+                    model_bundle    = model_bundle,
+                    print_summary   = False,
+                )
+                gnn_feasibility    = float(gnn_out["feasibility_score"])
+                gnn_unsafe_members = gnn_out["unsafe_member_ids"]
+                if verbose:
+                    print(f"    ✓ GNN         | feasibility={gnn_feasibility:.2%}, "
+                          f"unsafe={len(gnn_unsafe_members)} members")
         else:
             warnings.warn(
                 "MODEL_PREFIX not set — GNN stage skipped. "
-                "Set MODEL_PREFIX in c30_ga_setup.py.",
+                "Set MODEL_PREFIX in GA_CONFIG.",
                 stacklevel=2,
             )
+            if verbose:
+                print(f"    - GNN         | skipped (MODEL_PREFIX not set)")
 
         result["gnn_feasibility"]    = gnn_feasibility
         result["gnn_unsafe_members"] = gnn_unsafe_members
@@ -382,10 +442,10 @@ def evaluate_design_candidate(
 
         if verbose:
             print(
-                f"  OK | fitness={result['fitness']:.4f} | "
-                f"cost={result['total_cost']:.2f} | "
-                f"reuse={result['reuse_rate']:.1f}% | "
-                f"gnn={gnn_feasibility:.2%} | "
+                f"    ✓ fitness     | fitness={result['fitness']:.4f}, "
+                f"cost={result['total_cost']:.2f}, "
+                f"reuse={result['reuse_rate']:.1f}%, "
+                f"waste={result['waste_total']:.4f}, "
                 f"ω4={w_structural:.2f}"
             )
 

@@ -1,4 +1,6 @@
-# --- CONFIGURATION ---
+# =====================================
+# GEOMETRY CONFIGURATION
+# =====================================
 GRID_CELLS_X = 5         # Number of cells in X
 GRID_CELLS_Y = 3          # Number of cells in Y
 EDGE_LENGTH = 3.0         # Size of one cell
@@ -11,7 +13,9 @@ GRID = f"{GRID_CELLS_X}x{GRID_CELLS_Y}"
 
 print(f"GRID: {GRID}, EDGE_LENGTH: {EDGE_LENGTH}, LAYER_HEIGHT: {LAYER_HEIGHT}, DIVISIONS: {DIVISIONS}, NUM_SAMPLES: {NUM_SAMPLES}\n")
 
-# LCA factors for the assignment cost matrix (kg CO2e)
+# ====================================
+# COST MATRIX VALUES
+# ====================================
 IMPACT_FACTOR_A1_A3 = 0.25                     #  kg CO2e / kg. This represents the fossil Global Warming Potential of forestry, sawmilling, and kiln-drying for standard softwood
 IMPACT_FACTOR_RECOVERED_C1 = 0.0085            # represents the energy and emissions associated with selective deconstruction (Module C1)
 ENERGY_PREP_SAW_A5 = 0.02                   # accounts for cleaning, denailing, and structural testing of the salvaged element, represents the energy required for resizing the salvaged beam to fit the new topology slot.
