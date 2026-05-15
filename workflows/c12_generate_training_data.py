@@ -170,9 +170,9 @@ def _build_edge_rows(
     """One edge feature dict per member (e0..eN), ordered by edge position.
 
     stock_gnn must be reset_index'd so iloc[assignment[i]] is row-index safe.
-    Length in the GNN features is the stock element length (>= actual slot length).
-    N_mean_EA is geometry-derived (actual structural demand, not stock-dependent).
-    member_length_m is included as a reference column only — not a GNN feature.
+    Length in the GNN features is the actual installed member length (from geometry).
+    EA/L is recomputed from E * A / member_length — not the stock-length-based value.
+    stock_length_m is included as a reference column only — not a GNN feature.
     """
     stock_gnn = stock_gnn.reset_index(drop=True)
     rows = []
@@ -185,17 +185,17 @@ def _build_edge_rows(
             "V2":              int(edge["V2"]),
             "strength_class":  str(s["strength_class"]),
             # GNN edge features (NEW_EDGE_COLS):
-            "Depth_m":         round(float(s["Depth_m"]), 4),   # 0.1 mm precision
-            "Width_m":         round(float(s["Width_m"]), 4),   # 0.1 mm precision
-            "Length":          round(float(s["Length"]), 3),    # 1 mm precision
-            "E":               round(float(s["E"])),            # integer Pa
-            "Iy":              round(float(s["Iy"]), 8),        # m⁴, ~4 sig figs
-            "Iz":              round(float(s["Iz"]), 9),        # m⁴, ~4 sig figs
-            "J":               round(float(s["J"]), 8),         # m⁴, ~4 sig figs
-            "EA/L":            round(float(s["EA/L"]), 1),      # 0.1 N/m precision
+            "Depth_m":         round(float(s["Depth_m"]), 4),
+            "Width_m":         round(float(s["Width_m"]), 4),
+            "Length":          round(float(lengths_m[i]), 3),   # actual installed member length
+            "E":               round(float(s["E"])),
+            "Iy":              round(float(s["Iy"]), 8),
+            "Iz":              round(float(s["Iz"]), 9),
+            "J":               round(float(s["J"]), 8),
+            "EA/L":            round(float(s["E"] * s["Width_m"] * s["Depth_m"] / lengths_m[i]), 1),
             "N_mean_EA":       round(float(member_forces[i]), 2),
             # Reference columns (ignored by c21_surrogate_training):
-            "member_length_m": round(float(lengths_m[i]), 4),
+            "stock_length_m":  round(float(s["Length"]), 3),   # original stock piece length
             "assigned_stock":  str(s.get("Member_ID", "")),
         })
     return rows

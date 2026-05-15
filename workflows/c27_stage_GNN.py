@@ -97,6 +97,10 @@ def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
     stock["Iy"]     = b_m * h_m**3 / 12
     stock["Iz"]     = h_m * b_m**3 / 12
     stock["J"]      = a_m**3 * c_m / 3 * (1 - 0.63 * a_m / c_m)
+    # TODO: EA/L here uses stock element length, but training data uses actual installed
+    # member length (geometry-derived). At inference, recompute EA/L per member as
+    # E * A / member_length using node positions before calling gnn_feasibility(),
+    # so training and inference are consistent. See c12_generate_training_data._build_edge_rows.
     stock["EA/L"]   = E_pa * area_m2 / L_m
 
     return stock
