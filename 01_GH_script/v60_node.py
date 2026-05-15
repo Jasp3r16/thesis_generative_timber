@@ -344,7 +344,7 @@ else:
 
 	if DEBUG_LOG:
 		print(
-			"[v40_node] sample={} nodes={} coords_type={} first_item_type={}".format(
+			"[v60_node] sample={} nodes={} coords_type={} first_item_type={}".format(
 				sample,
 				len(node_list),
 				type(_in.get("coords_list")).__name__ if _in.get("coords_list") is not None else "None",
@@ -358,7 +358,7 @@ else:
 		if should_write_header:
 			header = [
 				"sample_id",
-				"node_id",
+				"vertex_index",
 				"x",
 				"y",
 				"z",
@@ -373,7 +373,7 @@ else:
 			sc.sticky[header_key] = True
 
 		for i, node in enumerate(node_list):
-			node_id = id_list[i] if i < len(id_list) else i
+			node_id = id_list[i] if i < len(id_list) else "v{}".format(i)
 			x, y, z = _point_xyz(node)
 			if x is None or y is None or z is None:
 				skipped_invalid_coords += 1

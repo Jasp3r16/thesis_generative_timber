@@ -9,16 +9,19 @@ Expected inputs:
 - write: bool, when True writes current sample
 - reset: bool, when True clears dedup memory and recreates CSV file
 - edge_id: optional list/tree of edge ids (same length as edge_pairs)
-- length: optional list/tree of edge lengths L (same length as edge_pairs)
+- length: optional list/tree of stock element lengths L (same length as edge_pairs)
 - utilization: optional list/tree of utilization values per edge (same length as edge_pairs)
-- A_list: list/tree of cross-sectional areas per edge
-- E_list: optional list/tree of Young's modulus per edge
-- Iy_list: optional list/tree of Iy per edge
-- Iz_list: optional list/tree of Iz per edge
-- J_list: optional list/tree of J per edge
+- W_list: list/tree of section widths in metres per edge
+- D_list: list/tree of section depths in metres per edge
+- E_list: optional list/tree of Young's modulus per edge (Pa)
+- Iy_list: optional list/tree of Iy per edge (m4)
+- Iz_list: optional list/tree of Iz per edge (m4)
+- J_list: optional list/tree of J per edge (m4)
+- N_mean_EA_list: list/tree of mean-EA axial force estimate per edge (N)
 - write_header: optional bool, default True
 
-Mechanical-property columns are only exported when their inputs are provided.
+Column order matches training_edges_raw.csv:
+  sample_id, edge_id, V1, V2, Width_m, Depth_m, Length, E, Iy, Iz, J, EA/L, N_mean_EA, Utilization
 
 Outputs:
 - status: human-readable status message
@@ -35,11 +38,13 @@ EXPECTED_INPUTS = (
 	"edge_id",
 	"length",
 	"utilization",
-	"A_list",
+	"W_list",
+	"D_list",
 	"E_list",
 	"Iy_list",
 	"Iz_list",
 	"J_list",
+	"N_mean_EA_list",
 	"write_header",
 )
 
@@ -242,16 +247,19 @@ edge_id_list = _as_list(_in.get("edge_id"))
 length_list = _as_list(_in.get("length"))
 utilization_list = _as_list(_in.get("utilization"))
 
-A_list = _as_list(_in.get("A_list"))
-E_list = _as_list(_in.get("E_list"))
-Iy_list = _as_list(_in.get("Iy_list"))
-Iz_list = _as_list(_in.get("Iz_list"))
-J_list = _as_list(_in.get("J_list"))
+W_list         = _as_list(_in.get("W_list"))
+D_list         = _as_list(_in.get("D_list"))
+E_list         = _as_list(_in.get("E_list"))
+Iy_list        = _as_list(_in.get("Iy_list"))
+Iz_list        = _as_list(_in.get("Iz_list"))
+J_list         = _as_list(_in.get("J_list"))
+N_mean_EA_list = _as_list(_in.get("N_mean_EA_list"))
 
-has_E_input = _in.get("E_list") is not None and len(E_list) > 0
-has_Iy_input = _in.get("Iy_list") is not None and len(Iy_list) > 0
-has_Iz_input = _in.get("Iz_list") is not None and len(Iz_list) > 0
-has_J_input = _in.get("J_list") is not None and len(J_list) > 0
+has_E_input         = _in.get("E_list")         is not None and len(E_list) > 0
+has_Iy_input        = _in.get("Iy_list")        is not None and len(Iy_list) > 0
+has_Iz_input        = _in.get("Iz_list")        is not None and len(Iz_list) > 0
+has_J_input         = _in.get("J_list")         is not None and len(J_list) > 0
+has_N_mean_EA_input = _in.get("N_mean_EA_list") is not None and len(N_mean_EA_list) > 0
 
 csv_file = _resolve_csv_file(_in.get("file_path"), _in.get("file_name"))
 header_enabled = True if _in.get("write_header") is None else bool(_in.get("write_header"))
@@ -297,32 +305,23 @@ else:
 		writer = csv.writer(f)
 
 		if should_write_header:
+			# Fixed columns — order matches training_edges_raw.csv
 			header = [
-				"Sample_ID",
-				"Edge_ID",
-				"Source",
-				"Target",
-				"Area",
+				"sample_id",
+				"edge_id",
+				"V1",
+				"V2",
+				"Width_m",
+				"Depth_m",
 				"Length",
+				"E",
+				"Iy",
+				"Iz",
+				"J",
+				"EA/L",
+				"N_mean_EA",
 				"Utilization",
 			]
-
-			insert_idx = header.index("Utilization")
-			if has_E_input:
-				header.insert(insert_idx, "E")
-				insert_idx += 1
-			if has_Iy_input:
-				header.insert(insert_idx, "Iy")
-				insert_idx += 1
-			if has_Iz_input:
-				header.insert(insert_idx, "Iz")
-				insert_idx += 1
-			if has_J_input:
-				header.insert(insert_idx, "J")
-				insert_idx += 1
-			if has_E_input:
-				header.insert(insert_idx, "EA/L")
-
 			writer.writerow(header)
 			sc.sticky[header_key] = True
 
@@ -331,53 +330,36 @@ else:
 			if source is None or target is None:
 				continue
 
-			edge_id = _value_by_index_or_scalar(edge_id_list, i, default_value=i)
-			A_value = _to_float(_value_by_index_or_scalar(A_list, i, default_value=0.0), default_value=0.0)
-			L_value = _to_float(_value_by_index_or_scalar(length_list, i, default_value=0.0), default_value=0.0)
-			E_value = _to_float(_value_by_index_or_scalar(E_list, i, default_value=0.0), default_value=0.0)
-			utilization_value = _to_float(_value_by_index_or_scalar(utilization_list, i, default_value=0.0), default_value=0.0)
-			L_display_value = _round_if_number(L_value, LENGTH_DECIMALS)
-			utilization_display_value = _round_if_number(utilization_value, UTILIZATION_DECIMALS)
-			ea_over_l = 0.0
-			if L_value != 0.0:
-				ea_over_l = (E_value * A_value) / L_value
-			A = _format_fixed_number(A_value, MECH_PROP_DECIMALS)
-			E = _format_fixed_number(E_value, E_DECIMALS, min_significant_digits=None)
-			L = _format_fixed_number(L_display_value, LENGTH_DECIMALS, min_significant_digits=None)
-			utilization_value = _format_fixed_number(utilization_display_value, UTILIZATION_DECIMALS, min_significant_digits=None)
-			ea_over_l = _format_fixed_number(ea_over_l, MECH_PROP_DECIMALS)
-			Iy = _to_float(_value_by_index_or_scalar(Iy_list, i, default_value=0.0), default_value=0.0)
-			Iz = _to_float(_value_by_index_or_scalar(Iz_list, i, default_value=0.0), default_value=0.0)
-			J = _to_float(_value_by_index_or_scalar(J_list, i, default_value=0.0), default_value=0.0)
-			Iy = _format_fixed_number(Iy, MECH_PROP_DECIMALS)
-			Iz = _format_fixed_number(Iz, MECH_PROP_DECIMALS)
-			J = _format_fixed_number(J, MECH_PROP_DECIMALS)
+			edge_id   = _value_by_index_or_scalar(edge_id_list, i, default_value=i)
+			W_value   = _to_float(_value_by_index_or_scalar(W_list,         i, default_value=0.0))
+			D_value   = _to_float(_value_by_index_or_scalar(D_list,         i, default_value=0.0))
+			L_value   = _to_float(_value_by_index_or_scalar(length_list,    i, default_value=0.0))
+			E_value   = _to_float(_value_by_index_or_scalar(E_list,         i, default_value=0.0))
+			Iy_value  = _to_float(_value_by_index_or_scalar(Iy_list,        i, default_value=0.0))
+			Iz_value  = _to_float(_value_by_index_or_scalar(Iz_list,        i, default_value=0.0))
+			J_value   = _to_float(_value_by_index_or_scalar(J_list,         i, default_value=0.0))
+			N_ea      = _to_float(_value_by_index_or_scalar(N_mean_EA_list, i, default_value=0.0))
+			util      = _to_float(_value_by_index_or_scalar(utilization_list, i, default_value=0.0))
+
+			area    = W_value * D_value
+			ea_over_l = (E_value * area / L_value) if L_value != 0.0 else 0.0
 
 			row = [
 				sample,
 				edge_id,
 				source,
 				target,
-				A,
-				L,
-				utilization_value,
+				_format_fixed_number(W_value,   MECH_PROP_DECIMALS),
+				_format_fixed_number(D_value,   MECH_PROP_DECIMALS),
+				_format_fixed_number(L_value,   LENGTH_DECIMALS,      min_significant_digits=None),
+				_format_fixed_number(E_value,   E_DECIMALS,           min_significant_digits=None),
+				_format_fixed_number(Iy_value,  MECH_PROP_DECIMALS),
+				_format_fixed_number(Iz_value,  MECH_PROP_DECIMALS),
+				_format_fixed_number(J_value,   MECH_PROP_DECIMALS),
+				_format_fixed_number(ea_over_l, MECH_PROP_DECIMALS),
+				_format_fixed_number(N_ea,      UTILIZATION_DECIMALS, min_significant_digits=None),
+				_format_fixed_number(util,      UTILIZATION_DECIMALS, min_significant_digits=None),
 			]
-
-			insert_idx = len(row) - 1
-			if has_E_input:
-				row.insert(insert_idx, E)
-				insert_idx += 1
-			if has_Iy_input:
-				row.insert(insert_idx, Iy)
-				insert_idx += 1
-			if has_Iz_input:
-				row.insert(insert_idx, Iz)
-				insert_idx += 1
-			if has_J_input:
-				row.insert(insert_idx, J)
-				insert_idx += 1
-			if has_E_input:
-				row.insert(insert_idx, ea_over_l)
 
 			writer.writerow(row)
 
