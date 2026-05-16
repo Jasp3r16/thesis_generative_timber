@@ -136,7 +136,7 @@ def run_preprocessing(
     edges_df = pd.read_csv(edge_csv_path)
 
     node_cols = ["x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz"]
-    edge_cols = ["Area", "Length", "E", "Iy", "Iz", "J", "EA/L"]
+    edge_cols = ["Width_m", "Depth_m", "Length", "E", "Iy", "Iz", "J", "EA/L", "N_mean_EA"]
 
     # ---- Topology ----
     edge_index_path = Path(config.DATA_IO_PATH) / "edge_index.json"

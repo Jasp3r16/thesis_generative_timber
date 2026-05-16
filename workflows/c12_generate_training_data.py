@@ -64,7 +64,6 @@ from workflows import c27_stage_GNN         as stage_gnn
 # CONSTANTS
 # =============================================================================
 
-_LOAD_PER_NODE_N = stage_gnn.LOAD_PER_NODE_N       # -13 500 N per load node
 _TOTAL_LOAD_N    = stage_feas.TOTAL_LOAD_N          # 270 000 N total
 
 _STOCK_CSV    = config.TIMBER_STOCK_PATH / "complete_timber_v2.csv"
@@ -123,23 +122,26 @@ def _random_assignment(n_slots: int, n_stock: int, rng: random.Random) -> np.nda
 
 
 def _build_node_rows(
-    verts_sorted:  pd.DataFrame,
-    support_nodes: list[int],
-    load_nodes:    list[int],
-    sample_id:     int,
+    verts_sorted:   pd.DataFrame,
+    node_positions: np.ndarray,
+    support_nodes:  list[int],
+    load_nodes:     list[int],
+    sample_id:      int,
 ) -> list[dict]:
     """One node feature dict per vertex, ordered by v_idx (matches edge_index.json).
 
     Includes layer and attribute columns so Grasshopper can identify supports,
     load nodes, and hinges without re-deriving them from the geometry.
+
+    Fz is computed via tributary area (matching Karamba's load model) rather
+    than a uniform -13 500 N constant.
     """
-    load_set    = set(load_nodes)
+    fz_nodal    = stage_feas.compute_nodal_fz(node_positions, support_nodes, load_nodes)
     support_set = set(support_nodes)
     rows = []
     for _, row in verts_sorted.iterrows():
         idx        = int(row["v_idx"])
         is_support = idx in support_set
-        is_load    = idx in load_set
         rows.append({
             "sample_id":    sample_id,
             "vertex_index": row["vertex_index"],
@@ -154,7 +156,7 @@ def _build_node_rows(
             "Rx": 0.0,
             "Ry": 0.0,
             "Rz": 0.0,
-            "Fz": float(_LOAD_PER_NODE_N) if is_load else 0.0,
+            "Fz": round(float(fz_nodal[idx]), 4),
         })
     return rows
 
@@ -353,7 +355,7 @@ def generate_training_samples(
             lengths_m  = _member_lengths_m(node_positions, df_edges)
 
             all_node_rows.extend(
-                _build_node_rows(verts_sorted, support_nodes, load_nodes, sample_id)
+                _build_node_rows(verts_sorted, node_positions, support_nodes, load_nodes, sample_id)
             )
             all_edge_rows.extend(
                 _build_edge_rows(

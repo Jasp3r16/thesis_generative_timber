@@ -32,6 +32,9 @@ import numpy as np
 import pandas as pd
 import torch
 
+import c24_stage_feasibility
+from c24_stage_feasibility import compute_nodal_fz, LOAD_KN_PER_M2
+
 
 # =============================================================================
 # CONFIGURATION
@@ -40,15 +43,14 @@ import torch
 THRESHOLD          = 0.35
 NUM_EDGES_PHYSICAL = 120
 
-EDGE_COLS = ["Area", "Length", "E", "Iy", "Iz", "J", "EA/L"]
+EDGE_COLS = ["Width_m", "Depth_m", "Length", "E", "Iy", "Iz", "J", "EA/L", "N_mean_EA"]
 NODE_COLS = ["x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz"]
 
 # Default boundary conditions for the 5×3 grid topology.
 # Pass support_nodes / load_nodes explicitly when the geometry differs.
-_DEFAULT_SUPPORT_NODES   = [0, 5, 18, 23]
-_DEFAULT_LOAD_NODES      = [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-                             16, 17, 19, 20, 21, 22]
-LOAD_PER_NODE_N = -13_500.0   # 270 kN / 20 load nodes, downward = negative
+_DEFAULT_SUPPORT_NODES = [0, 5, 18, 23]
+_DEFAULT_LOAD_NODES    = [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                          16, 17, 19, 20, 21, 22]
 
 
 # =============================================================================
@@ -71,37 +73,36 @@ def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
         Width, Depth, Length  — mm
         E_modulus_eff         — N/mm²
 
-    Output columns added / overwritten:
-        Area   m²   — cross-sectional area
-        Length m    — member length (overwritten, metres)
-        E      N/m² — elastic modulus
-        Iy     m⁴   — second moment of area (strong axis)
-        Iz     m⁴   — second moment of area (weak axis)
-        J      m⁴   — torsional constant (Saint-Venant approximation)
-        EA/L   N/m  — axial stiffness per unit length
+    Output columns added:
+        Width_m m    — section width
+        Depth_m m    — section depth
+        Area    m²   — cross-sectional area
+        E       N/m² — elastic modulus
+        Iy      m⁴   — second moment of area (strong axis)
+        Iz      m⁴   — second moment of area (weak axis)
+        J       m⁴   — torsional constant (Saint-Venant approximation)
+
+    Note: Length and EA/L are NOT included here — they depend on the actual
+    installed member length (geometry-derived) and are computed per member
+    inside _build_edge_features() at inference time.
     """
     stock = df_input_stock.copy()
 
     b_m  = stock["Width"].values         * 1e-3
     h_m  = stock["Depth"].values         * 1e-3
-    L_m  = stock["Length"].values        * 1e-3
     E_pa = stock["E_modulus_eff"].values  * 1e6
 
     area_m2 = b_m * h_m
     a_m     = np.minimum(b_m, h_m)
     c_m     = np.maximum(b_m, h_m)
 
-    stock["Area"]   = area_m2
-    stock["Length"] = L_m
-    stock["E"]      = E_pa
-    stock["Iy"]     = b_m * h_m**3 / 12
-    stock["Iz"]     = h_m * b_m**3 / 12
-    stock["J"]      = a_m**3 * c_m / 3 * (1 - 0.63 * a_m / c_m)
-    # TODO: EA/L here uses stock element length, but training data uses actual installed
-    # member length (geometry-derived). At inference, recompute EA/L per member as
-    # E * A / member_length using node positions before calling gnn_feasibility(),
-    # so training and inference are consistent. See c12_generate_training_data._build_edge_rows.
-    stock["EA/L"]   = E_pa * area_m2 / L_m
+    stock["Width_m"] = b_m
+    stock["Depth_m"] = h_m
+    stock["Area"]    = area_m2
+    stock["E"]       = E_pa
+    stock["Iy"]      = b_m * h_m**3 / 12
+    stock["Iz"]      = h_m * b_m**3 / 12
+    stock["J"]       = a_m**3 * c_m / 3 * (1 - 0.63 * a_m / c_m)
 
     return stock
 
@@ -191,8 +192,8 @@ def _build_node_features(
     for node in support_nodes:
         x_raw[node, 3:9] = 1.0           # Tx Ty Tz Rx Ry Rz = fixed
 
-    for node in load_nodes:
-        x_raw[node, 9] = LOAD_PER_NODE_N # Fz
+    fz = compute_nodal_fz(node_positions, support_nodes, load_nodes, LOAD_KN_PER_M2)
+    x_raw[:, 9] = fz.astype(np.float32)  # Fz: tributary area loads (N), matches training
 
     x_norm = (x_raw - norm_stats["node_means"]) / norm_stats["node_stds"]
     x_norm = np.clip(x_norm, -5.0, 5.0)
@@ -200,26 +201,50 @@ def _build_node_features(
 
 
 def _build_edge_features(
-    milp_assignment: np.ndarray,
-    stock_df:        pd.DataFrame,
-    device:          str | "torch.device",
-    norm_stats:      dict,
-    bidirectional:   bool,
+    milp_assignment:  np.ndarray,
+    stock_df:         pd.DataFrame,
+    member_lengths_m: np.ndarray,
+    member_forces:    np.ndarray,
+    device:           str | "torch.device",
+    norm_stats:       dict,
+    bidirectional:    bool,
 ) -> torch.Tensor:
     """
     Build normalised edge feature tensor from MILP assignment.
 
-    stock_df must already be in SI units — pass output of prepare_stock_for_gnn().
-    milp_assignment[i] = row index into stock_df for slot i (always 120 slots).
+    Assembles the 9 EDGE_COLS features per member in the correct order:
+        Width_m, Depth_m  — from stock (milp_assignment → stock_df)
+        Length            — actual installed member length (geometry-derived)
+        E, Iy, Iz, J      — from stock
+        EA/L              — recomputed as E * A / member_length (geometry-derived)
+        N_mean_EA         — mean-EA FEM axial force estimate (geometry-derived)
 
-    Output shape:
-        [120, 7] if unidirectional
-        [240, 7] if bidirectional (reverse edges duplicate forward features)
+    Parameters
+    ----------
+    milp_assignment  : [120] row indices into stock_df
+    stock_df         : SI-unit stock table from prepare_stock_for_gnn()
+    member_lengths_m : [120] actual installed member lengths in metres
+    member_forces    : [120] N_mean_EA per member (N), from estimate_member_forces
     """
-    assigned = stock_df.iloc[milp_assignment][EDGE_COLS].values   # [120, 7]
+    _STOCK_COLS = ["Width_m", "Depth_m", "E", "Iy", "Iz", "J"]
+    s = stock_df.iloc[milp_assignment][_STOCK_COLS].values.astype(np.float64)
+
+    w_m  = s[:, 0]
+    d_m  = s[:, 1]
+    E    = s[:, 2]
+    ea_l = E * (w_m * d_m) / member_lengths_m   # E * A / installed_length
+
+    # Assemble in EDGE_COLS order: Width_m, Depth_m, Length, E, Iy, Iz, J, EA/L, N_mean_EA
+    assigned = np.column_stack([
+        w_m, d_m,
+        member_lengths_m,
+        s[:, 2], s[:, 3], s[:, 4], s[:, 5],
+        ea_l,
+        member_forces,
+    ]).astype(np.float64)   # [120, 9]
 
     if bidirectional:
-        assigned = np.concatenate([assigned, assigned], axis=0)   # [240, 7]
+        assigned = np.concatenate([assigned, assigned], axis=0)   # [240, 9]
 
     edge_norm = (assigned - norm_stats["edge_means"]) / norm_stats["edge_stds"]
     edge_norm = np.clip(edge_norm, -5.0, 5.0).astype(np.float32)
@@ -245,14 +270,20 @@ def gnn_feasibility(
     Parameters
     ----------
     node_positions  : [n_nodes, 3] current node xyz from GA (metres)
-    milp_assignment : [120] row indices into stock_df (SI units)
-    stock_df        : stock DataFrame in SI units (from prepare_stock_for_gnn)
+    milp_assignment : [120] row indices into stock_df
+    stock_df        : stock DataFrame from prepare_stock_for_gnn() — must contain
+                      Width_m, Depth_m, E, Iy, Iz, J columns in SI units
     model_bundle    : output of load_surrogate_bundle() from c21_surrogate_io
     threshold       : decision threshold for P(unsafe). When None, reads from
                       bundle["config"]["recommended_threshold"], falling back
                       to module constant THRESHOLD (0.35).
     support_nodes   : node indices with fixed supports. None → default 5x3 grid.
     load_nodes      : node indices with applied load. None → default 5x3 grid.
+
+    Geometry-derived features computed internally each call:
+        member_lengths_m — Euclidean length of each installed member (m)
+        EA/L             — E * A / member_length (uses assigned stock E and area)
+        N_mean_EA        — mean-EA FEM axial force estimate (N)
 
     Returns
     -------
@@ -271,11 +302,36 @@ def gnn_feasibility(
     bidirectional = model_bundle["bidirectional"]
     model         = model_bundle["model"]
 
+    support_nodes = support_nodes if support_nodes is not None else _DEFAULT_SUPPORT_NODES
+    load_nodes    = load_nodes    if load_nodes    is not None else _DEFAULT_LOAD_NODES
+
+    # Member lengths from current geometry (geometry-derived, varies per GA iteration)
+    ei_np            = edge_index[:, :NUM_EDGES_PHYSICAL].cpu().numpy()
+    member_lengths_m = np.linalg.norm(
+        node_positions[ei_np[1]] - node_positions[ei_np[0]], axis=1
+    )  # [120]
+
+    # N_mean_EA: mean-EA FEM axial force estimate — depends on current geometry AND stock
+    assigned_E    = stock_df.iloc[milp_assignment]["E"].values
+    assigned_area = (stock_df.iloc[milp_assignment]["Width_m"].values *
+                     stock_df.iloc[milp_assignment]["Depth_m"].values)
+    mean_EA_SI    = float((assigned_E * assigned_area).mean())
+    member_forces = c24_stage_feasibility.estimate_member_forces(
+        node_positions  = node_positions,
+        edges_v1        = ei_np[0],
+        edges_v2        = ei_np[1],
+        support_nodes   = support_nodes,
+        load_nodes      = load_nodes,
+        total_load_n    = c24_stage_feasibility.TOTAL_LOAD_N,
+        mean_EA_SI      = mean_EA_SI,
+    )  # [120]
+
     x         = _build_node_features(
         node_positions, device, norm_stats, support_nodes, load_nodes
     )
     edge_attr = _build_edge_features(
-        milp_assignment, stock_df, device, norm_stats, bidirectional
+        milp_assignment, stock_df, member_lengths_m, member_forces,
+        device, norm_stats, bidirectional,
     )
 
     with torch.no_grad():

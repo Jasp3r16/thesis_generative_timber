@@ -24,7 +24,7 @@ Changes vs v3:
 
 Usage:
     >>> device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    >>> model = TrussEdgeSafetyGNN(node_features_dim=10, edge_features_dim=7, hidden_dim=128).to(device)
+    >>> model = TrussEdgeSafetyGNN(node_features_dim=10, edge_features_dim=9, hidden_dim=128).to(device)
     >>> model.cache_topology(edge_index)
     >>> predictions = model(x, edge_attr=edge_attr)  # [num_edges, 1], binary probabilities
     >>> loss_fn = FocalLoss(alpha=0.1, gamma=2.0)
@@ -87,12 +87,12 @@ class EdgeFeatureMLPFilter(nn.Module):
     -------------------
     In traditional FEA, the global stiffness matrix K is assembled from individual
     member stiffness matrices, where each member's contribution depends on its
-    material properties (E-modulus) and geometry (cross-sectional area A, moments
+    material properties (E-modulus) and geometry (cross-sectional area, moments
     of inertia Iy, Iz).
 
     This filter mimics that process: instead of a fixed weight for all edges, we
-    compute an adaptive weight matrix for each edge based on its 7D feature vector
-    (Area, Length, E, Iy, Iz, J, EA/L).
+    compute an adaptive weight matrix for each edge based on its 9D feature vector
+    (Width_m, Depth_m, Length, E, Iy, Iz, J, EA/L, N_mean_EA).
 
     v4 change: Added a third hidden layer (hidden -> hidden -> out_channels) to give
     the filter network more capacity. Cross-sections AND materials vary per sample,
@@ -107,7 +107,7 @@ class EdgeFeatureMLPFilter(nn.Module):
     def __init__(self, edge_features_dim, out_channels, hidden=64):
         """
         Args:
-            edge_features_dim: Number of continuous edge features (e.g., 7)
+            edge_features_dim: Number of continuous edge features (e.g., 9)
             out_channels: Output size of weight matrix (hidden_dim * hidden_dim)
             hidden: Intermediate hidden layer size (default 64)
         """
@@ -149,8 +149,8 @@ class EdgeDecoder(nn.Module):
     Both are invariant to swapping i and j (|a-b| = |b-a|, a*b = b*a),
     so the model is consistent regardless of edge orientation in the COO format.
 
-    Raw edge features (Area, E, Iy, Iz, ...) are still concatenated to ground
-    the decision in actual material and geometric properties.
+    Raw edge features (Width_m, Depth_m, Length, E, Iy, Iz, ...) are still
+    concatenated to ground the decision in actual material and geometric properties.
 
     Dropout:
     --------
@@ -306,7 +306,7 @@ class TrussEdgeSafetyGNN(nn.Module):
     Output:
     -------
     - Edge-level predictions: [num_edges, 1] binary probabilities in [0, 1]
-      Interpretation: P(safe) = P(Utilization <= 1.0)
+      Interpretation: P(unsafe) = P(Utilization > 1.0)
 
     Key Design Decisions (v4 additions marked with *):
     --------------------------------------------------
@@ -319,7 +319,7 @@ class TrussEdgeSafetyGNN(nn.Module):
     2. NNConv + Filter-Generating MLP (*3-layer filter):
        - Standard GCN uses fixed, uniform weights for all edges.
        - Reality: stiff members (high E*A/L) have stronger structural influence.
-       - NNConv learns adaptive edge weights based on 7D material/geometric features.
+       - NNConv learns adaptive edge weights based on 9D material/geometric features.
        - v4 adds a hidden layer to the filter MLP for richer stiffness modelling.
 
     3. Residual Skip Connections (*applied from layer 0):
@@ -348,7 +348,7 @@ class TrussEdgeSafetyGNN(nn.Module):
     def __init__(
         self,
         node_features_dim=10,
-        edge_features_dim=7,
+        edge_features_dim=9,
         hidden_dim=128,
         num_layers=4,
         use_batch_norm=True,
@@ -361,7 +361,7 @@ class TrussEdgeSafetyGNN(nn.Module):
                 Default 10: x, y, z + Tx, Ty, Tz, Rx, Ry, Rz (BCs) + Fz (load)
 
             edge_features_dim: Input edge feature dimensionality.
-                Default 7: Area, Length, E, Iy, Iz, J, EA/L
+                Default 9: Width_m, Depth_m, Length, E, Iy, Iz, J, EA/L, N_mean_EA
 
             hidden_dim: Latent dimensionality throughout the model. Default 128.
                 Larger -> more expressive but more memory. Try 64, 128, 256.
@@ -453,7 +453,7 @@ class TrussEdgeSafetyGNN(nn.Module):
 
         Returns:
             [num_edges, 1] binary probabilities.
-            prediction[i] ~= P(edge i is safe) = P(Utilization[i] <= 1.0)
+            prediction[i] ~= P(edge i is unsafe) = P(Utilization[i] > 1.0)
         """
         if self._is_topology_cached and edge_index is None:
             edge_index = self.edge_index_cache
@@ -498,7 +498,7 @@ class TrussEdgeSafetyGNN(nn.Module):
 
 def create_model(
     node_features_dim=10,
-    edge_features_dim=7,
+    edge_features_dim=9,
     hidden_dim=128,
     num_layers=4,
     dropout_p=0.1,
@@ -509,7 +509,7 @@ def create_model(
 
     Args:
         node_features_dim: Default 10 (coordinates + BCs + applied load)
-        edge_features_dim: Default 7 (material + geometric properties)
+        edge_features_dim: Default 9 (Width_m, Depth_m, Length, E, Iy, Iz, J, EA/L, N_mean_EA)
         hidden_dim:        Default 128
         num_layers:        Default 4
         dropout_p:         Dropout probability. Default 0.1. Set 0.0 to disable.
@@ -545,7 +545,7 @@ if __name__ == "__main__":
 
     model = create_model(
         node_features_dim=10,
-        edge_features_dim=7,
+        edge_features_dim=9,
         hidden_dim=128,
         num_layers=4,
         dropout_p=0.1,
@@ -559,7 +559,7 @@ if __name__ == "__main__":
 
     x          = torch.randn((num_nodes, 10), device=device)
     edge_index = torch.randint(0, num_nodes, (2, num_edges), device=device)
-    edge_attr  = torch.randn((num_edges, 7), device=device)
+    edge_attr  = torch.randn((num_edges, 9), device=device)
 
     # Cache topology (call once before training)
     model.cache_topology(edge_index)

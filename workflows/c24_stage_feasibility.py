@@ -50,6 +50,7 @@
 
 import numpy as np
 import pandas as pd
+from scipy.spatial import Delaunay
 
 # =============================================================================
 # CONFIGURATION
@@ -102,6 +103,58 @@ def compute_member_lengths(node_positions, edges_v1, edges_v2):
     return np.linalg.norm(
         node_positions[edges_v2] - node_positions[edges_v1], axis=1
     )
+
+
+def compute_nodal_fz(
+    node_positions: np.ndarray,
+    support_nodes:  list[int],
+    load_nodes:     list[int],
+    load_kn_per_m2: float = LOAD_KN_PER_M2,
+) -> np.ndarray:
+    """
+    Compute vertical nodal forces (N, downward = negative) from a uniform
+    distributed roof load (kN/m²) using Delaunay tributary areas.
+
+    All top-chord nodes (support_nodes ∪ load_nodes) receive load proportional
+    to their XY-projected tributary area (1/3 of each adjacent Delaunay
+    triangle's area). Bottom-chord nodes receive Fz = 0.
+
+    This matches the Karamba load model used during training data generation,
+    where corner/edge nodes receive less load than interior nodes.
+
+    Parameters
+    ----------
+    node_positions : [n_nodes, 3] float, metres
+    support_nodes  : indices of pin-support nodes (also carry roof load)
+    load_nodes     : indices of free load-receiving nodes
+    load_kn_per_m2 : distributed load intensity (kN/m²), default LOAD_KN_PER_M2
+
+    Returns
+    -------
+    fz : np.ndarray [n_nodes] — Fz per node in Newtons, negative = downward
+    """
+    n_nodes     = node_positions.shape[0]
+    fz          = np.zeros(n_nodes, dtype=np.float64)
+    roof_idx    = sorted(set(load_nodes) | set(support_nodes))
+
+    if len(roof_idx) < 3:
+        return fz
+
+    roof_xy    = node_positions[np.array(roof_idx), :2]
+    tri        = Delaunay(roof_xy)
+    pressure   = load_kn_per_m2 * 1_000.0  # → N/m²
+
+    for simplex in tri.simplices:
+        pts  = roof_xy[simplex]            # [3, 2]
+        area = 0.5 * abs(
+            (pts[1, 0] - pts[0, 0]) * (pts[2, 1] - pts[0, 1]) -
+            (pts[2, 0] - pts[0, 0]) * (pts[1, 1] - pts[0, 1])
+        )
+        share = -pressure * area / 3.0    # downward, 1/3 per vertex
+        for local_i in simplex:
+            fz[roof_idx[local_i]] += share
+
+    return fz
 
 
 # =============================================================================
@@ -167,16 +220,20 @@ def estimate_member_forces(node_positions, edges_v1, edges_v2,
     """
     Solve truss with uniform mean EA, distributed vertical load.
     Returns axial forces [n_members] in Newtons: + tension, - compression.
+
+    Load is distributed by tributary area (compute_nodal_fz) to match the
+    Karamba load model. total_load_n is ignored; load intensity comes from
+    LOAD_KN_PER_M2 via compute_nodal_fz().
     """
     n_nodes = node_positions.shape[0]
     n_edges = len(edges_v1)
     EA_arr  = np.full(n_edges, mean_EA_SI)
     K       = assemble_stiffness(node_positions, edges_v1, edges_v2, EA_arr)
 
-    f_vec = np.zeros(n_nodes * 3)
-    load_per_node = -total_load_n / len(load_nodes)
-    for node in load_nodes:
-        f_vec[node * 3 + 2] += load_per_node
+    fz_nodal = compute_nodal_fz(node_positions, support_nodes, load_nodes)
+    f_vec    = np.zeros(n_nodes * 3)
+    for node in range(n_nodes):
+        f_vec[node * 3 + 2] += fz_nodal[node]
 
     K_bc, f_bc = apply_boundary_conditions(K, f_vec, support_nodes)
 
