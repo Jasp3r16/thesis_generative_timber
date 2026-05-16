@@ -39,7 +39,7 @@ NUM_EDGES_PHYSICAL = 120   # physical members — constant regardless of bi/uni
 
 # Feature column order — must match c28_stage_GNN.py exactly
 _NODE_COLS = ["x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz"]
-_EDGE_COLS = ["Area", "Length", "E", "Iy", "Iz", "J", "EA/L"]
+_EDGE_COLS = ["Width_m", "Depth_m", "Length", "E", "Iy", "Iz", "J", "EA/L", "N_mean_EA"]
 
 
 # =============================================================================
