@@ -287,8 +287,8 @@ def gnn_feasibility(
 
     Returns
     -------
-    feasibility_score  : float [0,1] — fraction of members predicted safe
-    unsafe_member_ids  : list[int]   — member indices predicted unsafe (0–119)
+    feasibility_score  : float [0,1] — 1 - mean P(unsafe) across all members
+    unsafe_member_ids  : list[int]   — member indices with P(unsafe) >= threshold
     preds_physical     : np.ndarray [120] — raw P(unsafe) per physical member
     """
     if threshold is None:
@@ -340,7 +340,9 @@ def gnn_feasibility(
     preds_physical    = preds[:NUM_EDGES_PHYSICAL, 0].cpu().numpy()   # [120] always
     unsafe_flags      = preds_physical >= threshold
     unsafe_member_ids = np.where(unsafe_flags)[0].tolist()
-    feasibility_score = float(1.0 - unsafe_flags.mean())
+    # Use mean P(unsafe) rather than threshold count: continuous signal, less
+    # sensitive to the high false-positive rate at low thresholds.
+    feasibility_score = float(1.0 - preds_physical.mean())
 
     return feasibility_score, unsafe_member_ids, preds_physical
 

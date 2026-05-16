@@ -315,10 +315,10 @@ def fitness_function_multi_objective(
            + omega_4 * structural_infeasibility
 
     structural_infeasibility: float in [0, 1]
-        Fraction of members predicted UNSAFE by the GNN surrogate.
+        Mean P(unsafe) across all members from the GNN surrogate.
         = 1.0 - feasibility_score from gnn_feasibility()
-        = 0.0 when all members predicted safe  (no penalty)
-        = 1.0 when all members predicted unsafe (maximum penalty)
+        = 0.0 when all members predicted fully safe  (no penalty)
+        = 1.0 when all members predicted fully unsafe (maximum penalty)
 
     omega_4 = 0.0 (default): structural penalty disabled.
     omega_4 > 0: curriculum-scheduled via c23_ga_evaluator (_resolve_w_structural).

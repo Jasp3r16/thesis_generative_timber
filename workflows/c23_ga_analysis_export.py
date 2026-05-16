@@ -1,0 +1,504 @@
+"""
+c23_ga_analysis_export — GA run analysis and export.
+
+Two entry points:
+    run_analysis(result, ga_config, fixed_norm_constants, optimizer_search_space,
+                 stagnation_limit=20) -> dict
+        Creates and displays all analysis figures. Returns a figures dict.
+
+    run_export(analysis_out, result, ga_config, fixed_norm_constants,
+               model_prefix, bounds_source_info="unknown", es=None) -> dict
+        Saves figures, JSONs, CSVs, and a human-readable report to
+        config.GA_DATA_PATH / {artifact_stem}. Returns paths dict.
+"""
+
+import json
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+import config
+from config import PLOT_COLORS as C, PLOT_STYLE as S
+
+
+# =============================================================================
+# ANALYSIS
+# =============================================================================
+
+def run_analysis(
+    result:                 dict,
+    fixed_norm_constants:   dict,
+    optimizer_search_space: dict,
+    stagnation_limit:       int = 20,
+) -> dict:
+    """
+    Create and display all GA analysis figures.
+
+    Parameters
+    ----------
+    result                : dict returned by EvolutionStrategy.run()
+    fixed_norm_constants  : FIXED_NORMALIZATION_CONSTANTS dict
+    optimizer_search_space: search space dict (used for parameter normalisation)
+    stagnation_limit      : ES stagnation patience for the reference line in Fig 1c
+
+    Returns
+    -------
+    dict with keys: fig_conv_fitness, fig_conv_sigma, fig_conv_stagnation,
+                    fig_best_design, fig_params
+    """
+    history    = result["history"]
+    best       = result["best_individual"]
+    best_eval  = result["best_eval_result"] or {}
+    n_evals    = result["n_evals"]
+    n_gens     = result["n_generations"]
+    n_restarts = result["n_restarts"]
+    norm       = fixed_norm_constants
+
+    plt.rcParams.update({
+        "figure.dpi":        S["dpi"],
+        "axes.grid":         True,
+        "grid.alpha":        S["grid_alpha"],
+        "grid.color":        C["neutral"],
+        "axes.spines.top":   False,
+        "axes.spines.right": False,
+        "axes.edgecolor":    C["black"],
+        "axes.labelcolor":   C["black"],
+        "xtick.color":       C["black"],
+        "ytick.color":       C["black"],
+        "text.color":        C["black"],
+        "font.size":         10,
+        "axes.titlesize":    11,
+        "axes.titleweight":  "bold",
+        "lines.linewidth":   S["line_width"],
+        "lines.markersize":  S["marker_size"],
+    })
+
+    gens       = [h["generation"]    for h in history]
+    best_fit   = [h["best_fitness"]  for h in history]
+    mean_fit   = [h["mean_fitness"]  for h in history]
+    worst_fit  = [h["worst_fitness"] for h in history]
+    best_ever  = [h["best_ever"]     for h in history]
+    mean_sigma = [h["mean_sigma"]    for h in history]
+    stagnation = [h["stagnation"]    for h in history]
+
+    # ── Fig 1a: Fitness convergence ───────────────────────────────────────────
+    fig_conv_fitness, ax = plt.subplots(figsize=S["figsize_medium"])
+    fig_conv_fitness.suptitle("Figure 1a — Fitness Convergence",
+                               fontweight="bold", fontsize=13)
+    ax.fill_between(gens, best_fit, worst_fit, alpha=0.15, color=C["primary"],
+                    label="Population range")
+    ax.plot(gens, best_ever, color=C["primary"],   lw=S["line_width"], label="Best ever")
+    ax.plot(gens, mean_fit,  color=C["secondary"], lw=S["line_width"],
+            linestyle="--", label="Generation mean")
+    ax.plot(gens, best_fit,  color=C["accent"],    lw=1.2,
+            linestyle=":",  label="Generation best")
+    _restart_labeled = False
+    for h in history:
+        if h["stagnation"] == 0 and h["generation"] > 1:
+            ax.axvline(h["generation"], color=C["danger"], lw=1.0,
+                       linestyle="--", alpha=0.6,
+                       label="Restart" if not _restart_labeled else "_nolegend_")
+            _restart_labeled = True
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("Fitness (lower = better)")
+    ax.set_title("Fitness over generations")
+    ax.legend(fontsize=9)
+    plt.tight_layout()
+    plt.show()
+    print("fig_conv_fitness ready")
+
+    # ── Fig 1b: Self-adaptive step size ──────────────────────────────────────
+    fig_conv_sigma, ax = plt.subplots(figsize=S["figsize_small"])
+    fig_conv_sigma.suptitle("Figure 1b — Self-Adaptive Step Size",
+                             fontweight="bold", fontsize=13)
+    ax.plot(gens, mean_sigma, color=C["primary"], lw=S["line_width"])
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("Mean σ")
+    ax.set_title("Population mean step size — spikes mark restarts")
+    ax.set_yscale("log")
+    plt.tight_layout()
+    plt.show()
+    print("fig_conv_sigma ready")
+
+    # ── Fig 1c: Stagnation counter ────────────────────────────────────────────
+    fig_conv_stagnation, ax = plt.subplots(figsize=S["figsize_small"])
+    fig_conv_stagnation.suptitle("Figure 1c — Stagnation per Generation",
+                                  fontweight="bold", fontsize=13)
+    ax.bar(gens, stagnation, color=C["secondary"], width=0.8, edgecolor="none")
+    ax.axhline(stagnation_limit, color=C["danger"], lw=1.5, linestyle="--",
+               label=f"Stagnation limit = {stagnation_limit}")
+    ax.set_xlabel("Generation")
+    ax.set_ylabel("Stagnation counter")
+    ax.set_title("Resets to 0 on improvement or restart")
+    ax.legend(fontsize=9)
+    plt.tight_layout()
+    plt.show()
+    print("fig_conv_stagnation ready")
+
+    # ── Fig 2: Best design breakdown ─────────────────────────────────────────
+    best_cost    = float(best_eval.get("total_cost",  0))
+    best_reuse   = float(best_eval.get("reuse_rate",  0))
+    best_waste   = float(best_eval.get("waste_total", 0))
+    best_gnn     = float(best_eval.get("gnn_feasibility", 1.0) or 1.0)
+    best_fitness = float(best.fitness)
+    fr           = best_eval.get("fitness_result") or {}
+
+    fig_best_design, axes = plt.subplots(1, 2, figsize=S["figsize_medium"])
+    fig_best_design.suptitle("Figure 2 — Best Design Breakdown",
+                              fontweight="bold", fontsize=13)
+
+    component_labels = ["Cost\n(ω1)", "Reuse\n(ω2)", "Waste\n(ω3)", "Structural\n(ω4)"]
+    component_values = [
+        float(fr.get("cost_component",       0)),
+        float(fr.get("reuse_component",      0)),
+        float(fr.get("waste_component",      0)),
+        float(fr.get("structural_component", 0)),
+    ]
+    ax = axes[0]
+    bars = ax.bar(component_labels, component_values,
+                  color=[C["primary"], C["accent"], C["secondary"], C["danger"]],
+                  edgecolor=C["black"], linewidth=0.5)
+    for bar, val in zip(bars, component_values):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
+                f"{val:.3f}", ha="center", va="bottom", fontsize=9)
+    ax.set_ylabel("Weighted component value")
+    ax.set_title(f"Fitness Components  (total = {best_fitness:.4f})")
+    ax.set_ylim(0, max(component_values) * 1.2 if max(component_values) > 0 else 1)
+
+    ax = axes[1]
+    ax.axis("off")
+    metrics_text = [
+        ("Best fitness",      f"{best_fitness:.4f}"),
+        ("Total cost",        f"{best_cost:.2f}"),
+        ("Reuse rate",        f"{best_reuse:.1f}%"),
+        ("Waste total",       f"{best_waste:.4f}"),
+        ("GNN feasibility",   f"{best_gnn:.1f}%"),
+        ("",                  ""),
+        ("Generations run",   str(n_gens)),
+        ("Total evaluations", str(n_evals)),
+        ("Restarts",          str(n_restarts)),
+        ("",                  ""),
+        ("C_max (norm)",      f"{norm.get('C_max', '?')}"),
+        ("R_max (norm)",      f"{norm.get('R_max', '?')}"),
+    ]
+    y = 0.95
+    for label, value in metrics_text:
+        if label == "":
+            y -= 0.04
+            continue
+        ax.text(0.05, y, label + ":", fontsize=10, color=C["black"],
+                transform=ax.transAxes, va="top")
+        ax.text(0.60, y, value, fontsize=10, color=C["primary"],
+                transform=ax.transAxes, va="top", fontweight="bold")
+        y -= 0.07
+    ax.set_title("Best Design Metrics")
+    plt.tight_layout()
+    plt.show()
+    print("fig_best_design ready")
+
+    # ── Fig 3: Best design parameters ────────────────────────────────────────
+    param_names  = list(best.params.keys())
+    param_values = list(best.params.values())
+    sigma_values = list(best.sigma)
+
+    def _get_bound(entry):
+        if entry["type"] == "discrete":
+            return float(min(entry["options"])), float(max(entry["options"]))
+        return float(entry["min"]), float(entry["max"])
+
+    try:
+        bounds_lo   = np.array([_get_bound(optimizer_search_space[k])[0] for k in param_names])
+        bounds_hi   = np.array([_get_bound(optimizer_search_space[k])[1] for k in param_names])
+        param_range = bounds_hi - bounds_lo
+        param_norm  = ((np.array(param_values) - bounds_lo)
+                       / np.where(param_range > 0, param_range, 1))
+    except Exception:
+        param_norm = np.array(param_values)
+
+    n_params = len(param_names)
+    x_pos    = np.arange(n_params)
+
+    fig_params, axes = plt.subplots(2, 1, figsize=(S["figsize_large"][0], 8))
+    fig_params.suptitle("Figure 3 — Best Design Parameters",
+                         fontweight="bold", fontsize=13)
+
+    ax = axes[0]
+    ax.bar(x_pos, param_norm, color=C["primary"], edgecolor="none", width=0.8)
+    ax.axhline(0.5, color=C["secondary"], lw=1.2, linestyle="--",
+               label="Midpoint of search space")
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(param_names, rotation=90, fontsize=7)
+    ax.set_ylabel("Normalised value [0=min, 1=max]")
+    ax.set_title("Parameter Values (normalised to search space bounds)")
+    ax.set_ylim(-0.05, 1.05)
+    ax.legend(fontsize=8)
+
+    ax = axes[1]
+    ax.bar(x_pos, sigma_values, color=C["secondary"], edgecolor="none", width=0.8)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(param_names, rotation=90, fontsize=7)
+    ax.set_ylabel("σ (step size at convergence)")
+    ax.set_title("Final Step Sizes — small σ = converged, large σ = still exploring")
+    ax.set_yscale("log")
+    plt.tight_layout()
+    plt.show()
+    print("fig_params ready")
+
+    # ── Summary print ─────────────────────────────────────────────────────────
+    print("\n" + "=" * 65)
+    print("GA RUN SUMMARY")
+    print("=" * 65)
+    print(f"  Generations completed:  {n_gens}")
+    print(f"  Total evaluations:      {n_evals}")
+    print(f"  Restarts triggered:     {n_restarts}")
+    print()
+    print(f"  Best fitness:           {best_fitness:.6f}")
+    print(f"  Best total cost:        {best_cost:.2f}")
+    print(f"  Best reuse rate:        {best_reuse:.1f}%")
+    print(f"  Best waste total:       {best_waste:.4f}")
+    print(f"  GNN feasibility:        {best_gnn:.1f}%")
+    print()
+    print(f"  MILP status:            {best_eval.get('milp_status', 'n/a')}")
+    print(f"  Unsafe members:         "
+          f"{len(best_eval.get('gnn_unsafe_members') or [])} / 120")
+    print()
+    print(f"  Normalisation constants:  C_max={norm.get('C_max')}  R_max={norm.get('R_max')}")
+    print("=" * 65)
+
+    return {
+        "fig_conv_fitness":    fig_conv_fitness,
+        "fig_conv_sigma":      fig_conv_sigma,
+        "fig_conv_stagnation": fig_conv_stagnation,
+        "fig_best_design":     fig_best_design,
+        "fig_params":          fig_params,
+    }
+
+
+# =============================================================================
+# EXPORT
+# =============================================================================
+
+def run_export(
+    analysis_out:         dict,
+    result:               dict,
+    ga_config:            dict,
+    fixed_norm_constants: dict,
+    model_prefix:         str,
+    bounds_source_info:   object = "unknown",
+    es:                   object = None,
+) -> dict:
+    """
+    Save all figures, metrics, MILP assignment, and a human-readable report.
+
+    Parameters
+    ----------
+    analysis_out        : dict returned by run_analysis()
+    result              : dict returned by EvolutionStrategy.run()
+    ga_config           : GA_CONFIG pipeline dict
+    fixed_norm_constants: FIXED_NORMALIZATION_CONSTANTS dict
+    model_prefix        : surrogate model artifact stem string
+    bounds_source_info  : BOUNDS_SOURCE_INFO dict or string (optional)
+    es                  : EvolutionStrategy instance (optional, for ESConfig details)
+
+    Returns
+    -------
+    dict with keys: export_dir (Path), artifact_stem (str), all_files (list[Path])
+    """
+    def _to_builtin(v):
+        if hasattr(v, "item"):
+            return v.item()
+        if isinstance(v, np.ndarray):
+            return v.tolist()
+        return v
+
+    best      = result["best_individual"]
+    best_eval = result["best_eval_result"] or {}
+    n_gens    = result["n_generations"]
+    n_evals   = result["n_evals"]
+    norm      = fixed_norm_constants
+
+    ts            = datetime.now().strftime("%Y%m%d_%H%M%S")
+    best_f        = f"{best.fitness:.4f}".replace(".", "_")
+    artifact_stem = f"GA_{ts}_GEN{n_gens}_EVAL{n_evals}_F{best_f}"
+    export_dir    = config.GA_DATA_PATH / artifact_stem
+    export_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Export directory: {export_dir}")
+
+    # ── Figures ───────────────────────────────────────────────────────────────
+    fig_map = {
+        "fig_conv_fitness":    "fig1a_fitness_convergence",
+        "fig_conv_sigma":      "fig1b_sigma",
+        "fig_conv_stagnation": "fig1c_stagnation",
+        "fig_best_design":     "fig2_best_design",
+        "fig_params":          "fig3_parameters",
+    }
+    for var_name, stem in fig_map.items():
+        fig = analysis_out.get(var_name)
+        if fig is not None:
+            out = export_dir / f"{artifact_stem}_{stem}.png"
+            fig.savefig(out, dpi=150, bbox_inches="tight")
+            print(f"  Saved: {out.name}")
+        else:
+            print(f"  Skipped: {var_name} not in analysis_out")
+
+    # ── Best design JSON ──────────────────────────────────────────────────────
+    best_design_payload = {
+        "fitness":            float(best.fitness),
+        "generation":         int(best.generation),
+        "total_cost":         float(best_eval.get("total_cost",  0)),
+        "reuse_rate":         float(best_eval.get("reuse_rate",  0)),
+        "waste_total":        float(best_eval.get("waste_total", 0)),
+        "gnn_feasibility":    float(best_eval.get("gnn_feasibility", 1.0) or 1.0),
+        "gnn_unsafe_members": list(best_eval.get("gnn_unsafe_members") or []),
+        "milp_status":        str(best_eval.get("milp_status", "n/a")),
+        "w_structural":       float(best_eval.get("w_structural", 0)),
+        "params":             {k: float(v) for k, v in best.params.items()},
+        "sigma":              [float(s) for s in best.sigma],
+        "fitness_result":     {
+            k: _to_builtin(v)
+            for k, v in (best_eval.get("fitness_result") or {}).items()
+            if not isinstance(v, pd.DataFrame)
+        },
+    }
+    best_design_path = export_dir / f"{artifact_stem}_best_design.json"
+    with open(best_design_path, "w", encoding="utf-8") as f:
+        json.dump(best_design_payload, f, indent=2, default=str)
+    print(f"  Saved: {best_design_path.name}")
+
+    # ── History CSV ───────────────────────────────────────────────────────────
+    history_path = export_dir / f"{artifact_stem}_history.csv"
+    pd.DataFrame(result["history"]).to_csv(history_path, index=False)
+    print(f"  Saved: {history_path.name}")
+
+    # ── MILP assignment CSV ───────────────────────────────────────────────────
+    df_results = best_eval.get("df_results")
+    if df_results is not None and not df_results.empty:
+        milp_path = export_dir / f"{artifact_stem}_milp_assignment.csv"
+        df_results.to_csv(milp_path, index=False)
+        print(f"  Saved: {milp_path.name}")
+    else:
+        print("  Skipped: df_results not available")
+
+    # ── Run config JSON ───────────────────────────────────────────────────────
+    es_cfg = {}
+    if es is not None:
+        cfg = getattr(es, "config", None)
+        if cfg is not None:
+            es_cfg = {
+                "mu":              cfg.mu,
+                "lam":             cfg.lam,
+                "n_generations":   cfg.n_generations,
+                "crossover_prob":  cfg.crossover_prob,
+                "sigma_init":      cfg.sigma_init,
+                "sigma_min":       cfg.sigma_min,
+                "tournament_size": cfg.tournament_size,
+                "stagnation_limit":cfg.stagnation_limit,
+                "n_restarts_max":  cfg.n_restarts_max,
+            }
+
+    config_payload = {
+        "artifact_stem":           artifact_stem,
+        "timestamp":               ts,
+        "ga_config":               ga_config,
+        "es_config":               es_cfg,
+        "normalization_constants": {k: float(v) for k, v in norm.items()},
+        "bounds_source":           bounds_source_info,
+        "n_generations":           n_gens,
+        "n_evals":                 n_evals,
+        "n_restarts":              result["n_restarts"],
+        "best_fitness":            float(best.fitness),
+        "model_prefix":            model_prefix,
+    }
+    config_path = export_dir / f"{artifact_stem}_run_config.json"
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config_payload, f, indent=2, default=str)
+    print(f"  Saved: {config_path.name}")
+
+    # ── Human-readable report ─────────────────────────────────────────────────
+    fr = best_eval.get("fitness_result") or {}
+    fw = ga_config["fitness_weights"]
+
+    report_lines = [
+        "GA OPTIMISATION RUN REPORT",
+        "=" * 70,
+        f"Artifact:              {artifact_stem}",
+        f"Generated:             {ts}",
+        f"Model prefix:          {model_prefix}",
+        "",
+        "RUN STATISTICS",
+        "-" * 70,
+        f"Generations completed: {n_gens}",
+        f"Total evaluations:     {n_evals}",
+        f"Restarts triggered:    {result['n_restarts']}",
+        "",
+        "BEST DESIGN",
+        "-" * 70,
+        f"Fitness:               {best.fitness:.6f}",
+        f"Found at generation:   {best.generation}",
+        f"Total cost:            {best_design_payload['total_cost']:.4f}",
+        f"Reuse rate:            {best_design_payload['reuse_rate']:.4f}",
+        f"Waste total:           {best_design_payload['waste_total']:.4f}",
+        f"GNN feasibility:       {best_design_payload['gnn_feasibility']:.4f}",
+        f"Unsafe members:        {len(best_design_payload['gnn_unsafe_members'])} / 120",
+        f"MILP status:           {best_design_payload['milp_status']}",
+        f"omega_4 used:          {best_design_payload['w_structural']:.4f}",
+        "",
+        "FITNESS COMPONENTS",
+        "-" * 70,
+        f"Cost component:        {fr.get('cost_component',       'n/a')}",
+        f"Reuse component:       {fr.get('reuse_component',      'n/a')}",
+        f"Waste component:       {fr.get('waste_component',      'n/a')}",
+        f"Structural component:  {fr.get('structural_component', 'n/a')}",
+        "",
+        "NORMALISATION CONSTANTS",
+        "-" * 70,
+        f"C_max: {norm.get('C_max')}  R_max: {norm.get('R_max')}",
+        f"Source: {bounds_source_info}",
+        "",
+        "GA CONFIGURATION",
+        "-" * 70,
+        "  ".join(f"ω{i+1}={fw[k]}" for i, k in enumerate(sorted(fw))),
+        f"Structural schedule:   ω4 {ga_config.get('w_structural_start', '?')} → "
+        f"{ga_config.get('w_structural_end', '?')}",
+        f"New stock max uses:    {ga_config.get('new_stock_max_uses')}",
+        f"Penalty fitness:       {ga_config.get('penalty_fitness')}",
+    ]
+
+    if es_cfg:
+        report_lines += [
+            "",
+            "ES CONFIGURATION",
+            "-" * 70,
+            f"μ={es_cfg['mu']}  λ={es_cfg['lam']}  "
+            f"generations={es_cfg['n_generations']}",
+            f"sigma_init={es_cfg['sigma_init']}  sigma_min={es_cfg['sigma_min']}  "
+            f"crossover_prob={es_cfg['crossover_prob']}",
+            f"tournament_size={es_cfg['tournament_size']}  "
+            f"stagnation_limit={es_cfg['stagnation_limit']}",
+        ]
+
+    report_lines += ["", "BEST DESIGN PARAMETERS", "-" * 70]
+    for k, v in best.params.items():
+        report_lines.append(f"  {k:<40} {v:.6f}")
+
+    report_path = export_dir / f"{artifact_stem}_report.txt"
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(report_lines))
+    print(f"  Saved: {report_path.name}")
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    all_files = sorted(export_dir.glob("*"))
+    print(f"\n{'='*65}")
+    print("EXPORT COMPLETE")
+    print(f"{'='*65}")
+    print(f"  Directory: {export_dir}")
+    print(f"\n  Files saved:")
+    for fp in all_files:
+        print(f"    {fp.name:<55} {fp.stat().st_size / 1024:6.1f} KB")
+
+    return {
+        "export_dir":    export_dir,
+        "artifact_stem": artifact_stem,
+        "all_files":     all_files,
+    }
