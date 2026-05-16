@@ -45,7 +45,7 @@ def run_analysis(
     Returns
     -------
     dict with keys: fig_conv_fitness, fig_conv_sigma, fig_conv_stagnation,
-                    fig_best_design, fig_params
+                    fig_best_design, fig_params, fig_top_k (None if unavailable)
     """
     history    = result["history"]
     best       = result["best_individual"]
@@ -53,6 +53,7 @@ def run_analysis(
     n_evals    = result["n_evals"]
     n_gens     = result["n_generations"]
     n_restarts = result["n_restarts"]
+    top_k      = result.get("top_k", [])
     norm       = fixed_norm_constants
 
     plt.rcParams.update({
@@ -137,9 +138,9 @@ def run_analysis(
     print("fig_conv_stagnation ready")
 
     # ── Fig 2: Best design breakdown ─────────────────────────────────────────
-    best_cost    = float(best_eval.get("total_cost",  0))
-    best_reuse   = float(best_eval.get("reuse_rate",  0))
-    best_waste   = float(best_eval.get("waste_total", 0))
+    best_cost    = float(best_eval.get("total_cost",     0))
+    best_reuse   = float(best_eval.get("reuse_fraction", 0))
+    best_waste   = float(best_eval.get("waste_total",    0))
     best_gnn     = float(best_eval.get("gnn_feasibility", 1.0) or 1.0)
     best_fitness = float(best.fitness)
     fr           = best_eval.get("fitness_result") or {}
@@ -148,12 +149,11 @@ def run_analysis(
     fig_best_design.suptitle("Figure 2 — Best Design Breakdown",
                               fontweight="bold", fontsize=13)
 
-    component_labels = ["Cost\n(ω1)", "Reuse\n(ω2)", "Waste\n(ω3)", "Structural\n(ω4)"]
+    component_labels = ["Cost\n(ω1·cost_norm)", "Reuse\n(ω2·reuse_norm)", "Structural\n(ω4·infeas.)"]
     component_values = [
-        float(fr.get("cost_component",       0)),
-        float(fr.get("reuse_component",      0)),
-        float(fr.get("waste_component",      0)),
-        float(fr.get("structural_component", 0)),
+        float(fr.get("cost_norm",               0)),
+        float(fr.get("reuse_norm",              0)),
+        float(fr.get("structural_infeasibility", 0)),
     ]
     ax = axes[0]
     bars = ax.bar(component_labels, component_values,
@@ -245,6 +245,71 @@ def run_analysis(
     plt.show()
     print("fig_params ready")
 
+    # ── Fig 4: Top-k designs comparison ──────────────────────────────────────
+    fig_top_k = None
+    if top_k:
+        n_show     = len(top_k)
+        ranks      = [f"#{i+1}" for i in range(n_show)]
+        fitnesses  = [ind.fitness for ind in top_k]
+        gnn_scores = [
+            float((ind.eval_result or {}).get("gnn_feasibility", 0) or 0)
+            for ind in top_k
+        ]
+        costs      = [
+            float((ind.eval_result or {}).get("total_cost",  0) or 0)
+            for ind in top_k
+        ]
+        reuse_rates = [
+            float((ind.eval_result or {}).get("reuse_fraction", 0) or 0)
+            for ind in top_k
+        ]
+        gens_found = [ind.generation for ind in top_k]
+
+        fig_top_k, axes = plt.subplots(1, 3, figsize=(S["figsize_large"][0], 5))
+        fig_top_k.suptitle(f"Figure 4 — Top-{n_show} Designs (FEM candidate shortlist)",
+                            fontweight="bold", fontsize=13)
+
+        y_pos = np.arange(n_show)[::-1]  # rank 1 at top
+
+        ax = axes[0]
+        bars = ax.barh(y_pos, fitnesses, color=C["primary"], edgecolor="none", height=0.7)
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(ranks, fontsize=9)
+        ax.set_xlabel("Fitness (lower = better)")
+        ax.set_title("Fitness by rank")
+        for bar, v in zip(bars, fitnesses):
+            ax.text(bar.get_width() + max(fitnesses) * 0.01,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{v:.4f}", va="center", fontsize=8)
+
+        ax = axes[1]
+        bars = ax.barh(y_pos, gnn_scores, color=C["secondary"], edgecolor="none", height=0.7)
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(ranks, fontsize=9)
+        ax.set_xlabel("GNN feasibility (higher = safer)")
+        ax.set_title("GNN feasibility by rank")
+        ax.set_xlim(0, 1.05)
+        for bar, v in zip(bars, gnn_scores):
+            ax.text(bar.get_width() + 0.01,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{v:.3f}", va="center", fontsize=8)
+
+        ax = axes[2]
+        sc = ax.scatter(costs, gnn_scores,
+                        c=fitnesses, cmap="viridis_r",
+                        s=60, edgecolors=C["black"], linewidths=0.4, zorder=3)
+        for i, (cx, cy) in enumerate(zip(costs, gnn_scores)):
+            ax.annotate(f"#{i+1}", (cx, cy),
+                        textcoords="offset points", xytext=(5, 3), fontsize=7)
+        plt.colorbar(sc, ax=ax, label="Fitness")
+        ax.set_xlabel("Total cost (normalised)")
+        ax.set_ylabel("GNN feasibility")
+        ax.set_title("Cost vs GNN feasibility")
+
+        plt.tight_layout()
+        plt.show()
+        print("fig_top_k ready")
+
     # ── Summary print ─────────────────────────────────────────────────────────
     print("\n" + "=" * 65)
     print("GA RUN SUMMARY")
@@ -264,6 +329,15 @@ def run_analysis(
           f"{len(best_eval.get('gnn_unsafe_members') or [])} / 120")
     print()
     print(f"  Normalisation constants:  C_max={norm.get('C_max')}  R_max={norm.get('R_max')}")
+    if top_k:
+        print()
+        print(f"  Top-{len(top_k)} designs (for FEM verification):")
+        for i, ind in enumerate(top_k):
+            ev = ind.eval_result or {}
+            print(f"    #{i+1:2d}  fitness={ind.fitness:.4f}  "
+                  f"GNN={float(ev.get('gnn_feasibility', 0) or 0):.3f}  "
+                  f"cost={float(ev.get('total_cost', 0) or 0):.4f}  "
+                  f"gen={ind.generation}")
     print("=" * 65)
 
     return {
@@ -272,6 +346,8 @@ def run_analysis(
         "fig_conv_stagnation": fig_conv_stagnation,
         "fig_best_design":     fig_best_design,
         "fig_params":          fig_params,
+        "fig_top_k":           fig_top_k,
+        "top_k":               top_k,
     }
 
 
@@ -314,6 +390,7 @@ def run_export(
 
     best      = result["best_individual"]
     best_eval = result["best_eval_result"] or {}
+    top_k     = result.get("top_k") or analysis_out.get("top_k") or []
     n_gens    = result["n_generations"]
     n_evals   = result["n_evals"]
     norm      = fixed_norm_constants
@@ -332,6 +409,7 @@ def run_export(
         "fig_conv_stagnation": "fig1c_stagnation",
         "fig_best_design":     "fig2_best_design",
         "fig_params":          "fig3_parameters",
+        "fig_top_k":           "fig4_top_k_comparison",
     }
     for var_name, stem in fig_map.items():
         fig = analysis_out.get(var_name)
@@ -347,7 +425,7 @@ def run_export(
         "fitness":            float(best.fitness),
         "generation":         int(best.generation),
         "total_cost":         float(best_eval.get("total_cost",  0)),
-        "reuse_rate":         float(best_eval.get("reuse_rate",  0)),
+        "reuse_rate":         float(best_eval.get("reuse_fraction", 0)),
         "waste_total":        float(best_eval.get("waste_total", 0)),
         "gnn_feasibility":    float(best_eval.get("gnn_feasibility", 1.0) or 1.0),
         "gnn_unsafe_members": list(best_eval.get("gnn_unsafe_members") or []),
@@ -371,14 +449,97 @@ def run_export(
     pd.DataFrame(result["history"]).to_csv(history_path, index=False)
     print(f"  Saved: {history_path.name}")
 
-    # ── MILP assignment CSV ───────────────────────────────────────────────────
-    df_results = best_eval.get("df_results")
-    if df_results is not None and not df_results.empty:
-        milp_path = export_dir / f"{artifact_stem}_milp_assignment.csv"
-        df_results.to_csv(milp_path, index=False)
-        print(f"  Saved: {milp_path.name}")
-    else:
-        print("  Skipped: df_results not available")
+    # ── MILP topology helper (used by top-k export) ───────────────────────────
+    def _enrich_milp(df_milp, df_edges):
+        """Merge V1/V2 topology into a MILP result DataFrame."""
+        if df_edges is None or df_edges.empty:
+            return df_milp
+        topo = df_edges[["edge_id", "V1", "V2"]] if "V1" in df_edges.columns else df_edges[["edge_id"]]
+        out  = df_milp.merge(topo, on="edge_id", how="left")
+        front = [c for c in ["edge_id", "V1", "V2"] if c in out.columns]
+        rest  = [c for c in out.columns if c not in front]
+        return out[front + rest]
+
+    # ── Top-k designs ─────────────────────────────────────────────────────────
+    if top_k:
+        top_k_dir = export_dir / "top_k_designs"
+        top_k_dir.mkdir(exist_ok=True)
+
+        # Summary JSON (all ranks, all metadata)
+        top_k_payload = []
+        for rank, ind in enumerate(top_k, 1):
+            ev = ind.eval_result or {}
+            fr = ev.get("fitness_result") or {}
+            entry = {
+                "rank":              rank,
+                "fitness":           float(ind.fitness),
+                "generation":        int(ind.generation),
+                "total_cost":        float(ev.get("total_cost",      0) or 0),
+                "reuse_rate":            float(ev.get("reuse_fraction",  0) or 0),
+                "waste_total":           float(ev.get("waste_total",     0) or 0),
+                "gnn_feasibility":       float(ev.get("gnn_feasibility", 0) or 0),
+                "gnn_unsafe_members":    list(ev.get("gnn_unsafe_members") or []),
+                "milp_status":           str(ev.get("milp_status",       "n/a")),
+                "cost_norm":             _to_builtin(fr.get("cost_norm",               0)),
+                "reuse_norm":            _to_builtin(fr.get("reuse_norm",              0)),
+                "structural_infeasibility": _to_builtin(fr.get("structural_infeasibility", 0)),
+                "params":            {k: float(v) for k, v in ind.params.items()},
+            }
+            top_k_payload.append(entry)
+
+        summary_json = top_k_dir / f"{artifact_stem}_top{len(top_k)}_summary.json"
+        with open(summary_json, "w", encoding="utf-8") as f:
+            json.dump(top_k_payload, f, indent=2, default=str)
+        print(f"  Saved: top_k_designs/{summary_json.name}")
+
+        # Summary CSV (flat, one row per design)
+        summary_df = pd.DataFrame([
+            {k: v for k, v in e.items() if k not in ("params", "gnn_unsafe_members")}
+            for e in top_k_payload
+        ])
+        summary_csv = top_k_dir / f"{artifact_stem}_top{len(top_k)}_summary.csv"
+        summary_df.to_csv(summary_csv, index=False)
+        print(f"  Saved: top_k_designs/{summary_csv.name}")
+
+        # Combined geometry + MILP assignment CSVs (one file per type, all ranks)
+        vert_chunks: list[pd.DataFrame] = []
+        edge_chunks: list[pd.DataFrame] = []
+
+        for rank, ind in enumerate(top_k, 1):
+            ev  = ind.eval_result or {}
+            dfr = ev.get("df_results")
+
+            df_v = ev.get("df_vertices")
+            if df_v is not None and not df_v.empty:
+                vert_chunks.append(df_v)
+
+            if dfr is not None and not dfr.empty:
+                edge_chunks.append(_enrich_milp(dfr.copy(), ev.get("df_edges")))
+
+        def _concat_with_rank(chunks, keep_cols):
+            records = []
+            for rank, chunk in enumerate(chunks, 1):
+                for row in chunk.to_dict(orient="records"):
+                    rec = {"rank": rank}
+                    for col in keep_cols:
+                        if col in row:
+                            rec[col] = row[col]
+                    records.append(rec)
+            return pd.DataFrame(records)
+
+        if vert_chunks:
+            verts_csv = top_k_dir / f"{artifact_stem}_top{len(top_k)}_vertices.csv"
+            vert_cols = ["vertex_index", "layer", "attribute", "x", "y", "z"]
+            _concat_with_rank(vert_chunks, vert_cols).to_csv(verts_csv, index=False)
+            print(f"  Saved: top_k_designs/{verts_csv.name}")
+
+        if edge_chunks:
+            edges_csv = top_k_dir / f"{artifact_stem}_top{len(top_k)}_edges_assigned.csv"
+            edge_cols = [c for c in edge_chunks[0].columns if c != "sample_id"]
+            _concat_with_rank(edge_chunks, edge_cols).to_csv(edges_csv, index=False)
+            print(f"  Saved: top_k_designs/{edges_csv.name}")
+
+        print(f"  → {len(top_k)} designs consolidated into top_k_designs/")
 
     # ── Run config JSON ───────────────────────────────────────────────────────
     es_cfg = {}
@@ -395,6 +556,7 @@ def run_export(
                 "tournament_size": cfg.tournament_size,
                 "stagnation_limit":cfg.stagnation_limit,
                 "n_restarts_max":  cfg.n_restarts_max,
+                "top_k_size":      getattr(cfg, "top_k_size", None),
             }
 
     config_payload = {
@@ -446,10 +608,10 @@ def run_export(
         "",
         "FITNESS COMPONENTS",
         "-" * 70,
-        f"Cost component:        {fr.get('cost_component',       'n/a')}",
-        f"Reuse component:       {fr.get('reuse_component',      'n/a')}",
-        f"Waste component:       {fr.get('waste_component',      'n/a')}",
-        f"Structural component:  {fr.get('structural_component', 'n/a')}",
+        f"Cost (cost_norm):         {fr.get('cost_norm',               'n/a')}",
+        f"Reuse (reuse_norm):       {fr.get('reuse_norm',              'n/a')}",
+        f"Structural (infeas.):     {fr.get('structural_infeasibility', 'n/a')}",
+        f"Structural penalty:       {fr.get('structural_penalty',       'n/a')}",
         "",
         "NORMALISATION CONSTANTS",
         "-" * 70,
@@ -470,17 +632,43 @@ def run_export(
             "",
             "ES CONFIGURATION",
             "-" * 70,
-            f"μ={es_cfg['mu']}  λ={es_cfg['lam']}  "
-            f"generations={es_cfg['n_generations']}",
+            f"μ={es_cfg['mu']}  λ={es_cfg['lam']}  generations={es_cfg['n_generations']}",
             f"sigma_init={es_cfg['sigma_init']}  sigma_min={es_cfg['sigma_min']}  "
             f"crossover_prob={es_cfg['crossover_prob']}",
             f"tournament_size={es_cfg['tournament_size']}  "
-            f"stagnation_limit={es_cfg['stagnation_limit']}",
+            f"stagnation_limit={es_cfg['stagnation_limit']}  "
+            f"n_restarts_max={es_cfg.get('n_restarts_max', '?')}",
+            f"top_k_size={es_cfg.get('top_k_size', '?')}",
         ]
 
     report_lines += ["", "BEST DESIGN PARAMETERS", "-" * 70]
     for k, v in best.params.items():
         report_lines.append(f"  {k:<40} {v:.6f}")
+
+    if top_k:
+        report_lines += ["", f"TOP-{len(top_k)} DESIGNS (FEM CANDIDATE SHORTLIST)", "-" * 70]
+        report_lines.append(
+            f"  {'Rank':<6} {'Fitness':>10} {'Cost':>10} {'Reuse%':>8} "
+            f"{'GNN':>8} {'MILP':>12} {'Gen':>5}"
+        )
+        for rank, ind in enumerate(top_k, 1):
+            ev = ind.eval_result or {}
+            report_lines.append(
+                f"  #{rank:<5} {ind.fitness:>10.4f} "
+                f"{float(ev.get('total_cost',  0) or 0):>10.4f} "
+                f"{float(ev.get('reuse_fraction', 0) or 0):>8.2f} "
+                f"{float(ev.get('gnn_feasibility', 0) or 0):>8.3f} "
+                f"{str(ev.get('milp_status', 'n/a')):>12} "
+                f"{ind.generation:>5}"
+            )
+        report_lines += [
+            "",
+            "  Combined CSVs saved to top_k_designs/:",
+            f"    {artifact_stem}_top{len(top_k)}_vertices.csv",
+            f"    {artifact_stem}_top{len(top_k)}_edges_assigned.csv",
+            f"    {artifact_stem}_top{len(top_k)}_summary.csv",
+            f"    {artifact_stem}_top{len(top_k)}_summary.json",
+        ]
 
     report_path = export_dir / f"{artifact_stem}_report.txt"
     with open(report_path, "w", encoding="utf-8") as f:

@@ -369,7 +369,7 @@ def evaluate_design_candidate(
         gnn_feasibility    = 1.0
         gnn_unsafe_members = []
 
-        if MODEL_PREFIX:
+        if MODEL_PREFIX or bundle is not None:
             milp_assignment = milp_out.get("milp_assignment")
             if milp_assignment is None:
                 warnings.warn(
@@ -399,12 +399,11 @@ def evaluate_design_candidate(
                           f"unsafe={len(gnn_unsafe_members)} members")
         else:
             warnings.warn(
-                "MODEL_PREFIX not set — GNN stage skipped. "
-                "Set MODEL_PREFIX in GA_CONFIG.",
+                "GNN stage skipped — pass bundle or model_prefix to evaluate_design_candidate.",
                 stacklevel=2,
             )
             if verbose:
-                print(f"    - GNN         | skipped (MODEL_PREFIX not set)")
+                print(f"    - GNN         | skipped (no bundle or model_prefix)")
 
         result["gnn_feasibility"]    = gnn_feasibility
         result["gnn_unsafe_members"] = gnn_unsafe_members
@@ -444,7 +443,7 @@ def evaluate_design_candidate(
             "df_vertices":    df_vertices,
             "df_edges":       df_edges,
             "df_results":     df_results,
-            "preds_physical": preds_physical if MODEL_PREFIX else None,
+            "preds_physical": preds_physical if (MODEL_PREFIX or bundle is not None) else None,
         })
 
         if verbose:

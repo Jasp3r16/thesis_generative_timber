@@ -450,10 +450,6 @@ def build_cost_filter(node_positions, edges_df, stock_df,
     n_stock   = len(stock_df)
     total     = n_slots * n_stock
 
-    print(f"Cost matrix filter: {n_slots} slots × {n_stock} stock = {total:,} combinations")
-    print(f"  Load: {total_load_n/1000:.1f} kN total  "
-          f"({total_load_n/1000/ROOF_AREA_M2:.2f} kN/m² × {ROOF_AREA_M2:.0f} m²)")
-
     slot_lengths_m   = compute_member_lengths(node_positions, edges_v1, edges_v2)
     stock_lengths_mm = stock_df['Length'].values
 
@@ -473,7 +469,7 @@ def build_cost_filter(node_positions, edges_df, stock_df,
         support_nodes, load_nodes, total_load_n, mean_EA_SI,
     )
 
-    print(f"  Force estimation:    "
+    print(f"  Stage 2 (force):   "
           f"max tension={member_forces.max()/1000:.1f} kN  "
           f"max compression={member_forces.min()/1000:.1f} kN  "
           f"mean |F|={np.abs(member_forces).mean()/1000:.1f} kN")
@@ -523,10 +519,6 @@ def build_cost_filter(node_positions, edges_df, stock_df,
         ("3c width/depth",  n_after_3b,     n_after_3c),
         ("3d/e strength",   n_after_3c,     n_after_struct),
     ]
-    for label, before, after in sub_steps:
-        elim = before - after
-        if elim > 0:
-            print(f"    {label:<18}  -{elim:5,}  ({after:,} remaining)")
 
     # ---- Warn on unassignable slots ----
     slots_no_stock = np.where(mask_combined.sum(axis=1) == 0)[0]

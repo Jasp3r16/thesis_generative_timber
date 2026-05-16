@@ -92,6 +92,9 @@ class ESConfig:
     # Penalty
     penalty_fitness: float = 1e6   # fitness assigned to infeasible / failed evals
 
+    # Top-k tracking
+    top_k_size:    int   = 10      # number of best unique designs retained across all generations
+
     # Logging
     log_every:     int   = 1       # print summary every N generations
     verbose:       bool  = True
@@ -191,6 +194,7 @@ class EvolutionStrategy:
         self.population:    list[Individual] = []
         self.history:       list[dict]       = []   # one entry per generation
         self.best_ever:     Individual | None = None
+        self.top_k:         list[Individual] = []   # best k unique designs seen so far
         self.generation:    int               = 0
         self.n_evals:       int               = 0
         self.n_restarts:    int               = 0
@@ -232,7 +236,8 @@ class EvolutionStrategy:
 
         # Initialise population
         self.population = self._initialise_population(cfg.mu)
-        self._evaluate_population(self.population)
+        self._evaluate_population(self.population, generation=0)
+        self._update_top_k(self.population)
 
         if cfg.verbose:
             print(f"\n[ES] Initial population evaluated ({cfg.mu} individuals)")
@@ -249,10 +254,11 @@ class EvolutionStrategy:
             offspring = self._generate_offspring(cfg.lam)
 
             # Evaluate offspring (parents are NOT re-evaluated — free elitism)
-            self._evaluate_population(offspring)
+            self._evaluate_population(offspring, generation=gen)
 
             # (μ+λ) selection: best μ from parents ∪ offspring
-            combined        = self.population + offspring
+            combined = self.population + offspring
+            self._update_top_k(combined)   # capture all evaluated before selection discards any
             self.population = self._select(combined, cfg.mu)
 
             # Track best ever
@@ -282,12 +288,17 @@ class EvolutionStrategy:
             f"{self.n_restarts} restarts\n"
             f"[ES] Best fitness: {self.best_ever.fitness:.6f}"
         )
+        print(f"[ES] Top-{len(self.top_k)} designs:")
+        for rank, ind in enumerate(self.top_k, 1):
+            gnn = (ind.eval_result or {}).get("gnn_feasibility", float("nan"))
+            print(f"     #{rank:2d}  fitness={ind.fitness:.4f}  GNN={gnn:.3f}  gen={ind.generation}")
 
         return {
             "best_individual":  self.best_ever,
             "best_fitness":     self.best_ever.fitness,
             "best_params":      self.best_ever.params,
             "best_eval_result": self.best_ever.eval_result,
+            "top_k":            self.top_k,
             "history":          self.history,
             "n_evals":          self.n_evals,
             "n_generations":    self.generation,
@@ -417,7 +428,7 @@ class EvolutionStrategy:
     # EVALUATION
     # -------------------------------------------------------------------------
 
-    def _evaluate_population(self, population: list[Individual]) -> None:
+    def _evaluate_population(self, population: list[Individual], generation: int = 0) -> None:
         """Evaluate each unevaluated individual in the population in-place."""
         to_eval = [ind for ind in population if not ind.is_evaluated()]
         n       = len(to_eval)
@@ -428,7 +439,7 @@ class EvolutionStrategy:
         for i, ind in enumerate(to_eval):
             t0 = time.time()
             try:
-                fitness, eval_result = self.evaluate_fn(ind.params)
+                fitness, eval_result = self.evaluate_fn(ind.params, generation, self.config.n_generations)
             except Exception as exc:
                 warnings.warn(f"[ES] Evaluation failed: {exc}")
                 fitness     = self.config.penalty_fitness
@@ -446,6 +457,34 @@ class EvolutionStrategy:
                     f"ind={i+1}/{n}  fitness={fitness:.4f}  "
                     f"status={status}  ({elapsed:.1f}s)"
                 )
+
+    # -------------------------------------------------------------------------
+    # TOP-K TRACKING
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _top_k_key(ind: Individual) -> tuple:
+        """Stable identity key based on rounded param values — used for dedup."""
+        return tuple(round(v, 8) for v in ind.params.values())
+
+    def _update_top_k(self, candidates: list[Individual]) -> None:
+        """
+        Merge evaluated candidates into self.top_k, keeping the best k unique
+        designs by fitness. Deduplication is by parameter identity so the same
+        design doesn't occupy multiple slots (e.g. elites that survive multiple
+        generations).
+        """
+        k = self.config.top_k_size
+        seen_keys = {self._top_k_key(ind) for ind in self.top_k}
+        for ind in candidates:
+            if ind.fitness is None:
+                continue
+            key = self._top_k_key(ind)
+            if key not in seen_keys:
+                self.top_k.append(deepcopy(ind))
+                seen_keys.add(key)
+        self.top_k.sort(key=lambda x: x.fitness)
+        self.top_k = self.top_k[:k]
 
     # -------------------------------------------------------------------------
     # RESTART
@@ -474,7 +513,7 @@ class EvolutionStrategy:
         )
 
         # Evaluate new random individuals
-        self._evaluate_population(new_randoms)
+        self._evaluate_population(new_randoms, generation=self.generation)
 
     # -------------------------------------------------------------------------
     # LOGGING
@@ -525,6 +564,7 @@ def make_evaluate_fn(
     bundle:                Any  = None,
     sample_id_offset:      int  = 0,
     prepared_gnn_stock:    Any  = None,
+    verbose:               bool = False,
 ) -> Callable[[dict], tuple[float, dict]]:
     """
     Wrap a pipeline evaluator into the (params → fitness, result) signature
@@ -558,7 +598,7 @@ def make_evaluate_fn(
     call_counter = [0]
     penalty      = float(config_dict.get("penalty_fitness", 1e6))
 
-    def _evaluate(design_params: dict) -> tuple[float, dict]:
+    def _evaluate(design_params: dict, generation: int = 0, max_generations: int = 1) -> tuple[float, dict]:
         call_counter[0] += 1
         sid = sample_id_offset + call_counter[0]
 
@@ -569,8 +609,10 @@ def make_evaluate_fn(
             fixed_norm_constants = fixed_norm_constants,
             config_dict          = config_dict,
             sample_id            = sid,
-            verbose              = False,
+            verbose              = verbose,
             prepared_gnn_stock   = prepared_gnn_stock,
+            generation           = generation,
+            max_generations      = max_generations,
         )
 
         fitness = float(result.get("fitness", penalty))
