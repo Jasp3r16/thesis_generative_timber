@@ -32,7 +32,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.utils import to_undirected
 
 import config
-from c21_surrogate_model_v4 import create_model, FocalLoss
+from c21_surrogate_model_v4 import create_model, FocalLoss, WeightedBCELoss
 
 
 # =============================================================================
@@ -258,8 +258,8 @@ def run_preprocessing(
 
     # ---- Class balance ----
     train_pos_rate = float((train_edges["Utilization"] > 1).mean())
-    focal_alpha    = float(max(0.05, min(0.95, 1.0 - train_pos_rate)))
-    print(f"Train positive rate: {train_pos_rate:.4f} → focal_alpha={focal_alpha:.4f}")
+    pos_weight     = float((1.0 - train_pos_rate) / max(train_pos_rate, 1e-6))
+    print(f"Train positive rate: {train_pos_rate:.4f} → pos_weight={pos_weight:.4f}")
 
     # ---- Dataset construction ----
     def build_sample(s):
@@ -302,8 +302,8 @@ def run_preprocessing(
           f"{len(test_dataloader)} test batches (batch_size={batch_size})")
 
     # ---- Loss ----
-    loss_fn = FocalLoss(alpha=focal_alpha, gamma=2.0)
-    print(f"FocalLoss(alpha={focal_alpha:.4f}, gamma=2.0)")
+    loss_fn = WeightedBCELoss(pos_weight=pos_weight)
+    print(f"WeightedBCELoss(pos_weight={pos_weight:.4f})")
 
     # ---- Optional inspection ----
     if data_inspection:
@@ -318,7 +318,7 @@ def run_preprocessing(
             print(edges_df[edges_df[sample_id_col].isin(zero_ids)][edge_cols].describe())
 
     return {
-        "model": model, "loss_fn": loss_fn, "focal_alpha": focal_alpha,
+        "model": model, "loss_fn": loss_fn, "pos_weight": pos_weight,
         "train_pos_rate": train_pos_rate,
         "train_dataloader": train_dataloader,
         "val_dataloader":   val_dataloader,
@@ -350,7 +350,7 @@ def run_training(
     lr_patience:       int   = 10,
     lr_min:            float = 1e-6,
     grad_clip:         float = 1.0,
-    focal_alpha:       float = 0.5,
+    pos_weight:        float | None = None,
     default_threshold: float = 0.35,
     min_precision:     float = 0.40,
 ) -> dict[str, Any]:
@@ -393,9 +393,10 @@ def run_training(
 
     CKPT_PATH = config.DATA_IO_PATH / "surrogate_v4_checkpoint.pth"
 
-    # Override loss with the specified focal_alpha
-    loss_fn = FocalLoss(alpha=focal_alpha, gamma=2.0)
-    print(f"FocalLoss(alpha={focal_alpha:.4f}, gamma=2.0)  [preprocessing value overridden]")
+    # Use pos_weight from caller if given, otherwise inherit from preprocessing.
+    _pw = pos_weight if pos_weight is not None else float(pre.get("pos_weight", 4.0))
+    loss_fn = WeightedBCELoss(pos_weight=_pw)
+    print(f"WeightedBCELoss(pos_weight={_pw:.4f})")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -403,7 +404,7 @@ def run_training(
     )
 
     print(f"\nHyperparameters: epochs={epochs}, lr={lr:.0e}, patience={patience}, "
-          f"grad_clip={grad_clip}, focal_alpha={focal_alpha}, "
+          f"grad_clip={grad_clip}, pos_weight={_pw:.4f}, "
           f"default_threshold={default_threshold}, min_precision={min_precision}")
     print(f"Checkpoint: {CKPT_PATH}")
     print(f"\nStarting training: {epochs} epochs, early stopping patience={patience}")
@@ -477,7 +478,7 @@ def run_training(
     torch.save({
         "model_state_dict": model.state_dict(),
         "best_val_loss": best_val_loss, "best_epoch": best_epoch,
-        "focal_alpha": focal_alpha,
+        "pos_weight": _pw,
         "train_losses": train_losses, "val_losses": val_losses,
     }, CKPT_PATH)
     print(f"Checkpoint saved: {CKPT_PATH}")
@@ -556,7 +557,7 @@ def run_training(
     print(f"{'='*70}")
 
     return {
-        "model": model, "loss_fn": loss_fn, "focal_alpha": focal_alpha,
+        "model": model, "loss_fn": loss_fn, "pos_weight": _pw,
         "best_val_loss": best_val_loss, "best_epoch": best_epoch,
         "train_losses": train_losses, "val_losses": val_losses, "test_loss": test_loss,
         "val_probs": val_probs, "val_targets": val_targets,
@@ -911,7 +912,7 @@ def run_export(
     """
     model         = train_out["model"]
     loss_fn       = train_out["loss_fn"]
-    focal_alpha   = train_out["focal_alpha"]
+    pos_weight    = train_out.get("pos_weight", train_out.get("focal_alpha", 4.0))
     best_val_loss = train_out["best_val_loss"]
     best_epoch    = train_out["best_epoch"]
     train_losses  = train_out["train_losses"]
@@ -956,7 +957,7 @@ def run_export(
         f"_LR{LR:.0e}"
         f"_EP{len(train_losses)}"
         f"_BS{batch_size}"
-        f"_FA{focal_alpha:.2f}"
+        f"_PW{pos_weight:.1f}"
         f"_ROC{roc_auc_val:.3f}"
     )
     print(f"Artifact stem: {artifact_stem}")
@@ -1030,7 +1031,6 @@ def run_export(
     print(f"Metrics JSON saved:  {metrics_path.name}")
 
     # 7. Training report
-    focal_gamma = float(getattr(loss_fn, "gamma", 2.0))
     report_lines = [
         "SURROGATE MODEL TRAINING REPORT", "=" * 80,
         f"Artifact:      {artifact_stem}", f"Generated:     {ts}", "",
@@ -1056,7 +1056,7 @@ def run_export(
         f"Early stop pat.:   {PATIENCE}", f"Actual epochs run: {len(train_losses)}",
         f"Best epoch:        {best_epoch+1}", f"Batch size:        {batch_size}",
         f"Loss:              {type(loss_fn).__name__}",
-        f"Focal alpha:       {focal_alpha:.6f}", f"Focal gamma:       {focal_gamma:.6f}",
+        f"Pos weight:        {pos_weight:.6f}",
         f"Best val loss:     {best_val_loss:.6f}", "",
         "EVALUATION SUMMARY", "-" * 80,
         f"ROC AUC: {roc_auc_val:.6f}  |  PR AUC: {pr_auc_val:.6f}  |  Brier: {brier:.6f}", "",

@@ -285,6 +285,33 @@ class FocalLoss(nn.Module):
 
 
 # ============================================================================
+# 4b. WEIGHTED BCE LOSS
+# ============================================================================
+
+class WeightedBCELoss(nn.Module):
+    """Weighted binary cross-entropy for imbalanced structural safety data.
+
+    Upweights the unsafe class (minority) by pos_weight without suppressing
+    gradients for confident predictions — unlike FocalLoss which collapses
+    all outputs toward the base rate when gamma > 0.
+
+    With ~20% unsafe rate, pos_weight ≈ (1-0.20)/0.20 = 4.0.
+    Derived automatically from training data in run_preprocessing().
+    """
+
+    def __init__(self, pos_weight: float = 4.0, eps: float = 1e-7):
+        super().__init__()
+        self.pos_weight = pos_weight
+        self.eps = eps
+
+    def forward(self, predictions, targets):
+        p = predictions.clamp(self.eps, 1.0 - self.eps).view(-1)
+        t = targets.view(-1).float()
+        loss = -(self.pos_weight * t * p.log() + (1 - t) * (1 - p).log())
+        return loss.mean()
+
+
+# ============================================================================
 # 5. MAIN MODEL: TrussEdgeSafetyGNN
 # ============================================================================
 

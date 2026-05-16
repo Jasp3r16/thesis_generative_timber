@@ -524,6 +524,7 @@ def make_evaluate_fn(
     config_dict:           dict,
     bundle:                Any  = None,
     sample_id_offset:      int  = 0,
+    prepared_gnn_stock:    Any  = None,
 ) -> Callable[[dict], tuple[float, dict]]:
     """
     Wrap a pipeline evaluator into the (params → fitness, result) signature
@@ -569,6 +570,7 @@ def make_evaluate_fn(
             config_dict          = config_dict,
             sample_id            = sid,
             verbose              = False,
+            prepared_gnn_stock   = prepared_gnn_stock,
         )
 
         fitness = float(result.get("fitness", penalty))

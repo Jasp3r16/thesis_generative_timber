@@ -316,11 +316,15 @@ def load_surrogate_bundle(
         f"{'bidirectional' if bidirectional else 'unidirectional'}"
     )
 
+    # Use the scalers' own column lists — authoritative order from training,
+    # avoids KeyError when loading an older model with different feature set.
+    _nc = scalers["node_cols"]
+    _ec = scalers["edge_cols"]
     norm_stats = {
-        "node_means": np.array([scalers["node_mean"][c] for c in _NODE_COLS]),
-        "node_stds":  np.array([scalers["node_std"][c]  for c in _NODE_COLS]),
-        "edge_means": np.array([scalers["edge_mean"][c] for c in _EDGE_COLS]),
-        "edge_stds":  np.array([scalers["edge_std"][c]  for c in _EDGE_COLS]),
+        "node_means": np.array([scalers["node_mean"][c] for c in _nc]),
+        "node_stds":  np.array([scalers["node_std"][c]  for c in _nc]),
+        "edge_means": np.array([scalers["edge_mean"][c] for c in _ec]),
+        "edge_stds":  np.array([scalers["edge_std"][c]  for c in _ec]),
     }
 
     return {
