@@ -310,6 +310,65 @@ def run_analysis(
         plt.show()
         print("fig_top_k ready")
 
+    # ── Fig 5: Per-generation component breakdown ─────────────────────────────
+    fig_components = None
+    has_components = any("best_cost_norm" in h for h in history)
+    if has_components:
+        cost_curve    = [h.get("best_cost_norm",         float("nan")) for h in history]
+        reuse_curve   = [h.get("best_reuse_norm",        float("nan")) for h in history]
+        struct_curve  = [h.get("best_structural_infeas", float("nan")) for h in history]
+        w4_curve      = [h.get("w_structural",           float("nan")) for h in history]
+        mean_reuse    = [h.get("mean_reuse",             float("nan")) for h in history]
+        mean_gnn      = [h.get("mean_gnn",               float("nan")) for h in history]
+        n_penalty     = [h.get("n_penalty",              0)            for h in history]
+
+        fig_components, axes = plt.subplots(2, 2, figsize=(S["figsize_large"][0], 9))
+        fig_components.suptitle("Figure 5 — Per-Generation Component Breakdown",
+                                 fontweight="bold", fontsize=13)
+
+        # Top-left: fitness components of best-in-generation
+        ax = axes[0, 0]
+        ax.plot(gens, cost_curve,   color=C["primary"],   lw=S["line_width"], label="cost_norm (ω1·cost)")
+        ax.plot(gens, reuse_curve,  color=C["accent"],    lw=S["line_width"], label="reuse_norm (ω2·reuse, subtracted)")
+        ax.plot(gens, struct_curve, color=C["danger"],    lw=S["line_width"], label="structural_infeas (ω4·infeas)")
+        ax.set_xlabel("Generation")
+        ax.set_ylabel("Component value")
+        ax.set_title("Fitness components — best-in-generation")
+        ax.legend(fontsize=8)
+
+        # Top-right: ω4 curriculum
+        ax = axes[0, 1]
+        ax.plot(gens, w4_curve, color=C["danger"], lw=S["line_width"])
+        ax.set_xlabel("Generation")
+        ax.set_ylabel("ω4")
+        ax.set_title("Structural penalty weight (ω4) over generations")
+        ax.set_ylim(0, 1)
+
+        # Bottom-left: population reuse + GNN trends
+        ax = axes[1, 0]
+        ax.plot(gens, mean_reuse, color=C["accent"],   lw=S["line_width"], label="mean reuse fraction (population)")
+        ax2 = ax.twinx()
+        ax2.plot(gens, mean_gnn, color=C["secondary"], lw=S["line_width"],
+                 linestyle="--", label="mean GNN feasibility (population)")
+        ax.set_xlabel("Generation")
+        ax.set_ylabel("Mean reuse fraction", color=C["accent"])
+        ax2.set_ylabel("Mean GNN feasibility", color=C["secondary"])
+        ax.set_title("Population reuse & structural quality trend")
+        lines1, labs1 = ax.get_legend_handles_labels()
+        lines2, labs2 = ax2.get_legend_handles_labels()
+        ax.legend(lines1 + lines2, labs1 + labs2, fontsize=8)
+
+        # Bottom-right: penalty count
+        ax = axes[1, 1]
+        ax.bar(gens, n_penalty, color=C["danger"], width=0.8, edgecolor="none", alpha=0.7)
+        ax.set_xlabel("Generation")
+        ax.set_ylabel("Individuals with penalty fitness")
+        ax.set_title("Failed evaluations per generation (in µ survivors)")
+
+        plt.tight_layout()
+        plt.show()
+        print("fig_components ready")
+
     # ── Summary print ─────────────────────────────────────────────────────────
     print("\n" + "=" * 65)
     print("GA RUN SUMMARY")
@@ -347,6 +406,7 @@ def run_analysis(
         "fig_best_design":     fig_best_design,
         "fig_params":          fig_params,
         "fig_top_k":           fig_top_k,
+        "fig_components":      fig_components,
         "top_k":               top_k,
     }
 
@@ -410,6 +470,7 @@ def run_export(
         "fig_best_design":     "fig2_best_design",
         "fig_params":          "fig3_parameters",
         "fig_top_k":           "fig4_top_k_comparison",
+        "fig_components":      "fig5_component_breakdown",
     }
     for var_name, stem in fig_map.items():
         fig = analysis_out.get(var_name)
@@ -477,13 +538,16 @@ def run_export(
                 "total_cost":        float(ev.get("total_cost",      0) or 0),
                 "reuse_rate":            float(ev.get("reuse_fraction",  0) or 0),
                 "waste_total":           float(ev.get("waste_total",     0) or 0),
-                "gnn_feasibility":       float(ev.get("gnn_feasibility", 0) or 0),
-                "gnn_unsafe_members":    list(ev.get("gnn_unsafe_members") or []),
-                "milp_status":           str(ev.get("milp_status",       "n/a")),
-                "cost_norm":             _to_builtin(fr.get("cost_norm",               0)),
-                "reuse_norm":            _to_builtin(fr.get("reuse_norm",              0)),
+                "gnn_feasibility":        float(ev.get("gnn_feasibility", 0) or 0),
+                "n_unsafe_members":       len(ev.get("gnn_unsafe_members") or []),
+                "gnn_unsafe_members":     list(ev.get("gnn_unsafe_members") or []),
+                "milp_status":            str(ev.get("milp_status",        "n/a")),
+                "w_structural":           float(ev.get("w_structural",      float("nan")) or float("nan")),
+                "cost_norm":              _to_builtin(fr.get("cost_norm",                0)),
+                "reuse_norm":             _to_builtin(fr.get("reuse_norm",               0)),
                 "structural_infeasibility": _to_builtin(fr.get("structural_infeasibility", 0)),
-                "params":            {k: float(v) for k, v in ind.params.items()},
+                "structural_penalty":     _to_builtin(fr.get("structural_penalty",        0)),
+                "params":             {k: float(v) for k, v in ind.params.items()},
             }
             top_k_payload.append(entry)
 

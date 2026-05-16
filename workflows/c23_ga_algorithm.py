@@ -238,6 +238,8 @@ class EvolutionStrategy:
         self.population = self._initialise_population(cfg.mu)
         self._evaluate_population(self.population, generation=0)
         self._update_top_k(self.population)
+        if self.top_k:
+            self.best_ever = deepcopy(self.top_k[0])
 
         if cfg.verbose:
             print(f"\n[ES] Initial population evaluated ({cfg.mu} individuals)")
@@ -261,10 +263,10 @@ class EvolutionStrategy:
             self._update_top_k(combined)   # capture all evaluated before selection discards any
             self.population = self._select(combined, cfg.mu)
 
-            # Track best ever
-            gen_best = min(self.population, key=lambda ind: ind.fitness)
-            if self.best_ever is None or gen_best.fitness < self.best_ever.fitness:
-                self.best_ever  = deepcopy(gen_best)
+            # Track best ever — top_k sees the full combined pool before tournament
+            # selection discards any individuals, so top_k[0] is the true global best
+            if self.top_k and (self.best_ever is None or self.top_k[0].fitness < self.best_ever.fitness):
+                self.best_ever  = deepcopy(self.top_k[0])
                 self.stagnation = 0
             else:
                 self.stagnation += 1
@@ -522,16 +524,49 @@ class EvolutionStrategy:
     def _record_history(self, gen: int) -> None:
         fitnesses = [ind.fitness for ind in self.population]
         sigmas    = np.array([ind.sigma for ind in self.population])
-        entry     = {
-            "generation":    gen,
-            "n_evals":       self.n_evals,
-            "best_fitness":  float(np.min(fitnesses)),
-            "mean_fitness":  float(np.mean(fitnesses)),
-            "worst_fitness": float(np.max(fitnesses)),
-            "std_fitness":   float(np.std(fitnesses)),
-            "mean_sigma":    float(sigmas.mean()),
-            "stagnation":    self.stagnation,
-            "best_ever":     self.best_ever.fitness if self.best_ever else None,
+        penalty   = self.config.penalty_fitness
+
+        def _pop_mean(key):
+            vals = [float((ind.eval_result or {}).get(key, float("nan")))
+                    for ind in self.population
+                    if ind.fitness < penalty and (ind.eval_result or {}).get(key) is not None]
+            return float(np.mean(vals)) if vals else float("nan")
+
+        def _pop_mean_fr(key):
+            vals = [float(((ind.eval_result or {}).get("fitness_result") or {}).get(key, float("nan")))
+                    for ind in self.population
+                    if ind.fitness < penalty
+                    and ((ind.eval_result or {}).get("fitness_result") or {}).get(key) is not None]
+            return float(np.mean(vals)) if vals else float("nan")
+
+        # Best non-penalty individual this generation
+        valid    = [ind for ind in self.population if ind.fitness < penalty]
+        best_gen = min(valid, key=lambda x: x.fitness) if valid else None
+        bfr      = ((best_gen.eval_result or {}).get("fitness_result") or {}) if best_gen else {}
+        ber      = (best_gen.eval_result or {}) if best_gen else {}
+
+        entry = {
+            "generation":             gen,
+            "n_evals":                self.n_evals,
+            "best_fitness":           float(np.min(fitnesses)),
+            "mean_fitness":           float(np.mean(fitnesses)),
+            "worst_fitness":          float(np.max(fitnesses)),
+            "std_fitness":            float(np.std(fitnesses)),
+            "mean_sigma":             float(sigmas.mean()),
+            "stagnation":             self.stagnation,
+            "best_ever":              self.best_ever.fitness if self.best_ever else None,
+            # Structural curriculum weight used this generation
+            "w_structural":           float(ber.get("w_structural", float("nan"))),
+            # Penalty / failure count
+            "n_penalty":              sum(1 for ind in self.population if ind.fitness >= penalty),
+            # Fitness component breakdown for best-in-generation
+            "best_cost_norm":         float(bfr.get("cost_norm",                float("nan"))),
+            "best_reuse_norm":        float(bfr.get("reuse_norm",               float("nan"))),
+            "best_structural_infeas": float(bfr.get("structural_infeasibility", float("nan"))),
+            # Population-level trends across µ survivors
+            "mean_gnn":               _pop_mean("gnn_feasibility"),
+            "mean_cost":              _pop_mean("total_cost"),
+            "mean_reuse":             _pop_mean("reuse_fraction"),
         }
         self.history.append(entry)
 
