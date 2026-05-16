@@ -36,7 +36,6 @@ from __future__ import annotations
 # with edge_csv="training_edges_raw" and node_csv="training_nodes_raw".
 
 import json
-import random
 import sys
 import warnings
 from datetime import datetime
@@ -71,7 +70,7 @@ _SEARCH_SPACE = config.DATA_IO_PATH      / "search_space.json"
 
 # GNN edge feature columns written to the edge CSV.
 # Utilization is absent here — Karamba adds it after FEA simulation.
-NEW_EDGE_COLS = ["Width_m", "Depth_m", "Length", "E", "Iy", "Iz", "J", "EA/L", "N_mean_EA"]
+NEW_EDGE_COLS = ["Depth_m", "Width_m", "Length", "E", "Iy", "Iz", "J", "EA/L", "N_mean_EA"]
 NODE_COLS     = ["x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz"]
 
 
@@ -79,15 +78,17 @@ NODE_COLS     = ["x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz"]
 # INTERNAL HELPERS
 # =============================================================================
 
+def _sort_vertices(df_vertices: pd.DataFrame) -> pd.DataFrame:
+    verts = df_vertices.copy()
+    verts["v_idx"] = verts["vertex_index"].str.replace("v", "", regex=False).astype(int)
+    return verts.sort_values("v_idx").reset_index(drop=True)
+
+
 def _derive_node_roles(
     df_vertices: pd.DataFrame,
 ) -> tuple[pd.DataFrame, np.ndarray, list[int], list[int]]:
     """Extract sorted vertex table, node_positions, support_nodes, load_nodes."""
-    verts = df_vertices.copy()
-    verts["v_idx"] = (
-        verts["vertex_index"].str.replace("v", "", regex=False).astype(int)
-    )
-    verts = verts.sort_values("v_idx").reset_index(drop=True)
+    verts = _sort_vertices(df_vertices)
     node_positions = verts[["x", "y", "z"]].values
     support_nodes  = verts[verts["attribute"] == "support"]["v_idx"].tolist()
     load_nodes     = verts[verts["attribute"] == "load"]["v_idx"].tolist()
@@ -96,17 +97,8 @@ def _derive_node_roles(
 
 def _geometry_signature(df_vertices: pd.DataFrame, decimals: int = 2) -> tuple:
     """Coordinate-based signature for near-duplicate detection."""
-    verts = df_vertices.copy()
-    verts["v_idx"] = (
-        verts["vertex_index"].str.replace("v", "", regex=False).astype(int)
-    )
-    verts = verts.sort_values("v_idx").reset_index(drop=True)
-    return tuple(
-        (round(float(r["x"]), decimals),
-         round(float(r["y"]), decimals),
-         round(float(r["z"]), decimals))
-        for _, r in verts.iterrows()
-    )
+    verts = _sort_vertices(df_vertices)
+    return tuple(map(tuple, verts[["x", "y", "z"]].round(decimals).values))
 
 
 def _member_lengths_m(node_positions: np.ndarray, df_edges: pd.DataFrame) -> np.ndarray:
@@ -116,9 +108,9 @@ def _member_lengths_m(node_positions: np.ndarray, df_edges: pd.DataFrame) -> np.
     return np.linalg.norm(node_positions[v2] - node_positions[v1], axis=1)
 
 
-def _random_assignment(n_slots: int, n_stock: int, rng: random.Random) -> np.ndarray:
+def _random_assignment(n_slots: int, n_stock: int, rng: np.random.Generator) -> np.ndarray:
     """Assign one stock element per slot, drawn uniformly from the full stock pool."""
-    return np.array([rng.randint(0, n_stock - 1) for _ in range(n_slots)], dtype=int)
+    return rng.integers(0, n_stock, size=n_slots)
 
 
 def _build_node_rows(
@@ -171,12 +163,10 @@ def _build_edge_rows(
 ) -> list[dict]:
     """One edge feature dict per member (e0..eN), ordered by edge position.
 
-    stock_gnn must be reset_index'd so iloc[assignment[i]] is row-index safe.
     Length in the GNN features is the actual installed member length (from geometry).
     EA/L is recomputed from E * A / member_length — not the stock-length-based value.
     stock_length_m is included as a reference column only — not a GNN feature.
     """
-    stock_gnn = stock_gnn.reset_index(drop=True)
     rows = []
     for i, (_, edge) in enumerate(df_edges.iterrows()):
         s = stock_gnn.iloc[int(assignment[i])]
@@ -190,7 +180,7 @@ def _build_edge_rows(
             "Depth_m":         round(float(s["Depth_m"]), 4),
             "Width_m":         round(float(s["Width_m"]), 4),
             "Length":          round(float(lengths_m[i]), 3),   # actual installed member length
-            "E":               round(float(s["E"])),
+            "E":               round(float(s["E"]), 0),
             "Iy":              round(float(s["Iy"]), 8),
             "Iz":              round(float(s["Iz"]), 9),
             "J":               round(float(s["J"]), 8),
@@ -209,7 +199,7 @@ def _save_checkpoint(
     output_dir: Path,
 ) -> None:
     """Write partial CSVs to disk for crash recovery."""
-    ts = datetime.now().strftime("%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     pd.DataFrame(node_rows).to_csv(
         output_dir / f"training_nodes_checkpoint_{ts}.csv", index=False
     )
@@ -269,7 +259,7 @@ def generate_training_samples(
     output_dir        = Path(output_dir)        if output_dir        else config.GH_DATA_PATH
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    rng = random.Random(random_seed)
+    rng = np.random.default_rng(random_seed)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     print(f"[c12_generate_training_data] {ts}")
@@ -289,6 +279,7 @@ def generate_training_samples(
     stock_gnn["Depth_m"]        = df_stock["Depth"].values  * 1e-3
     stock_gnn["Member_ID"]      = df_stock["Member_ID"].values
     stock_gnn["strength_class"] = df_stock["f_mk"].apply(lambda v: f"c{int(v)}")
+    stock_gnn = stock_gnn.reset_index(drop=True)
 
     # ---- Mean-EA for force estimation (stock-average, constant across geometries) ----
     mean_E_Pa  = float(df_stock["E_modulus_eff"].mean()) * 1e6
@@ -376,9 +367,16 @@ def generate_training_samples(
         except Exception as exc:
             warnings.warn(
                 f"Sample attempt {attempts}: {type(exc).__name__}: {exc}",
-                stacklevel=1,
+                stacklevel=2,
             )
             n_skipped += 1
+
+    if n_generated < n_samples:
+        warnings.warn(
+            f"Generation terminated early: {n_generated}/{n_samples} samples "
+            f"after {attempts} attempts. Search space may be exhausted.",
+            stacklevel=2,
+        )
 
     # ---- Save outputs ----
     df_nodes     = pd.DataFrame(all_node_rows)
