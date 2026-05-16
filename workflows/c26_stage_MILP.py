@@ -119,6 +119,7 @@ def run_milp_stage(
     reclaimed_marker:          str = "RS",
     new_marker:                str = "NS",
     new_stock_max_uses:        int | None = None,
+    min_reuse_fraction:        float | None = None,
     solver_msg:                bool = False,
     solver_time_limit:         int = 30,
     raise_on_infeasible_slots: bool = True,
@@ -155,6 +156,14 @@ def run_milp_stage(
         None = unlimited (default) — new elements are orderable in any quantity.
         Set to 1 to treat new elements as single-use (same as reclaimed).
         Reclaimed elements are always limited to one use regardless of this setting.
+
+    min_reuse_fraction : float | None
+        Minimum fraction of slots that must be assigned a reclaimed (RS) element.
+        0.30 means at least 30 % of slots must use RS stock.
+        The target count is automatically capped by what is feasibly achievable:
+          cap = min(slots_with_any_RS_option, n_reclaimed_pieces_available)
+        so the constraint is never stronger than the stock pool allows.
+        None = no minimum reuse constraint (default).
 
     solver_msg : bool
         Whether to print CBC solver output. Default False.
@@ -218,11 +227,13 @@ def run_milp_stage(
             "infeasible_slots":     infeasible_slots,
             "infeasible_slot_count": int(len(infeasible_slots)),
             "summary": {
-                "slots":             int(len(construction_slots)),
-                "reclaimed_items":   int(len(reclaimed_items)),
-                "new_items":         int(len(new_items)),
+                "slots":              int(len(construction_slots)),
+                "reclaimed_items":    int(len(reclaimed_items)),
+                "new_items":          int(len(new_items)),
                 "new_stock_max_uses": new_stock_max_uses,
-                "assignments":       0,
+                "min_reuse_fraction": min_reuse_fraction,
+                "min_reuse_target":   0,
+                "assignments":        0,
             },
         }
 
@@ -256,6 +267,32 @@ def run_milp_stage(
                     pulp.lpSum(x[(stock_id, slot_id)] for slot_id in stock_to_slots[stock_id])
                     <= int(new_stock_max_uses)
                 )
+
+    # Minimum reclaimed reuse constraint — capped by what the stock pool allows.
+    # Target = floor(fraction * n_slots), but never more than:
+    #   • number of slots that have ≥1 feasible RS option (cost matrix determines this)
+    #   • number of unique RS pieces available (each piece usable at most once)
+    min_reuse_target = 0
+    if min_reuse_fraction is not None and min_reuse_fraction > 0.0:
+        reclaimed_set = set(reclaimed_items)
+        n_slots_with_rs = sum(
+            1 for slot_id in construction_slots
+            if any(sid in reclaimed_set for sid in slot_to_stocks[slot_id])
+        )
+        max_feasible_rs = min(n_slots_with_rs, len(reclaimed_items))
+        min_reuse_target = min(
+            int(min_reuse_fraction * len(construction_slots)),
+            max_feasible_rs,
+        )
+        if min_reuse_target > 0:
+            problem += (
+                pulp.lpSum(
+                    x[(sid, slot_id)]
+                    for sid in reclaimed_items
+                    for slot_id in stock_to_slots.get(sid, [])
+                ) >= min_reuse_target,
+                "min_reuse_constraint",
+            )
 
     # ---- Solve ----
     solver = pulp.PULP_CBC_CMD(
@@ -306,10 +343,12 @@ def run_milp_stage(
         "infeasible_slots":      infeasible_slots,
         "infeasible_slot_count": int(len(infeasible_slots)),
         "summary": {
-            "slots":              int(len(construction_slots)),
-            "reclaimed_items":    int(len(reclaimed_items)),
-            "new_items":          int(len(new_items)),
-            "new_stock_max_uses": new_stock_max_uses,
-            "assignments":        int(len(df_results)),
+            "slots":               int(len(construction_slots)),
+            "reclaimed_items":     int(len(reclaimed_items)),
+            "new_items":           int(len(new_items)),
+            "new_stock_max_uses":  new_stock_max_uses,
+            "min_reuse_fraction":  min_reuse_fraction,
+            "min_reuse_target":    min_reuse_target,
+            "assignments":         int(len(df_results)),
         },
     }

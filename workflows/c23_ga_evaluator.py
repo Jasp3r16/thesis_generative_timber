@@ -336,6 +336,7 @@ def evaluate_design_candidate(
 
         # ---- MILP -----------------------------------------------------------
         new_stock_max_uses = config_dict.get("new_stock_max_uses", None)
+        min_reuse_fraction = config_dict.get("min_reuse_fraction", None)
         milp_out = stage_milp.run_milp_stage(
             cost_matrix    = cost_matrix,
             enriched_stock = stock_prepared,
@@ -346,6 +347,10 @@ def evaluate_design_candidate(
             new_stock_max_uses        = (
                 None if new_stock_max_uses is None
                 else int(new_stock_max_uses)
+            ),
+            min_reuse_fraction        = (
+                None if min_reuse_fraction is None
+                else float(min_reuse_fraction)
             ),
             solver_msg                = False,
             raise_on_infeasible_slots = False,

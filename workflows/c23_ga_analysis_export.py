@@ -688,6 +688,7 @@ def run_export(
         f"Structural schedule:   ω4 {ga_config.get('w_structural_start', '?')} → "
         f"{ga_config.get('w_structural_end', '?')}",
         f"New stock max uses:    {ga_config.get('new_stock_max_uses')}",
+        f"Min reuse fraction:    {ga_config.get('min_reuse_fraction', 'None')}",
         f"Penalty fitness:       {ga_config.get('penalty_fitness')}",
     ]
 
