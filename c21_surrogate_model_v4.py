@@ -163,7 +163,7 @@ class EdgeDecoder(nn.Module):
         """
         Args:
             hidden_dim: Dimensionality of node embeddings from processor
-            edge_features_dim: Number of raw edge features (e.g., 7)
+            edge_features_dim: Number of raw edge features (e.g., 9)
             dropout_p: Dropout probability (default 0.1)
         """
         super().__init__()
