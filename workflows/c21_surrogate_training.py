@@ -101,6 +101,9 @@ def run_preprocessing(
     bidirectional:   bool = False,
     batch_size:      int  = 32,
     data_inspection: bool = False,
+    hidden_dim:      int  = 64,
+    num_layers:      int  = 3,
+    dropout_p:       float = 0.3,
 ) -> dict[str, Any]:
     """Load CSVs, build PyG Dataset with train/val/test split, create model.
 
@@ -290,9 +293,13 @@ def run_preprocessing(
     model  = create_model(
         node_features_dim=len(node_cols),
         edge_features_dim=len(edge_cols),
+        hidden_dim=hidden_dim,
+        num_layers=num_layers,
+        dropout_p=dropout_p,
         device=device,
     ).to(device)
-    print(f"Model on {device} | node_dim={len(node_cols)} | edge_dim={len(edge_cols)}")
+    print(f"Model on {device} | node_dim={len(node_cols)} | edge_dim={len(edge_cols)} | "
+          f"hidden_dim={hidden_dim} | num_layers={num_layers} | dropout_p={dropout_p}")
 
     # ---- DataLoaders ----
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -350,6 +357,7 @@ def run_training(
     lr_patience:       int   = 10,
     lr_min:            float = 1e-6,
     grad_clip:         float = 1.0,
+    weight_decay:      float = 1e-3,
     pos_weight:        float | None = None,
     default_threshold: float = 0.35,
     min_precision:     float = 0.40,
@@ -398,13 +406,13 @@ def run_training(
     loss_fn = WeightedBCELoss(pos_weight=_pw)
     print(f"WeightedBCELoss(pos_weight={_pw:.4f})")
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=lr_factor, patience=lr_patience, min_lr=lr_min,
     )
 
     print(f"\nHyperparameters: epochs={epochs}, lr={lr:.0e}, patience={patience}, "
-          f"grad_clip={grad_clip}, pos_weight={_pw:.4f}, "
+          f"grad_clip={grad_clip}, weight_decay={weight_decay:.0e}, pos_weight={_pw:.4f}, "
           f"default_threshold={default_threshold}, min_precision={min_precision}")
     print(f"Checkpoint: {CKPT_PATH}")
     print(f"\nStarting training: {epochs} epochs, early stopping patience={patience}")
