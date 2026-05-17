@@ -13,8 +13,10 @@ import c00_headquarter_params as _params
 
 M_A1_A3          = float(_params.IMPACT_FACTOR_A1_A3)
 M_RECOVER        = float(_params.IMPACT_FACTOR_RECOVERED_C1)
-E_PREP_SAW       = float(_params.ENERGY_PREP_SAW_A5)
+E_PREP           = float(_params.ENERGY_PREP_A5)
+E_SAW            = float(_params.ENERGY_SAW_A5)
 E_OFFCUT         = float(_params.ENERGY_OFFCUT_FACTOR_C3_C4)
+WASTE_DIST_KM    = float(_params.WASTE_TRANSPORT_DIST_KM)
 SCARCITY_PENALTY = float(_params.SCARCITY_PENALTY)
 
 # =============================================================================
@@ -127,12 +129,18 @@ def _compute_lca_vectors(
     Returns a dict of NumPy arrays, all of length n_pairs, covering
     individual LCA components and the summed total_costs.
 
-    Waste is split into two physical components:
-        v_waste     — total = 
-
     Transport basis:
         New stock:      required mass (bought cut-to-size; waste not shipped)
         Reclaimed stock: full stock mass (whole physical element moved to site)
+
+    A5 split:
+        e_prep — cleaning, de-nailing, structural testing; applied to all reclaimed elements
+        e_saw  — secondary cross-cut resizing; applied only when stk_length > req_length
+
+    Offcut waste split:
+        e_waste_c2   — module C2: transport of offcut to waste facility (WASTE_DIST_KM)
+        e_waste_c3c4 — modules C3+C4: disposal/incineration of offcut
+        e_waste      — sum of C2 + C3+C4
     """
     # Slot geometry
     req_length_m = slot_rows["length_m"].values.astype(float)
@@ -155,10 +163,10 @@ def _compute_lca_vectors(
     is_reclaimed = stock_rows["State_Resolved"].values.astype(float) >= 0.5
 
     # Volumes
-    v_req       = req_area_m2  * req_length_m
-    v_stock     = stk_area_m2  * stk_length_m
-    v_waste = np.maximum(0.0, stk_area_m2  * (stk_length_m - req_length_m))
-    v_over = np.maximum(0.0, (stk_area_m2 - req_area_m2) * req_length_m + v_waste)  # total excess material if using this stock for this slot
+    v_req        = req_area_m2 * req_length_m
+    v_stock      = stk_area_m2 * stk_length_m
+    v_waste      = np.maximum(0.0, stk_area_m2 * (stk_length_m - req_length_m))
+    needs_sawing = v_waste > 0.0
 
     # Masses
     mass_req   = v_req   * density
@@ -166,16 +174,23 @@ def _compute_lca_vectors(
     mass_waste = v_waste * density
 
     # LCA components
-    e_embodied  = np.where(is_reclaimed, 0.0,        mass_req   * M_A1_A3)
-    e_transport = np.where(is_reclaimed, mass_stock,  mass_req)  * distance_km * trans_factor
-    e_recovered = np.where(is_reclaimed, mass_stock  * M_RECOVER,      0.0)
-    e_prep      = np.where(is_reclaimed, mass_stock  * E_PREP_SAW,     0.0)
-    e_waste     = np.where(is_reclaimed, mass_waste  * E_OFFCUT,       0.0)
-    e_scarcity  = np.where(is_reclaimed, v_waste     * SCARCITY_PENALTY, 0.0)
+    e_embodied   = np.where(is_reclaimed, 0.0,       mass_req   * M_A1_A3)
+    e_transport  = np.where(is_reclaimed, mass_stock, mass_req)  * distance_km * trans_factor
+    e_recovered  = np.where(is_reclaimed, mass_stock * M_RECOVER, 0.0)
+    # A5 prep: cleaning/de-nailing/testing — always applies to reclaimed elements
+    e_prep       = np.where(is_reclaimed, mass_stock * E_PREP, 0.0)
+    # A5 saw: cross-cut resizing — only when the stock element is longer than required
+    e_saw        = np.where(is_reclaimed & needs_sawing, mass_stock * E_SAW, 0.0)
+    # C2: transport of offcut to waste facility (fixed distance WASTE_DIST_KM)
+    e_waste_c2   = np.where(is_reclaimed, mass_waste * WASTE_DIST_KM * trans_factor, 0.0)
+    # C3+C4: disposal/incineration of offcut
+    e_waste_c3c4 = np.where(is_reclaimed, mass_waste * E_OFFCUT, 0.0)
+    e_waste      = e_waste_c2 + e_waste_c3c4
+    e_scarcity   = np.where(is_reclaimed, v_waste * SCARCITY_PENALTY, 0.0)
 
     total_costs = np.where(
         is_reclaimed,
-        e_recovered + e_transport + e_prep + e_waste + e_scarcity,
+        e_recovered + e_transport + e_prep + e_saw + e_waste + e_scarcity,
         e_embodied  + e_transport,
     )
 
@@ -194,6 +209,9 @@ def _compute_lca_vectors(
         "e_transport":  e_transport,
         "e_recovered":  e_recovered,
         "e_prep":       e_prep,
+        "e_saw":        e_saw,
+        "e_waste_c2":   e_waste_c2,
+        "e_waste_c3c4": e_waste_c3c4,
         "e_waste":      e_waste,
         "e_scarcity":   e_scarcity,
         "is_reclaimed": is_reclaimed,
@@ -272,9 +290,9 @@ def build_cost_matrix(
     df_logs : pd.DataFrame | None
         Per-pair detail log if build_logs=True, else None.
         Columns: Slot_ID, Stock_ID, Feasible, Status, Branch, Total cost,
-                 V_req_m3, V_waste_len_m3, V_waste_sec_m3, V_waste_m3,
-                 V_stock_m3, Mass_req_kg, Mass_stock_kg, E_embodied,
-                 E_recovered, E_transport, E_prep, E_waste, E_scarcity.
+                 V_req_m3, V_waste_m3, V_stock_m3, Mass_req_kg, Mass_stock_kg,
+                 E_embodied, E_recovered, E_transport, E_prep, E_saw,
+                 E_waste_C2, E_waste_C3C4, E_waste, E_scarcity.
     """
     if "edge_id" not in df_slots.columns:
         raise ValueError("df_slots must contain an edge_id column.")
@@ -341,6 +359,9 @@ def _build_logs(
         "E_recovered":    v["e_recovered"],
         "E_transport":    v["e_transport"],
         "E_prep":         v["e_prep"],
+        "E_saw":          v["e_saw"],
+        "E_waste_C2":     v["e_waste_c2"],
+        "E_waste_C3C4":   v["e_waste_c3c4"],
         "E_waste":        v["e_waste"],
         "E_scarcity":     v["e_scarcity"],
     })
@@ -365,6 +386,9 @@ def _build_logs(
         "E_recovered":    nan_col,
         "E_transport":    nan_col,
         "E_prep":         nan_col,
+        "E_saw":          nan_col,
+        "E_waste_C2":     nan_col,
+        "E_waste_C3C4":   nan_col,
         "E_waste":        nan_col,
         "E_scarcity":     nan_col,
     })

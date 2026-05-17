@@ -19,8 +19,10 @@ print(f"Grid: {GRID}, edge={EDGE_LENGTH} m, height={LAYER_HEIGHT} m, divisions={
 # All emission factors in kg CO2e / kg unless noted.
 IMPACT_FACTOR_A1_A3      = 0.25    # fossil GWP of forestry, sawmilling, kiln-drying (new timber, modules A1–A3)
 IMPACT_FACTOR_RECOVERED_C1 = 0.0085 # selective deconstruction energy penalty (module C1)
-ENERGY_PREP_SAW_A5       = 0.02    # cleaning, denailing, structural testing, and resizing (module A5)
+ENERGY_PREP_A5           = 0.01    # cleaning, de-nailing, structural testing (always applies to reclaimed, module A5)
+ENERGY_SAW_A5            = 0.01    # secondary cross-cut resizing (only when stk_length > req_length, module A5)
 ENERGY_OFFCUT_FACTOR_C3_C4 = 0.276 # environmental penalty for geometric offcut waste (modules C3–C4)
+WASTE_TRANSPORT_DIST_KM  = 50      # estimated distance from site to waste disposal facility (module C2)
 
 # SCARCITY_PENALTY (ω): artificially inflates the cost of offcut waste so the MILP
 # prioritises length-efficient assignments when reclaimed stock is scarce.
@@ -29,4 +31,4 @@ ENERGY_OFFCUT_FACTOR_C3_C4 = 0.276 # environmental penalty for geometric offcut 
 # ω very high: "do-not-cut" extreme — forces near-zero length waste
 SCARCITY_PENALTY = 0
 
-print(f"LCA factors: A1-A3={IMPACT_FACTOR_A1_A3}, C1={IMPACT_FACTOR_RECOVERED_C1}, A5={ENERGY_PREP_SAW_A5}, C3-C4={ENERGY_OFFCUT_FACTOR_C3_C4}, ω={SCARCITY_PENALTY}")
+print(f"LCA factors: A1-A3={IMPACT_FACTOR_A1_A3}, C1={IMPACT_FACTOR_RECOVERED_C1}, A5 prep={ENERGY_PREP_A5}, A5 saw={ENERGY_SAW_A5}, C2 dist={WASTE_TRANSPORT_DIST_KM} km, C3-C4={ENERGY_OFFCUT_FACTOR_C3_C4}, ω={SCARCITY_PENALTY}")
