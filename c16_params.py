@@ -1,34 +1,50 @@
-import json
+"""Parameter definitions and defaults for timber generation.
+
+This module loads representative beam statistics (if available) and
+exposes constants used by the timber dataset generation code.
+"""
+
 from functools import lru_cache
+import json
+import logging
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 import config
 from c16_generation_timber import generate_length_tuple_from_average
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM = 3000
 
+
 @lru_cache(maxsize=1)
-def _load_json_file(json_path: str) -> dict:
-    with open(json_path, "r", encoding="utf-8") as f:
+def _load_json_file(json_path: Path) -> Dict:
+    json_path = Path(json_path)
+    with json_path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def _load_summary_statistics() -> dict:
-    json_path = str(config.DATA_IO_PATH / "representative_beam_statistics.json")
+def _load_summary_statistics() -> Dict:
+    json_path = Path(config.DATA_IO_PATH) / "representative_beam_statistics.json"
     try:
         data = _load_json_file(json_path)
         return dict(data["summary_statistics"])
     except (FileNotFoundError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        print(
-            f"Warning: could not load representative_beam_statistics.json ({exc}). "
-            f"Using default structure length {DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM} mm."
+        logger.warning(
+            "Could not load representative_beam_statistics.json (%s). "
+            "Using default structure length %d mm.",
+            exc,
+            DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM,
         )
         return {
             "average_length_mm": DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM,
-            "min_length_mm":     DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM - 1200,
-            "max_length_mm":     DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM + 1500,
-            "total_length_mm":   DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM * 30,
-            "edge_count":        30,
+            "min_length_mm": DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM - 1200,
+            "max_length_mm": DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM + 1500,
+            "total_length_mm": DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM * 30,
+            "edge_count": 30,
         }
+
 
 summary_statistics = _load_summary_statistics()
 
@@ -38,7 +54,13 @@ max_length_mm = float(summary_statistics["max_length_mm"])
 total_length_mm = float(summary_statistics["total_length_mm"])
 edge_count = int(summary_statistics["edge_count"])
 
-print(f"Beam statistics: avg={average_length_mm:.0f} mm, min={min_length_mm:.0f} mm, max={max_length_mm:.0f} mm, n={edge_count}")
+logger.info(
+    "Beam statistics: avg=%.0f mm, min=%.0f mm, max=%.0f mm, n=%d",
+    average_length_mm,
+    min_length_mm,
+    max_length_mm,
+    edge_count,
+)
 
 # ================================
 # RECLAIMED STOCK — DONOR BUILDINGS
@@ -122,10 +144,18 @@ DEPTH_WIDTH_MAPPING = {
 }
 
 # Auto-generate DEPTH_WIDTH_COMBINATIONS from DEPTH_WIDTH_MAPPING.
-DEPTH_WIDTH_COMBINATIONS = [
-    (depth, width)
-    for depth in DEPTH_WIDTH_MAPPING.keys()
+DEPTH_WIDTH_COMBINATIONS: List[Tuple[int, int]] = [
+    (int(depth), int(width))
+    for depth in sorted(DEPTH_WIDTH_MAPPING)
     for width in DEPTH_WIDTH_MAPPING[depth]
+]
+
+
+__all__ = [
+    "DEPTH_WIDTH_MAPPING",
+    "DEPTH_WIDTH_COMBINATIONS",
+    "TUPLE_LENGTHS",
+    "generate_length_tuple_from_average",
 ]
 
 # LCA assumptions for new timber.
