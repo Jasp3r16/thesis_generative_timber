@@ -41,28 +41,47 @@ edge_count = int(summary_statistics["edge_count"])
 print(f"Beam statistics: avg={average_length_mm:.0f} mm, min={min_length_mm:.0f} mm, max={max_length_mm:.0f} mm, n={edge_count}")
 
 # ================================
-# RECLAIMED STOCK — DONOR BUILDING
+# RECLAIMED STOCK — DONOR BUILDINGS
 # ================================
-# Parametric donor building: 3-storey Dutch residential, mixed-bay timber floors.
-# Member types define structural role, nominal section, count per floor, and bay span.
-# Lengths are bay span minus a random cut loss of 0-20 mm with NO rounding.
-# Cross-sections are nominal dimensions minus planing allowance per dimension.
+# Two switchable donor building profiles.
+# Pass donor_building="A" or "B" to generate_reclaimed_stock().
+# Member types: (role, nominal_width_mm, nominal_depth_mm, count_per_floor, span_mm)
+# Lengths = span - uniform random cut loss [0, RECLAIMED_CUT_LOSS_MAX_MM], NOT rounded.
+# Cross-sections = nominal dimensions minus RECLAIMED_PLANING_ALLOWANCE_MM per dimension.
 
 RECLAIMED_PLANING_ALLOWANCE_MM = 10  # mm removed per dimension during light planing
 
 DONOR_BUILDING_FLOORS = 3
 DONOR_BUILDING_SURVIVAL_RATE = 0.75  # fraction of elements passing visual inspection
 
-# Each entry: (role, nominal_width_mm, nominal_depth_mm, count_per_floor, span_mm)
-DONOR_BUILDING_MEMBER_TYPES = [
+# Cut loss applied per element during deconstruction: uniform random int in [0, CUT_LOSS_MAX_MM]
+RECLAIMED_CUT_LOSS_MAX_MM = 20
+
+# --- Donor Building A: 3-storey Dutch residential, mixed-bay timber floors ---
+# Hardcoded residential spans; shorter elements dominate (max 4500 mm).
+DONOR_BUILDING_A_MEMBER_TYPES = [
     ("primary_beam",    120, 240, 12, 4500),
     ("secondary_joist",  80, 200, 15, 3000),
     ("short_joist",      70, 180,  9, 1800),
     ("edge_beam",       100, 200,  8, 2700),
 ]
 
-# Cut loss applied per element during deconstruction: uniform random int in [0, CUT_LOSS_MAX_MM]
-RECLAIMED_CUT_LOSS_MAX_MM = 20
+# --- Donor Building B: commercial/industrial, long-span timber structure ---
+# Spans derived from the structure's own length statistics so the RS pool
+# covers the same [MIN_LENGTH_MM, MAX_LENGTH_MM] range as new stock.
+# Biased toward longer members (upper half of range) to fill slots the GA
+# currently can't match with RS from Building A.
+_b_long  = int(max_length_mm + 300)                              # at or near structural max (matches MAX_LENGTH_MM = max_length_mm + LENGTH_INCREMENT_MM)
+_b_upper = int((average_length_mm + max_length_mm + 300) / 2)   # halfway avg→max
+_b_avg   = int(average_length_mm)                                # at structural average
+_b_short = int(max(1000, min_length_mm - 300))                   # near structural min (matches MIN_LENGTH_MM)
+
+DONOR_BUILDING_B_MEMBER_TYPES = [
+    ("long_rafter",   140, 280, 14, _b_long),
+    ("mid_beam",      120, 240, 12, _b_upper),
+    ("floor_joist",    80, 200, 10, _b_avg),
+    ("short_purlin",   70, 150,  8, _b_short),
+]
 
 # LCA assumptions for reclaimed timber (unchanged).
 RECLAIMED_TIMBER_LCA = {

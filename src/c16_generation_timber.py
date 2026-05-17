@@ -521,21 +521,18 @@ def generate_new_stock(efficient: bool = False, random_state: int | None = None)
     return df_new
 
 
-def generate_reclaimed_stock(random_state: int | None = None) -> pd.DataFrame:
+def generate_reclaimed_stock(
+    random_state: int | None = None,
+    donor_building: str = "A",
+) -> pd.DataFrame:
     """
     Generate reclaimed timber inventory from a parametric donor building.
 
-    The donor building is a 3-storey Dutch residential structure with a
-    mixed-bay timber floor system. Each member type has a fixed structural
-    role, nominal cross-section, count per floor, and bay span.
-
-    Lengths are bay span minus a uniform random cut loss of 0-20 mm.
-    Lengths are NOT rounded to any standard grid, producing genuinely
-    non-standard values that challenge the MILP assignment.
-
-    A per-role survival filter retains the top 75% of elements by length
-    (removing the shortest, most-damaged elements). All surviving elements
-    enter the active inventory — no subsampling.
+    Args:
+        random_state: Seed for reproducibility.
+        donor_building: "A" (residential, hardcoded spans) or
+                        "B" (commercial/industrial, spans derived from
+                        the structure's own min/max length statistics).
 
     Returns:
         pd.DataFrame: Inventory with columns for geometry, mechanical,
@@ -550,7 +547,11 @@ def generate_reclaimed_stock(random_state: int | None = None) -> pd.DataFrame:
     floors = int(params.DONOR_BUILDING_FLOORS)
     survival_rate = float(params.DONOR_BUILDING_SURVIVAL_RATE)
     cut_loss_max = int(params.RECLAIMED_CUT_LOSS_MAX_MM)
-    member_types = list(params.DONOR_BUILDING_MEMBER_TYPES)
+
+    _key = f"DONOR_BUILDING_{donor_building.upper()}_MEMBER_TYPES"
+    if not hasattr(params, _key):
+        raise ValueError(f"Unknown donor building '{donor_building}'. Expected 'A' or 'B'.")
+    member_types = list(getattr(params, _key))
 
     prob_electric = lca_reclaimed["electric_transport_probability"]
     electric_range = lca_reclaimed["electric_emission_factor_range"]

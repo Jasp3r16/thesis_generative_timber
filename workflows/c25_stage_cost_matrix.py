@@ -128,11 +128,7 @@ def _compute_lca_vectors(
     individual LCA components and the summed total_costs.
 
     Waste is split into two physical components:
-        v_waste_len — off-cut from trimming stock length to required length
-                      (full stock cross-section × excess length)
-        v_waste_sec — excess cross-section material at the required length
-                      (difference in section area × required length)
-        v_waste     — total = v_waste_len + v_waste_sec = max(0, v_stock - v_req)
+        v_waste     — total = 
 
     Transport basis:
         New stock:      required mass (bought cut-to-size; waste not shipped)
@@ -161,9 +157,8 @@ def _compute_lca_vectors(
     # Volumes
     v_req       = req_area_m2  * req_length_m
     v_stock     = stk_area_m2  * stk_length_m
-    v_waste_len = np.maximum(0.0, stk_area_m2  * (stk_length_m - req_length_m))
-    v_waste_sec = np.maximum(0.0, (stk_area_m2 - req_area_m2) * req_length_m)
-    v_waste     = v_waste_len + v_waste_sec
+    v_waste = np.maximum(0.0, stk_area_m2  * (stk_length_m - req_length_m))
+    v_over = np.maximum(0.0, (stk_area_m2 - req_area_m2) * req_length_m + v_waste)  # total excess material if using this stock for this slot
 
     # Masses
     mass_req   = v_req   * density
@@ -191,8 +186,6 @@ def _compute_lca_vectors(
         "stk_area_m2":  stk_area_m2,
         "v_req":        v_req,
         "v_stock":      v_stock,
-        "v_waste_len":  v_waste_len,
-        "v_waste_sec":  v_waste_sec,
         "v_waste":      v_waste,
         "mass_req":     mass_req,
         "mass_stock":   mass_stock,
@@ -340,8 +333,6 @@ def _build_logs(
         "Branch":         np.where(v["is_reclaimed"], "reclaimed", "new"),
         "Total cost":     v["total_costs"],
         "V_req_m3":       v["v_req"],
-        "V_waste_len_m3": v["v_waste_len"],
-        "V_waste_sec_m3": v["v_waste_sec"],
         "V_waste_m3":     v["v_waste"],
         "V_stock_m3":     v["v_stock"],
         "Mass_req_kg":    v["mass_req"],
@@ -366,8 +357,6 @@ def _build_logs(
         "Branch":         np.where(inf_state >= 0.5, "reclaimed", "new"),
         "Total cost":     np.inf,
         "V_req_m3":       nan_col,
-        "V_waste_len_m3": nan_col,
-        "V_waste_sec_m3": nan_col,
         "V_waste_m3":     nan_col,
         "V_stock_m3":     nan_col,
         "Mass_req_kg":    nan_col,
