@@ -22,6 +22,13 @@ def _load_summary_statistics() -> dict:
             f"Warning: could not load representative_beam_statistics.json ({exc}). "
             f"Using default structure length {DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM} mm."
         )
+        return {
+            "average_length_mm": DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM,
+            "min_length_mm":     DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM - 1200,
+            "max_length_mm":     DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM + 1500,
+            "total_length_mm":   DEFAULT_STRUCTURE_AVERAGE_LENGTH_MM * 30,
+            "edge_count":        30,
+        }
 
 summary_statistics = _load_summary_statistics()
 
@@ -31,7 +38,7 @@ max_length_mm = float(summary_statistics["max_length_mm"])
 total_length_mm = float(summary_statistics["total_length_mm"])
 edge_count = int(summary_statistics["edge_count"])
 
-print(f"Loaded summary statistics: average_length_mm={average_length_mm}, min_length_mm={min_length_mm}, max_length_mm={max_length_mm}, total_length_mm={total_length_mm}, edge_count={edge_count}")
+print(f"Beam statistics: avg={average_length_mm:.0f} mm, min={min_length_mm:.0f} mm, max={max_length_mm:.0f} mm, n={edge_count}")
 
 # ================================
 # RECLAIMED STOCK — DONOR BUILDING

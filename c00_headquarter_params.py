@@ -1,34 +1,32 @@
 # =====================================
 # GEOMETRY CONFIGURATION
 # =====================================
-GRID_CELLS_X = 5         # Number of cells in X
-GRID_CELLS_Y = 3          # Number of cells in Y
-EDGE_LENGTH = 3.0         # Size of one cell
-LAYER_HEIGHT = 1.5        # Distance between top and bottom layer
-DIVISIONS = 8             # Number of steps for discrete shifting
-NUM_SAMPLES = 20000       # Number of samples
-SCALE_UV = 0.25, 0.75     # Random position in the cell
+GRID_CELLS_X = 5          # cells in X
+GRID_CELLS_Y = 3          # cells in Y
+EDGE_LENGTH  = 3.0        # cell size [m]
+LAYER_HEIGHT = 1.5        # top–bottom layer distance [m]
+DIVISIONS    = 8          # discrete shift steps per axis
+NUM_SAMPLES  = 20000      # training samples to generate
+SCALE_UV     = 0.25, 0.75 # vertex random position range within cell
 
 GRID = f"{GRID_CELLS_X}x{GRID_CELLS_Y}"
 
-print(f"GRID: {GRID}, EDGE_LENGTH: {EDGE_LENGTH}, LAYER_HEIGHT: {LAYER_HEIGHT}, DIVISIONS: {DIVISIONS}, NUM_SAMPLES: {NUM_SAMPLES}\n")
+print(f"Grid: {GRID}, edge={EDGE_LENGTH} m, height={LAYER_HEIGHT} m, divisions={DIVISIONS}, samples={NUM_SAMPLES}")
 
-# ====================================
+# =====================================
 # COST MATRIX VALUES
-# ====================================
-IMPACT_FACTOR_A1_A3 = 0.25                     #  kg CO2e / kg. This represents the fossil Global Warming Potential of forestry, sawmilling, and kiln-drying for standard softwood
-IMPACT_FACTOR_RECOVERED_C1 = 0.0085            # represents the energy and emissions associated with selective deconstruction (Module C1)
-ENERGY_PREP_SAW_A5 = 0.02                   # accounts for cleaning, denailing, and structural testing of the salvaged element, represents the energy required for resizing the salvaged beam to fit the new topology slot.
-ENERGY_OFFCUT_FACTOR_C3_C4 = 0.276             # represents the environmental penalty for the geometric waste generated during resizing.
+# =====================================
+# All emission factors in kg CO2e / kg unless noted.
+IMPACT_FACTOR_A1_A3      = 0.25    # fossil GWP of forestry, sawmilling, kiln-drying (new timber, modules A1–A3)
+IMPACT_FACTOR_RECOVERED_C1 = 0.0085 # selective deconstruction energy penalty (module C1)
+ENERGY_PREP_SAW_A5       = 0.02    # cleaning, denailing, structural testing, and resizing (module A5)
+ENERGY_OFFCUT_FACTOR_C3_C4 = 0.276 # environmental penalty for geometric offcut waste (modules C3–C4)
 
-SCARCITY_PENALTY = 0                        # allowing the designer to artificially inflate the "cost" of geometric waste so the solver is forced to pay attention to it
+# SCARCITY_PENALTY (ω): artificially inflates the cost of offcut waste so the MILP
+# prioritises length-efficient assignments when reclaimed stock is scarce.
+# ω=0: pure LCA (no scarcity pressure)
+# ω~1–5× EoL penalty: moderate pressure, preserves most original lengths
+# ω very high: "do-not-cut" extreme — forces near-zero length waste
+SCARCITY_PENALTY = 0
 
-print(f"""IMPACT_FACTOR_A1_A3: {IMPACT_FACTOR_A1_A3}, IMPACT_FACTOR_RECOVERED_C1: {IMPACT_FACTOR_RECOVERED_C1}, "ENERGY_PREP_SAW_A5: {ENERGY_PREP_SAW_A5}, ENERGY_OFFCUT_FACTOR_C3_C4: {ENERGY_OFFCUT_FACTOR_C3_C4}, SCARCITY_PENALTY: {SCARCITY_PENALTY}\n""")
-'''
-- The Lower Bound: ω=0 (Pure LCA) If you set ω=0, you are running a pure Life Cycle Assessment optimization.
-- Moderate Scarcity: The Multiplier Approach (1× to 5×M EoL) A highly effective way to set a range is to scale ω relative to your actual End-of-Life disposal penalty (MEoL).
-- High Scarcity: The "Do Not Cut" Extreme Range If your primary design goal is strict circularity—meaning local reclaimed wood is 
-considered extremely scarce and you want to preserve the stock's original lengths for future uses—you must set ω very high
-'''
-
-print(f"parameters loaded from {__file__}")
+print(f"LCA factors: A1-A3={IMPACT_FACTOR_A1_A3}, C1={IMPACT_FACTOR_RECOVERED_C1}, A5={ENERGY_PREP_SAW_A5}, C3-C4={ENERGY_OFFCUT_FACTOR_C3_C4}, ω={SCARCITY_PENALTY}")
