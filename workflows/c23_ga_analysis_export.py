@@ -615,10 +615,9 @@ def run_export(
                 "mu":              cfg.mu,
                 "lam":             cfg.lam,
                 "n_generations":   cfg.n_generations,
-                "crossover_prob":  cfg.crossover_prob,
                 "sigma_init":      cfg.sigma_init,
                 "sigma_min":       cfg.sigma_min,
-                "tournament_size": cfg.tournament_size,
+                "tolfun":          getattr(cfg, "tolfun", None),
                 "stagnation_limit":cfg.stagnation_limit,
                 "n_restarts_max":  cfg.n_restarts_max,
                 "top_k_size":      getattr(cfg, "top_k_size", None),
@@ -710,8 +709,7 @@ def run_export(
             "-" * 70,
             f"μ={es_cfg['mu']}  λ={es_cfg['lam']}  generations={es_cfg['n_generations']}",
             f"sigma_init={es_cfg['sigma_init']}  sigma_min={es_cfg['sigma_min']}  "
-            f"crossover_prob={es_cfg['crossover_prob']}",
-            f"tournament_size={es_cfg['tournament_size']}  "
+            f"tolfun={es_cfg.get('tolfun', '?')}",
             f"stagnation_limit={es_cfg['stagnation_limit']}  "
             f"n_restarts_max={es_cfg.get('n_restarts_max', '?')}",
             f"top_k_size={es_cfg.get('top_k_size', '?')}",

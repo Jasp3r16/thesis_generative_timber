@@ -99,10 +99,10 @@ _b_avg   = int(average_length_mm)                                # at structural
 _b_short = int(max(1000, min_length_mm - 300))                   # near structural min (matches MIN_LENGTH_MM)
 
 DONOR_BUILDING_B_MEMBER_TYPES = [
-    ("long_rafter",   140, 280, 14, _b_long),
-    ("mid_beam",      120, 240, 12, _b_upper),
-    ("floor_joist",    80, 200, 10, _b_avg),
-    ("short_purlin",   70, 150,  8, _b_short),
+    ("long_rafter",   140, 280, 21, _b_long),   # ×1.5 vs donor A counts → ~150% pool size
+    ("mid_beam",      120, 240, 18, _b_upper),
+    ("floor_joist",    80, 200, 15, _b_avg),
+    ("short_purlin",   70, 150, 12, _b_short),
 ]
 
 # LCA assumptions for reclaimed timber (unchanged).
