@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 import warnings
 from copy import deepcopy
 from dataclasses import dataclass
@@ -247,9 +248,11 @@ class CMAEvolutionStrategy:
                         best_eval_result, top_k, history, n_evals,
                         n_generations, n_restarts
         """
-        cfg     = self.config
-        penalty = cfg.penalty_fitness
-        t_start = time.time()
+        cfg              = self.config
+        penalty          = cfg.penalty_fitness
+        t_start          = time.time()
+        dt_start         = datetime.now()
+        start_time_str   = dt_start.strftime("%Y-%m-%d %H:%M:%S")
 
         # Starting point: random in [0,1]^n
         rng = np.random.default_rng(self.seed)
@@ -357,6 +360,8 @@ class CMAEvolutionStrategy:
             "n_evals":          self.n_evals,
             "n_generations":    generation,
             "n_restarts":       0,
+            "start_time":       start_time_str,
+            "elapsed_seconds":  round(time.time() - t_start, 1),
         }
 
     # -------------------------------------------------------------------------

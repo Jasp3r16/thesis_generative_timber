@@ -13,6 +13,7 @@ Two entry points:
 """
 
 import json
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -424,6 +425,8 @@ def run_export(
     model_prefix:         str,
     bounds_source_info:   object = "unknown",
     es:                   object = None,
+    df_stock:             object = None,   # pd.DataFrame — stock used by this run
+    stock_source_path:    object = None,   # path the stock was loaded from (for report)
 ) -> dict:
     """
     Save all figures, metrics, MILP assignment, and a human-readable report.
@@ -458,7 +461,12 @@ def run_export(
 
     ts            = datetime.now().strftime("%Y%m%d_%H%M%S")
     best_f        = f"{best.fitness:.4f}".replace(".", "_")
-    artifact_stem = f"GA_{ts}_GEN{n_gens}_EVAL{n_evals}_F{best_f}"
+    # Derive dataset label from stock filename: "complete_timber_A.csv" → "A"
+    if stock_source_path is not None:
+        dataset_label = Path(str(stock_source_path)).stem.split("_")[-1]
+    else:
+        dataset_label = "?"
+    artifact_stem = f"GA_{dataset_label}_{ts}_GEN{n_gens}_EVAL{n_evals}_F{best_f}"
     export_dir    = config.GA_DATA_PATH / artifact_stem
     export_dir.mkdir(parents=True, exist_ok=True)
     print(f"Export directory: {export_dir}")
@@ -510,6 +518,24 @@ def run_export(
     history_path = export_dir / f"{artifact_stem}_history.csv"
     pd.DataFrame(result["history"]).to_csv(history_path, index=False)
     print(f"  Saved: {history_path.name}")
+
+    # ── Stock dataset copy ────────────────────────────────────────────────────
+    stock_path = None
+    stock_info = {}
+    if df_stock is not None:
+        stock_path = export_dir / f"{artifact_stem}_stock.csv"
+        df_stock.to_csv(stock_path, index=False, sep=";")
+        n_total = len(df_stock)
+        n_ns    = int((df_stock["State"] == 0).sum()) if "State" in df_stock.columns else "?"
+        n_rs    = int((df_stock["State"] == 1).sum()) if "State" in df_stock.columns else "?"
+        stock_info = {
+            "file":       stock_path.name,
+            "source":     str(stock_source_path) if stock_source_path else "unknown",
+            "n_total":    n_total,
+            "n_ns":       n_ns,
+            "n_rs":       n_rs,
+        }
+        print(f"  Saved: {stock_path.name}  ({n_total} elements, NS={n_ns}, RS={n_rs})")
 
     # ── MILP topology helper (used by top-k export) ───────────────────────────
     def _enrich_milp(df_milp, df_edges):
@@ -623,6 +649,8 @@ def run_export(
                 "top_k_size":      getattr(cfg, "top_k_size", None),
             }
 
+    n_search_params = es.n_params if es is not None and hasattr(es, "n_params") else "?"
+
     config_payload = {
         "artifact_stem":           artifact_stem,
         "timestamp":               ts,
@@ -635,6 +663,8 @@ def run_export(
         "n_restarts":              result["n_restarts"],
         "best_fitness":            float(best.fitness),
         "model_prefix":            model_prefix,
+        "n_search_params":         n_search_params,
+        "stock":                   stock_info,
     }
     config_path = export_dir / f"{artifact_stem}_run_config.json"
     with open(config_path, "w", encoding="utf-8") as f:
@@ -645,12 +675,35 @@ def run_export(
     fr = best_eval.get("fitness_result") or {}
     fw = ga_config["fitness_weights"]
 
+    run_start   = result.get("start_time", "unknown")
+    elapsed_s   = result.get("elapsed_seconds")
+    elapsed_str = f"{elapsed_s / 60:.1f} min  ({elapsed_s} s)" if elapsed_s else "unknown"
+
     report_lines = [
         "GA OPTIMISATION RUN REPORT",
         "=" * 70,
         f"Artifact:              {artifact_stem}",
-        f"Generated:             {ts}",
+        f"Run started:           {run_start}",
+        f"Export generated:      {ts}",
+        f"Elapsed:               {elapsed_str}",
         f"Model prefix:          {model_prefix}",
+        f"Search space vars:     {n_search_params}",
+        f"Testing mode:          {ga_config.get('testing', False)}",
+        "",
+        "STOCK DATASET",
+        "-" * 70,
+    ]
+    if stock_info:
+        report_lines += [
+            f"Source file:           {stock_info['source']}",
+            f"Saved copy:            {stock_info['file']}",
+            f"Total elements:        {stock_info['n_total']}  "
+            f"(NS={stock_info['n_ns']}, RS={stock_info['n_rs']})",
+        ]
+    else:
+        report_lines += ["  (no df_stock passed to run_export)"]
+
+    report_lines += [
         "",
         "RUN STATISTICS",
         "-" * 70,
