@@ -209,9 +209,18 @@ def _compute_one_time_normalization_constants(
                       f"'{bounds_out.get('status')}' — retrying")
                 continue
 
-            normalized = _normalize_bounds_constants(
-                bounds_out["normalization_constants"]
-            )
+            norm_constants = dict(bounds_out["normalization_constants"])
+            if norm_constants.get("R_max", 1.0) <= 0.0:
+                # No RS stock: R_max = 0.0 is physically correct but would fail
+                # validation. Substitute 1.0 as a dummy normaliser — with no
+                # RS elements, reuse_fraction is always 0, so reuse_norm = 0/1
+                # regardless of omega_2. C_max is still computed correctly.
+                norm_constants["R_max"] = 1.0
+                print(
+                    f"  [bounds probe {attempt_idx+1}] no RS stock in pool "
+                    "→ R_max set to 1.0 (dummy, reuse_norm will be 0 throughout)"
+                )
+            normalized = _normalize_bounds_constants(norm_constants)
             print(f"  [bounds probe {attempt_idx+1}] success → {normalized}")
             return normalized, {
                 "source":  "one-time-bounds",

@@ -158,7 +158,7 @@ def _solve_extreme_assignment(
         and x[(stock_id, slot_id)].varValue > 0.5
     ]
 
-    objective_value = float(pulp.value(problem.objective)) if status == "Optimal" else float("nan")
+    objective_value = float(pulp.value(problem.objective) or 0.0) if status == "Optimal" else float("nan")
 
     return {
         "status": status,
