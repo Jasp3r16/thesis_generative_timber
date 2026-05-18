@@ -69,6 +69,8 @@ PLOT_COLORS = {
     "neutral": "#D7D9D9",       # Light gray (background, grids)
     "black": "#000000",         # Black (text, axes)
     "white": "#FFFFFF",         # White (background)
+    "NS": "#61788C",
+    "RS": "#F2994B",
 }
 
 PLOT_STYLE = {

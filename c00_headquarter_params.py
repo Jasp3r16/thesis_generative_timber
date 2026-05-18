@@ -17,12 +17,13 @@ print(f"Grid: {GRID}, edge={EDGE_LENGTH} m, height={LAYER_HEIGHT} m, divisions={
 # COST MATRIX VALUES
 # =====================================
 # All emission factors in kg CO2e / kg unless noted.
-IMPACT_FACTOR_A1_A3      = 0.25    # fossil GWP of forestry, sawmilling, kiln-drying (new timber, modules A1–A3)
-IMPACT_FACTOR_RECOVERED_C1 = 0.0085 # selective deconstruction energy penalty (module C1)
-ENERGY_PREP_A5           = 0.01    # cleaning, de-nailing, structural testing (always applies to reclaimed, module A5)
-ENERGY_SAW_A5            = 0.01    # secondary cross-cut resizing (only when stk_length > req_length, module A5)
-ENERGY_OFFCUT_FACTOR_C3_C4 = 0.276 # environmental penalty for geometric offcut waste (modules C3–C4)
-WASTE_TRANSPORT_DIST_KM  = 50      # estimated distance from site to waste disposal facility (module C2)
+# Source tags: [EPD] EPD literature; [Bergman2010] Bergman et al. 2010 (USDA FPL, SWST/UNECE); [Ecoinvent] Ecoinvent v3; [EN15978] standard default; [est.] engineering estimate (sensitivity analysis in §9).
+IMPACT_FACTOR_A1_A3         = 0.25      # [EPD] fossil GWP, kiln-dried softwood structural timber A1–A3; consistent with 0.24–0.26 range across 81 EPDs; substitute NMD/ÖKOBAUDAT entry for project-specific product
+IMPACT_FACTOR_RECOVERED_C1  = 0.0085    # [Bergman2010] derived: Table 2 fossil CO2 = 18.9 kg/m³ total; subtract transport (crude oil ~55%) → 8.5 kg/m³ non-transport; ÷490 kg/m³; C1 share (~50%) ≈ 0.0085 kg CO2e/kg; conservative for EU grid
+ENERGY_PREP_A5              = 0.01      # [Bergman2010] derived: A5-preparation share (~50%) of non-transport reclaiming ≈ 0.0085–0.010 kg CO2e/kg; 0.010 is mid-estimate, conservative for EU grid; covers de-nailing, cleaning, structural testing
+ENERGY_SAW_A5               = 0.004     # [calc.] 1800 W sliding miter saw, 60 s/cut, ref. element 100×50×1800 mm (4.4 kg) → 0.0068 kWh/kg; ×0.35 kg CO2/kWh (NL grid, CBS StatLine 2023) = 0.0024; doubled to 0.004 as conservative upper bound for dust extraction, overhead, and element size variability
+ENERGY_OFFCUT_FACTOR_C3_C4  = 0.031     # [Ecoinvent] fossil GWP, waste wood incineration with energy recovery, Western Europe (C3–C4); replaces prior unsourced value of 0.276 which conflated total GWP with fossil GWP
+WASTE_TRANSPORT_DIST_KM     = 50        # [EN15978] standard default transport distance to waste facility (C2)
 
 # SCARCITY_PENALTY (ω): artificially inflates the cost of offcut waste so the MILP
 # prioritises length-efficient assignments when reclaimed stock is scarce.

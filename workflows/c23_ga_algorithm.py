@@ -275,7 +275,8 @@ class CMAEvolutionStrategy:
             fitnesses   = []
             individuals = []
 
-            for x_norm in candidates_norm:
+            total_expected = cfg.popsize * cfg.n_generations
+            for pop_idx, x_norm in enumerate(candidates_norm, 1):
                 x_abs  = self._denorm(np.array(x_norm))
                 params = dict(zip(self.param_names, x_abs))
 
@@ -299,6 +300,12 @@ class CMAEvolutionStrategy:
                     generation  = generation,
                 ))
                 self.n_evals += 1
+                print(
+                    f"\r[CMA-ES] eval {self.n_evals:>5}/{total_expected}"
+                    f"  |  gen {generation:>3}/{cfg.n_generations}"
+                    f"  |  pop {pop_idx:>2}/{cfg.popsize}\n",
+                    end="", flush=True,
+                )
 
             cma_es.tell(candidates_norm, fitnesses)
 
@@ -422,7 +429,7 @@ class CMAEvolutionStrategy:
         fitnesses   = [ind.fitness for ind in individuals]
         best_ever_f = self.best_ever.fitness if self.best_ever else float("nan")
         print(
-            f"[CMA-ES] Gen {gen:3d}  "
+            f"\n[CMA-ES] Gen {gen:3d}  "
             f"best={min(fitnesses):.4f}  mean={float(np.mean(fitnesses)):.4f}  "
             f"best_ever={best_ever_f:.4f}  "
             f"sigma={sigma:.5f}  stag={self.stagnation}  evals={self.n_evals}"

@@ -20,6 +20,7 @@ from datetime import datetime
 
 import config
 from config import PLOT_COLORS as C, PLOT_STYLE as S
+import c00_headquarter_params as _lca
 
 
 # =============================================================================
@@ -681,6 +682,16 @@ def run_export(
         "-" * 70,
         f"C_max: {norm.get('C_max')}  R_max: {norm.get('R_max')}",
         f"Source: {bounds_source_info}",
+        "",
+        "LCA PARAMETERS",
+        "-" * 70,
+        f"A1-A3 embodied (new timber):     {_lca.IMPACT_FACTOR_A1_A3}  kg CO2e/kg  [EPD]",
+        f"C1 deconstruction penalty:        {_lca.IMPACT_FACTOR_RECOVERED_C1}  kg CO2e/kg  [Bergman2010]",
+        f"A5 preparation energy:            {_lca.ENERGY_PREP_A5}   kg CO2e/kg  [Bergman2010]",
+        f"A5 saw energy:                    {_lca.ENERGY_SAW_A5}   kg CO2e/kg  [calc.]",
+        f"C3-C4 offcut disposal:            {_lca.ENERGY_OFFCUT_FACTOR_C3_C4}   kg CO2e/kg  [Ecoinvent v3]",
+        f"C2 waste transport distance:      {_lca.WASTE_TRANSPORT_DIST_KM} km              [EN15978]",
+        f"Scarcity penalty (omega):         {_lca.SCARCITY_PENALTY}",
         "",
         "GA CONFIGURATION",
         "-" * 70,
