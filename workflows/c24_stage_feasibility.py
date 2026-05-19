@@ -78,10 +78,12 @@ MAX_SLENDERNESS     = 150    # EC5 practical limit for compression members
                               # lambda = L/i <= 150  where i = depth/sqrt(12)
 
 # v2 additions:
-MAX_DEPTH_TO_LENGTH_RATIO = 40   # depth >= L / 40 (all members)
-                                  # e.g. 3000mm slot requires depth >= 75mm
-                                  # prevents shallow stock in long slots
-                                  # regardless of force magnitude
+MAX_DEPTH_TO_LENGTH_RATIO = 20   # depth >= L / 20 (all members)
+                                  # e.g. 3000mm slot requires depth >= 150mm
+                                  #      3500mm slot requires depth >= 175mm
+                                  # L/20 is a standard span-to-depth heuristic
+                                  # for solid timber; excludes shallowest RS
+                                  # sections (depth 170mm) from medium/long slots
 
 MAX_WIDTH_DEPTH_RATIO = 5        # width >= depth / 5 (all members)
                                   # EC5 lateral stability requirement

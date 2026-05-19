@@ -22,6 +22,7 @@ from datetime import datetime
 import config
 from config import PLOT_COLORS as C, PLOT_STYLE as S
 import c00_headquarter_params as _lca
+import workflows.c24_stage_feasibility as _feas
 
 
 # =============================================================================
@@ -761,6 +762,15 @@ def run_export(
         f"C3-C4 offcut disposal:            {_lca.ENERGY_OFFCUT_FACTOR_C3_C4}   kg CO2e/kg  [Ecoinvent v3]",
         f"C2 waste transport distance:      {_lca.WASTE_TRANSPORT_DIST_KM} km              [EN15978]",
         f"Scarcity penalty (omega):         {_lca.SCARCITY_PENALTY}",
+        "",
+        "FEASIBILITY FILTER (c24)",
+        "-" * 70,
+        f"Force safety factor:              {_feas.FORCE_SAFETY_FACTOR}×   (forces multiplied before EC5 checks)",
+        f"Max depth-to-length ratio:        L / {_feas.MAX_DEPTH_TO_LENGTH_RATIO}  (depth >= L/{_feas.MAX_DEPTH_TO_LENGTH_RATIO} per member)",
+        f"Max slenderness (compression):    {_feas.MAX_SLENDERNESS}  (lambda = L/i)",
+        f"Max width-to-depth ratio:         1 / {_feas.MAX_WIDTH_DEPTH_RATIO}  (width >= depth/{_feas.MAX_WIDTH_DEPTH_RATIO})",
+        f"Max oversize fraction:            {_feas.MAX_OVERSIZE_FRAC:.0%}  (stock may exceed slot length by this)",
+        f"Design load:                      {_feas.LOAD_KN_PER_M2} kN/m²",
         "",
         "GA CONFIGURATION",
         "-" * 70,
