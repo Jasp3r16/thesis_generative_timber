@@ -408,7 +408,8 @@ def build_df_slots(edges_df, slot_lengths_m,
 
 def build_cost_filter(node_positions, edges_df, stock_df,
                       support_nodes, load_nodes,
-                      total_load_n=TOTAL_LOAD_N):
+                      total_load_n=TOTAL_LOAD_N,
+                      verbose=True):
     """
     Build the feasibility mask and slot table for the cost matrix step.
 
@@ -455,8 +456,9 @@ def build_cost_filter(node_positions, edges_df, stock_df,
     # ---- Stage 1: Length ----
     mask_length    = length_filter(slot_lengths_m, stock_lengths_mm)
     n_after_length = int(mask_length.sum())
-    print(f"  Stage 1 (length):    {total - n_after_length:6,} eliminated  "
-          f"({n_after_length:,} remaining, {100*n_after_length/total:.1f}%)")
+    if verbose:
+        print(f"  Stage 1 (length):    {total - n_after_length:6,} eliminated  "
+              f"({n_after_length:,} remaining, {100*n_after_length/total:.1f}%)")
 
     # ---- Stage 2: Force estimation ----
     mean_E_Pa  = stock_df['E_modulus_eff'].mean() * 1e6
@@ -468,10 +470,11 @@ def build_cost_filter(node_positions, edges_df, stock_df,
         support_nodes, load_nodes, total_load_n, mean_EA_SI,
     )
 
-    print(f"  Stage 2 (force):   "
-          f"max tension={member_forces.max()/1000:.1f} kN  "
-          f"max compression={member_forces.min()/1000:.1f} kN  "
-          f"mean |F|={np.abs(member_forces).mean()/1000:.1f} kN")
+    if verbose:
+        print(f"  Stage 2 (force):   "
+              f"max tension={member_forces.max()/1000:.1f} kN  "
+              f"max compression={member_forces.min()/1000:.1f} kN  "
+              f"mean |F|={np.abs(member_forces).mean()/1000:.1f} kN")
 
     # ---- Stage 3: EC5 structural checks ----
     mask_structural, min_depth, min_width, substage_counts = structural_filter(
@@ -509,8 +512,9 @@ def build_cost_filter(node_positions, edges_df, stock_df,
     n_after_struct = int(mask_combined.sum())
 
     # Report stage 3 with correct sub-stage breakdown
-    print(f"  Stage 3 (EC5):       {n_after_length - n_after_struct:6,} eliminated  "
-          f"({n_after_struct:,} remaining, {100*n_after_struct/total:.1f}%)")
+    if verbose:
+        print(f"  Stage 3 (EC5):       {n_after_length - n_after_struct:6,} eliminated  "
+              f"({n_after_struct:,} remaining, {100*n_after_struct/total:.1f}%)")
 
     sub_steps = [
         ("3a slenderness",  n_after_length, n_after_3a),
@@ -521,7 +525,7 @@ def build_cost_filter(node_positions, edges_df, stock_df,
 
     # ---- Warn on unassignable slots ----
     slots_no_stock = np.where(mask_combined.sum(axis=1) == 0)[0]
-    if len(slots_no_stock) > 0:
+    if len(slots_no_stock) > 0 and verbose:
         print(f"\n  WARNING: {len(slots_no_stock)} slot(s) have NO feasible stock: "
               f"{slots_no_stock.tolist()}")
         for s in slots_no_stock:

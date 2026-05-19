@@ -440,11 +440,12 @@ def run_export(
     result:               dict,
     ga_config:            dict,
     fixed_norm_constants: dict,
-    model_prefix:         str,
+    model_prefix:         str   = None,
     bounds_source_info:   object = "unknown",
     es:                   object = None,
     df_stock:             object = None,   # pd.DataFrame — stock used by this run
     stock_source_path:    object = None,   # path the stock was loaded from (for report)
+    run_tag:              str   = None,    # e.g. "RUN1" — inserted before GEN in artifact name
 ) -> dict:
     """
     Save all figures, metrics, MILP assignment, and a human-readable report.
@@ -484,7 +485,8 @@ def run_export(
         dataset_label = Path(str(stock_source_path)).stem.split("_")[-1]
     else:
         dataset_label = "?"
-    artifact_stem = f"GA_{dataset_label}_{ts}_GEN{n_gens}_EVAL{n_evals}_F{best_f}"
+    run_part      = f"_RUN{run_tag}" if run_tag else ""
+    artifact_stem = f"GA_{dataset_label}_{ts}{run_part}_GEN{n_gens}_EVAL{n_evals}_F{best_f}"
     export_dir    = config.GA_DATA_PATH / artifact_stem
     export_dir.mkdir(parents=True, exist_ok=True)
     print(f"Export directory: {export_dir}")

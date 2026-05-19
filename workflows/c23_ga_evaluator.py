@@ -160,6 +160,7 @@ def _compute_one_time_normalization_constants(
                 stock_df       = df_stock,
                 support_nodes  = support_nodes,
                 load_nodes     = load_nodes,
+                verbose        = False,
             )
 
             cost_matrix, stock_prepared, logs = stage_cost.build_cost_matrix(
@@ -327,6 +328,7 @@ def evaluate_design_candidate(
             stock_df       = df_stock,
             support_nodes  = support_nodes,
             load_nodes     = load_nodes,
+            verbose        = verbose,
         )
         if verbose:
             n_feasible = int(feasibility_mask.sum())
