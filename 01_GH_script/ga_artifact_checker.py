@@ -35,6 +35,9 @@ _MATERIAL_REQUIRED = {"Member_ID"}
 # Matches e.g. "20260518_141615_GEN250_EVAL7500_F-2_2315" or "F0_8873"
 _GA_ID_RE = re.compile(r"(\d{8}_\d{6}_GEN\d+_EVAL\d+_F-?\d+_\d+)")
 
+# Matches the date+time stamp alone, e.g. "20260518_141615"
+_TIMESTAMP_RE = re.compile(r"(\d{8}_\d{6})")
+
 # Matches "GA_new_", "GA_A_", or "GA_B_" in a folder name
 _STOCK_TYPE_RE = re.compile(r"GA_(new|A|B)_")
 
@@ -47,6 +50,11 @@ _STOCK_LABELS = {0: "new", 1: "A", 2: "B"}
 
 def _extract_ga_id(path):
     m = _GA_ID_RE.search(path.replace("\\", "/"))
+    return m.group(1) if m else None
+
+
+def _extract_timestamp(path):
+    m = _TIMESTAMP_RE.search(path.replace("\\", "/"))
     return m.group(1) if m else None
 
 
@@ -141,7 +149,28 @@ else:
                 _lbl, _stock_label, found))
             passed.append(False)
 
-    # --- 2. Same GA artifact ---
+    # --- 2. Timestamp consistency check (date + time) ---
+    ts_edges    = _extract_timestamp(path_edges)
+    ts_vertices = _extract_timestamp(path_vertices)
+    ts_material = _extract_timestamp(path_material)
+
+    if None in (ts_edges, ts_vertices, ts_material):
+        lines.append("Timestamp check FAILED — YYYYMMDD_HHMMSS not found in one or more paths")
+        lines.append("  edges    : {}".format(ts_edges))
+        lines.append("  vertices : {}".format(ts_vertices))
+        lines.append("  material : {}".format(ts_material))
+        passed.append(False)
+    elif ts_edges == ts_vertices == ts_material:
+        lines.append("Timestamp check OK — all share timestamp: {}".format(ts_edges))
+        passed.append(True)
+    else:
+        lines.append("Timestamp check FAILED — timestamps do not match across files:")
+        lines.append("  edges    : {}".format(ts_edges))
+        lines.append("  vertices : {}".format(ts_vertices))
+        lines.append("  material : {}".format(ts_material))
+        passed.append(False)
+
+    # --- 3. Same GA artifact ---
     id_edges    = _extract_ga_id(path_edges)
     id_vertices = _extract_ga_id(path_vertices)
     id_material = _extract_ga_id(path_material)
@@ -162,7 +191,7 @@ else:
         lines.append("  material : {}".format(id_material))
         passed.append(False)
 
-    # --- 3. File-type column checks ---
+    # --- 4. File-type column checks ---
     for (_path, _required, _lbl) in [
         (path_edges,    _EDGES_REQUIRED,    "edges"),
         (path_vertices, _VERTICES_REQUIRED, "vertices"),
@@ -173,8 +202,8 @@ else:
         passed.append(ok_check)
 
     ok           = all(passed)
-    out_edges    = path_edges
-    out_vertices = path_vertices
-    out_material = path_material
+    out_edges    = path_edges    if ok else None
+    out_vertices = path_vertices if ok else None
+    out_material = path_material if ok else None
     status       = "ALL CHECKS PASSED" if ok else "CHECKS FAILED"
     report       = "Stock type: {} ({})\n{}\n{}".format(_stock_int, _stock_label, status, "\n".join(lines))
