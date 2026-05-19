@@ -767,7 +767,7 @@ def run_export(
         "-" * 70,
         f"Force safety factor:              {_feas.FORCE_SAFETY_FACTOR}×   (forces multiplied before EC5 checks)",
         f"Max depth-to-length ratio:        L / {_feas.MAX_DEPTH_TO_LENGTH_RATIO}  (depth >= L/{_feas.MAX_DEPTH_TO_LENGTH_RATIO} per member)",
-        f"Max slenderness (compression):    {_feas.MAX_SLENDERNESS}  (lambda = L/i)",
+        f"Max slenderness (compression):    {_feas.MAX_SLENDERNESS}  (lambda = L/i_z, weak-axis i_z = min(w,d)/sqrt(12))",
         f"Max width-to-depth ratio:         1 / {_feas.MAX_WIDTH_DEPTH_RATIO}  (width >= depth/{_feas.MAX_WIDTH_DEPTH_RATIO})",
         f"Max oversize fraction:            {_feas.MAX_OVERSIZE_FRAC:.0%}  (stock may exceed slot length by this)",
         f"Design load:                      {_feas.LOAD_KN_PER_M2} kN/m²",

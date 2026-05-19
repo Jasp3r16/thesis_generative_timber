@@ -25,12 +25,11 @@
 #             3e. Compression+buckling: A >= N / (kc * kmod * f_c0k / gamma_M)
 #
 # v2 additions vs v1:
-#   - Stage 3b: depth-to-length ratio filter (d >= L/40) — eliminates shallow
-#     stock from long slots regardless of force magnitude
+#   - Stage 3a: slenderness check uses weak-axis i_z = min(w,d)/sqrt(12) (EC5 §6.3.2)
+#     — correctly filters laterally slender sections (e.g. 60×170mm at 3m: λ_z=173>150)
+#   - Stage 3b: depth-to-length ratio filter (d >= L/40) — loose sanity check
 #   - Stage 3c: width-to-depth ratio filter (w >= d/5) — eliminates laterally
 #     unstable sections (EC5 lateral stability)
-#   - Slenderness check (3a) now applied to ALL members, not just compression
-#     (long tension members also benefit from minimum depth)
 #   - filter_stats extended with per-stage elimination counts
 #
 # Outputs:
@@ -75,15 +74,13 @@ BETA_C              = 0.2    # imperfection factor for glulam (EC5 §6.3.2)
 FORCE_SAFETY_FACTOR = 2.0    # extra margin on estimated forces before EC5 checks
                               # accounts for ~15% approximation error in linear solve
 MAX_SLENDERNESS     = 150    # EC5 practical limit for compression members
-                              # lambda = L/i <= 150  where i = depth/sqrt(12)
+                              # lambda = L/i <= 150  where i = min(w,d)/sqrt(12)
+                              # weak-axis governs for rectangular sections (EC5 §6.3.2)
 
 # v2 additions:
-MAX_DEPTH_TO_LENGTH_RATIO = 20   # depth >= L / 20 (all members)
-                                  # e.g. 3000mm slot requires depth >= 150mm
-                                  #      3500mm slot requires depth >= 175mm
-                                  # L/20 is a standard span-to-depth heuristic
-                                  # for solid timber; excludes shallowest RS
-                                  # sections (depth 170mm) from medium/long slots
+MAX_DEPTH_TO_LENGTH_RATIO = 40   # depth >= L / 40 (all members) — loose sanity check
+                                  # catches extreme aspect-ratio mismatches
+                                  # (weak-axis slenderness check is the primary guard)
 
 MAX_WIDTH_DEPTH_RATIO = 5        # width >= depth / 5 (all members)
                                   # EC5 lateral stability requirement
@@ -299,7 +296,7 @@ def structural_filter(member_forces_n, member_lengths_m, stock_df):
     f_td = KMOD * f_tk  / GAMMA_M
     f_cd = KMOD * f_c0k / GAMMA_M
 
-    i_y_all      = depth_mm / np.sqrt(12.0)               # [n_stock]
+    i_z_all      = np.minimum(depth_mm, width_mm) / np.sqrt(12.0)  # [n_stock] weak-axis governs (EC5 §6.3.2)
     N_design_all = member_forces_n * FORCE_SAFETY_FACTOR   # [n_slots]
     L_mm_all     = member_lengths_m * 1000.0               # [n_slots]
 
@@ -308,7 +305,7 @@ def structural_filter(member_forces_n, member_lengths_m, stock_df):
     # ------------------------------------------------------------------
     comp_slots = N_design_all < -1.0                                  # [n_slots] bool
     if comp_slots.any():
-        lambda_s = L_mm_all[comp_slots, None] / i_y_all[None, :]     # [n_comp, n_stock]
+        lambda_s = L_mm_all[comp_slots, None] / i_z_all[None, :]     # [n_comp, n_stock]
         mask[comp_slots] &= (lambda_s <= MAX_SLENDERNESS)
 
     n_after_slenderness = int(mask.sum())
@@ -342,7 +339,7 @@ def structural_filter(member_forces_n, member_lengths_m, stock_df):
     # ------------------------------------------------------------------
     if comp_slots.any():
         N_comp     = np.abs(N_design_all[comp_slots])                                # [n_comp]
-        lambda_s   = L_mm_all[comp_slots, None] / i_y_all[None, :]                  # [n_comp, n_stock]
+        lambda_s   = L_mm_all[comp_slots, None] / i_z_all[None, :]                  # [n_comp, n_stock]
         lambda_rel = (lambda_s / np.pi) * np.sqrt(f_c0k[None, :] / E_005[None, :])  # [n_comp, n_stock]
         k          = 0.5 * (1.0 + BETA_C * (lambda_rel - 0.3) + lambda_rel**2)
         kc         = np.where(
