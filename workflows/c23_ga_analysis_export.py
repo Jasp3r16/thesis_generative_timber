@@ -89,6 +89,13 @@ def run_analysis(
     fig_conv_fitness, ax = plt.subplots(figsize=S["figsize_medium"])
     fig_conv_fitness.suptitle("Figure 1a — Fitness Convergence",
                                fontweight="bold", fontsize=13)
+    # Clip penalty values (1e6) from y-axis so real fitness variation is visible
+    penalty_threshold = 1e5
+    real_fits = [f for f in best_fit + worst_fit + best_ever if f is not None and abs(f) < penalty_threshold]
+    y_min = min(real_fits) if real_fits else -1
+    y_max = max(real_fits) if real_fits else 1
+    y_pad = max(abs(y_max - y_min) * 0.1, 0.05)
+
     ax.fill_between(gens, best_fit, worst_fit, alpha=0.15, color=C["primary"],
                     label="Population range")
     ax.plot(gens, best_ever, color=C["primary"],   lw=S["line_width"], label="Best ever")
@@ -96,16 +103,19 @@ def run_analysis(
             linestyle="--", label="Generation mean")
     ax.plot(gens, best_fit,  color=C["accent"],    lw=1.2,
             linestyle=":",  label="Generation best")
-    _restart_labeled = False
-    for h in history:
-        if h["stagnation"] == 0 and h["generation"] > 1:
-            ax.axvline(h["generation"], color=C["danger"], lw=1.0,
-                       linestyle="--", alpha=0.6,
-                       label="Restart" if not _restart_labeled else "_nolegend_")
-            _restart_labeled = True
+    # Only show restart markers when actual restarts occurred
+    if n_restarts > 0:
+        _restart_labeled = False
+        for h in history:
+            if h["stagnation"] == 0 and h["generation"] > 1:
+                ax.axvline(h["generation"], color=C["danger"], lw=1.0,
+                           linestyle="--", alpha=0.6,
+                           label="Restart" if not _restart_labeled else "_nolegend_")
+                _restart_labeled = True
     ax.set_xlabel("Generation")
     ax.set_ylabel("Fitness (lower = better)")
     ax.set_title("Fitness over generations")
+    ax.set_ylim(y_min - y_pad, y_max + y_pad)
     ax.legend(fontsize=9)
     plt.tight_layout()
     plt.show()
@@ -173,9 +183,9 @@ def run_analysis(
     metrics_text = [
         ("Best fitness",      f"{best_fitness:.4f}"),
         ("Total cost",        f"{best_cost:.2f}"),
-        ("Reuse rate",        f"{best_reuse:.1f}%"),
+        ("Reuse rate",        f"{best_reuse * 100:.1f}%"),
         ("Waste total",       f"{best_waste:.4f}"),
-        ("GNN feasibility",   f"{best_gnn:.1f}%"),
+        ("GNN feasibility",   f"{best_gnn * 100:.1f}%"),
         ("",                  ""),
         ("Generations run",   str(n_gens)),
         ("Total evaluations", str(n_evals)),
@@ -202,7 +212,9 @@ def run_analysis(
     # ── Fig 3: Best design parameters ────────────────────────────────────────
     param_names  = list(best.params.keys())
     param_values = list(best.params.values())
-    sigma_values = list(best.sigma)
+    # CMA-ES stores one global sigma; replicate it across all parameters for the bar chart
+    raw_sigma    = list(best.sigma)
+    sigma_values = raw_sigma * len(param_names) if len(raw_sigma) == 1 else raw_sigma
 
     def _get_bound(entry):
         if entry["type"] == "discrete":
@@ -241,7 +253,12 @@ def run_analysis(
     ax.set_xticks(x_pos)
     ax.set_xticklabels(param_names, rotation=90, fontsize=7)
     ax.set_ylabel("σ (step size at convergence)")
-    ax.set_title("Final Step Sizes — small σ = converged, large σ = still exploring")
+    sigma_title = (
+        "Final Step Size (CMA-ES global σ — same value for all parameters)"
+        if len(raw_sigma) == 1
+        else "Final Step Sizes — small σ = converged, large σ = still exploring"
+    )
+    ax.set_title(sigma_title)
     ax.set_yscale("log")
     plt.tight_layout()
     plt.show()
@@ -304,7 +321,7 @@ def run_analysis(
             ax.annotate(f"#{i+1}", (cx, cy),
                         textcoords="offset points", xytext=(5, 3), fontsize=7)
         plt.colorbar(sc, ax=ax, label="Fitness")
-        ax.set_xlabel("Total cost (normalised)")
+        ax.set_xlabel("Total cost (kg CO₂e)")
         ax.set_ylabel("GNN feasibility")
         ax.set_title("Cost vs GNN feasibility")
 
@@ -381,9 +398,9 @@ def run_analysis(
     print()
     print(f"  Best fitness:           {best_fitness:.6f}")
     print(f"  Best total cost:        {best_cost:.2f}")
-    print(f"  Best reuse rate:        {best_reuse:.1f}%")
+    print(f"  Best reuse rate:        {best_reuse * 100:.1f}%")
     print(f"  Best waste total:       {best_waste:.4f}")
-    print(f"  GNN feasibility:        {best_gnn:.1f}%")
+    print(f"  GNN feasibility:        {best_gnn * 100:.1f}%")
     print()
     print(f"  MILP status:            {best_eval.get('milp_status', 'n/a')}")
     print(f"  Unsafe members:         "
