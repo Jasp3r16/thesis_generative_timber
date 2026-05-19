@@ -380,10 +380,15 @@ def evaluate_design_candidate(
                   f"{len(df_results)} assignments")
 
         # ---- GNN feasibility (on MILP assignment built inside run_milp_stage) --
+        use_gnn            = config_dict.get("use_gnn", True)
         gnn_feasibility    = 1.0
         gnn_unsafe_members = []
+        preds_physical     = None
 
-        if MODEL_PREFIX or bundle is not None:
+        if not use_gnn:
+            if verbose:
+                print(f"    - GNN         | disabled (use_gnn=False in GA_CONFIG)")
+        elif MODEL_PREFIX or bundle is not None:
             milp_assignment = milp_out.get("milp_assignment")
             if milp_assignment is None:
                 warnings.warn(
@@ -423,10 +428,13 @@ def evaluate_design_candidate(
         result["gnn_unsafe_members"] = gnn_unsafe_members
 
         # ---- w_structural curriculum ----------------------------------------
-        w_structural = _resolve_w_structural(
-            config_dict     = config_dict,
-            generation      = generation,
-            max_generations = max_generations,
+        w_structural = (
+            0.0 if not use_gnn
+            else _resolve_w_structural(
+                config_dict     = config_dict,
+                generation      = generation,
+                max_generations = max_generations,
+            )
         )
         result["w_structural"] = w_structural
 
@@ -457,7 +465,7 @@ def evaluate_design_candidate(
             "df_vertices":    df_vertices,
             "df_edges":       df_edges,
             "df_results":     df_results,
-            "preds_physical": preds_physical if (MODEL_PREFIX or bundle is not None) else None,
+            "preds_physical": preds_physical if (use_gnn and (MODEL_PREFIX or bundle is not None)) else None,
         })
 
         if verbose:

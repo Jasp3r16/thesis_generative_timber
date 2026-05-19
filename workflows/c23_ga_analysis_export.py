@@ -771,6 +771,7 @@ def run_export(
         f"Max width-to-depth ratio:         1 / {_feas.MAX_WIDTH_DEPTH_RATIO}  (width >= depth/{_feas.MAX_WIDTH_DEPTH_RATIO})",
         f"Max oversize fraction:            {_feas.MAX_OVERSIZE_FRAC:.0%}  (stock may exceed slot length by this)",
         f"Design load:                      {_feas.LOAD_KN_PER_M2} kN/m²",
+        f"GNN enabled:                      {'Yes' if ga_config.get('use_gnn', True) else 'No (structural term = 0)'}",
         "",
         "GA CONFIGURATION",
         "-" * 70,
@@ -780,6 +781,7 @@ def run_export(
         f"New stock max uses:    {ga_config.get('new_stock_max_uses')}",
         f"Min reuse fraction:    {ga_config.get('min_reuse_fraction', 'None')}",
         f"Penalty fitness:       {ga_config.get('penalty_fitness')}",
+        f"GNN in fitness:        {'Yes (ω4=' + str(ga_config.get('w_structural_end', '?')) + ')' if ga_config.get('use_gnn', True) else 'No (ω4 zeroed)'}",
     ]
 
     if es_cfg:
