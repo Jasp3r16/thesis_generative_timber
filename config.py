@@ -71,6 +71,8 @@ PLOT_COLORS = {
     "white": "#FFFFFF",         # White (background)
     "NS": "#61788C",
     "RS": "#F2994B",
+    "upper_node": "#2F3E4F",
+    "lower_node": "#D9653B",
     "extra_colors": {
     "deep_navy": "#2F3E4F",
     "muted_teal": "#4F8A8B",

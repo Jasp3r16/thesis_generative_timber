@@ -31,26 +31,27 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 TRAINING_SCENARIO = "A"          # "A", "B", or "new"
-N_RUNS            = 10            # number of independent GA runs
+N_RUNS            = 1            # number of independent GA runs
 BASE_SEED         = 42           # seeds will be 42, 43, 44, 45, 46
 
 MODEL_PREFIX = "ID20260516_182257_LR1e-04_EP200_BS64_PW2.5_ROC0.863"
 USE_GNN      = True              # set False to skip GNN (cost+reuse only)
 
 GA_CONFIG = {
-    "fitness_weights":    {"omega_1": 1.0, "omega_2": 3.0},
+    "fitness_weights":    {"omega_1": 1.0, "omega_2": 1.0},
     "new_stock_max_uses": 10,
     "min_reuse_fraction": 0.0,
     "penalty_fitness":    1e6,
     "use_one_time_bounds":   True,
     "bounds_probe_attempts": 40,
-    "w_structural_start": 0.8,
-    "w_structural_end":   0.8,
+    "w_structural_start": 2.0,   # high early — steers away from structural holes
+    "w_structural_end":   0.8,   # relaxes as search converges
+    "max_structural_infeas": 0.60,  # hard floor: infeas > 0.60 → penalty regardless
     "use_gnn":            USE_GNN,
 }
 
 CMAES_POPSIZE      = 30
-CMAES_GENERATIONS  = 3
+CMAES_GENERATIONS  = 250
 CMAES_SIGMA_INIT   = 0.25
 CMAES_SIGMA_MIN    = 1e-8
 CMAES_STAGNATION   = 30
@@ -168,6 +169,9 @@ print(f"BATCH: Stock={TRAINING_SCENARIO}  N_RUNS={N_RUNS}  "
       f"GNN={'Yes' if USE_GNN else 'No'}")
 print(f"Budget per run: popsize={CMAES_POPSIZE} × gens={CMAES_GENERATIONS} "
       f"= {CMAES_POPSIZE * CMAES_GENERATIONS:,} evaluations")
+print(f"GA_CONFIG:")
+for k, v in GA_CONFIG.items():
+    print(f"  {k}: {v}")
 print(f"{'='*65}\n")
 
 for run_idx in range(N_RUNS):
@@ -203,8 +207,17 @@ for run_idx in range(N_RUNS):
             cost   = res.get("total_cost",     float("nan"))
             reuse  = res.get("reuse_fraction", float("nan"))
             w4     = res.get("w_structural",   float("nan"))
+            reason = res.get("reason",         "")
             gnn_s  = f"{gnn:.3f}" if gnn is not None else " n/a"
-            print(f"  {_label} gen={generation:>3} | {elapsed:>4.1f}s | {status} | "
+            reason_tag = ""
+            if status == "PENALIZED" and reason:
+                if "structural infeasibility" in reason:
+                    reason_tag = " [STRUCT_FLOOR]"
+                elif "MILP" in reason:
+                    reason_tag = " [MILP]"
+                else:
+                    reason_tag = f" [{reason[:20]}]"
+            print(f"  {_label} gen={generation:>3} | {elapsed:>4.1f}s | {status}{reason_tag} | "
                   f"MILP={milp} | GNN={gnn_s} | "
                   f"cost={cost:>7.2f} | reuse={reuse:.3f} | "
                   f"ω4={w4:.2f} | fit={fitness:.4f}")

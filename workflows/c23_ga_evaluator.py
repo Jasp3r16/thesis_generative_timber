@@ -325,6 +325,7 @@ def evaluate_design_candidate(
         "df_vertices":         None,
         "df_edges":            None,
         "df_results":          None,
+        "waste_total":         0.0,
     }
     
     MODEL_PREFIX = model_prefix or config_dict.get("MODEL_PREFIX", None)
@@ -452,6 +453,25 @@ def evaluate_design_candidate(
         result["gnn_feasibility"]    = gnn_feasibility
         result["gnn_unsafe_members"] = gnn_unsafe_members
 
+        # ---- hard structural floor ------------------------------------------
+        # If GNN infeasibility exceeds the hard ceiling, penalise immediately
+        # regardless of cost/reuse — prevents the optimizer from settling in
+        # structurally inviable local optima that the soft ω4 term cannot escape.
+        structural_infeasibility = 1.0 - gnn_feasibility
+        max_struct_infeas = float(config_dict.get("max_structural_infeas", 1.0))
+        if use_gnn and structural_infeasibility > max_struct_infeas:
+            result.update({
+                "status":          "PENALIZED",
+                "reason":          (f"structural infeasibility {structural_infeasibility:.3f} "
+                                    f"> hard limit {max_struct_infeas:.3f}"),
+                "gnn_feasibility": gnn_feasibility,
+                "w_structural":    _resolve_w_structural(config_dict, generation, max_generations),
+            })
+            if verbose:
+                print(f"    ✗ structural  | infeas={structural_infeasibility:.3f} "
+                      f"> limit={max_struct_infeas:.3f} → PENALIZED")
+            return result
+
         # ---- w_structural curriculum ----------------------------------------
         w_structural = (
             0.0 if not use_gnn
@@ -493,11 +513,20 @@ def evaluate_design_candidate(
             "preds_physical": preds_physical if (use_gnn and (MODEL_PREFIX or bundle is not None)) else None,
         })
 
+        # ---- waste total (informational — not in fitness function) ----------
+        try:
+            result["waste_total"] = stage_fitness.calculate_total_waste(
+                df_results, df_slots, df_stock
+            )
+        except Exception:
+            result["waste_total"] = 0.0
+
         if verbose:
             print(
                 f"    ✓ fitness     | fitness={result['fitness']:.4f}, "
                 f"cost={result['total_cost']:.2f}, "
                 f"reuse={result['reuse_fraction']:.3f}, "
+                f"waste={result['waste_total']:.4f} m³, "
                 f"ω4={w_structural:.2f}"
             )
 

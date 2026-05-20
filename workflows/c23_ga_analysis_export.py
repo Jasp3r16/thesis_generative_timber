@@ -674,7 +674,7 @@ def run_export(
     config_payload = {
         "artifact_stem":           artifact_stem,
         "timestamp":               ts,
-        "seed":                    result.get("seed"),
+        "seed":                    result.get("seed", ga_config.get("seed")),
         "ga_config":               ga_config,
         "es_config":               es_cfg,
         "normalization_constants": {k: float(v) for k, v in norm.items()},
