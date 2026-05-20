@@ -46,7 +46,7 @@ GA_CONFIG = {
     "bounds_probe_attempts": 40,
     "w_structural_start": 2.0,   # high early — steers away from structural holes
     "w_structural_end":   0.8,   # relaxes as search converges
-    "max_structural_infeas": 0.60,  # hard floor: infeas > 0.60 → penalty regardless
+    "max_structural_infeas": 1.0,  # hard floor: infeas > 0.60 → penalty regardless
     "use_gnn":            USE_GNN,
 }
 
