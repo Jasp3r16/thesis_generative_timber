@@ -674,6 +674,7 @@ def run_export(
     config_payload = {
         "artifact_stem":           artifact_stem,
         "timestamp":               ts,
+        "seed":                    result.get("seed"),
         "ga_config":               ga_config,
         "es_config":               es_cfg,
         "normalization_constants": {k: float(v) for k, v in norm.items()},
@@ -780,6 +781,7 @@ def run_export(
         "  ".join(f"ω{i+1}={fw[k]}" for i, k in enumerate(sorted(fw))),
         f"Structural schedule:   ω4 {ga_config.get('w_structural_start', '?')} → "
         f"{ga_config.get('w_structural_end', '?')}",
+        f"Seed used:             {ga_config.get('seed', 'None')}",
         f"New stock max uses:    {ga_config.get('new_stock_max_uses')}",
         f"Min reuse fraction:    {ga_config.get('min_reuse_fraction', 'None')}",
         f"Penalty fitness:       {ga_config.get('penalty_fitness')}",

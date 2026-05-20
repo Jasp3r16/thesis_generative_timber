@@ -43,14 +43,14 @@ GA_CONFIG = {
     "min_reuse_fraction": 0.0,
     "penalty_fitness":    1e6,
     "use_one_time_bounds":   True,
-    "bounds_probe_attempts": 8,
+    "bounds_probe_attempts": 40,
     "w_structural_start": 0.8,
     "w_structural_end":   0.8,
     "use_gnn":            USE_GNN,
 }
 
 CMAES_POPSIZE      = 30
-CMAES_GENERATIONS  = 250
+CMAES_GENERATIONS  = 3
 CMAES_SIGMA_INIT   = 0.25
 CMAES_SIGMA_MIN    = 1e-8
 CMAES_STAGNATION   = 30

@@ -126,8 +126,13 @@ def _compute_one_time_normalization_constants(
     config_dict:  dict,
 ) -> tuple[dict, dict]:
     """
-    Derive C_max / R_max by running the full pipeline on random
-    probe designs once before the GA loop starts.
+    Derive C_max / R_max by running the full pipeline on random probe designs.
+
+    All attempts are run; the maximum C_max and R_max found across successful
+    probes is returned. Running all attempts (rather than stopping at the first
+    success) gives a tighter upper bound because different random geometries
+    allow different subsets of the stock to match each slot — some geometries
+    permit much higher reuse than others.
     """
     defaults = stage_fitness.get_default_normalization_constants()
 
@@ -139,6 +144,11 @@ def _compute_one_time_normalization_constants(
 
     attempts           = max(int(config_dict.get("bounds_probe_attempts", 8)), 1)
     new_stock_max_uses = config_dict.get("new_stock_max_uses", None)
+
+    best_c_max    = 0.0
+    best_r_max    = 0.0
+    n_success     = 0
+    last_status   = None
 
     for attempt_idx in range(attempts):
         try:
@@ -186,8 +196,8 @@ def _compute_one_time_normalization_constants(
             )
 
             if milp_out["status"] != "Optimal":
-                print(f"  [bounds probe {attempt_idx+1}] "
-                      f"MILP {milp_out['status']} — retrying")
+                print(f"  [bounds probe {attempt_idx+1}/{attempts}] "
+                      f"MILP {milp_out['status']} — skipping")
                 continue
 
             bounds_out = stage_bounds.run_normalization_bounds_stage(
@@ -206,8 +216,8 @@ def _compute_one_time_normalization_constants(
             )
 
             if str(bounds_out.get("status", "")).lower() not in {"optimal", "partial"}:
-                print(f"  [bounds probe {attempt_idx+1}] bounds status "
-                      f"'{bounds_out.get('status')}' — retrying")
+                print(f"  [bounds probe {attempt_idx+1}/{attempts}] bounds status "
+                      f"'{bounds_out.get('status')}' — skipping")
                 continue
 
             norm_constants = dict(bounds_out["normalization_constants"])
@@ -218,16 +228,19 @@ def _compute_one_time_normalization_constants(
                 # regardless of omega_2. C_max is still computed correctly.
                 norm_constants["R_max"] = 1.0
                 print(
-                    f"  [bounds probe {attempt_idx+1}] no RS stock in pool "
+                    f"  [bounds probe {attempt_idx+1}/{attempts}] no RS stock in pool "
                     "→ R_max set to 1.0 (dummy, reuse_norm will be 0 throughout)"
                 )
-            normalized = _normalize_bounds_constants(norm_constants)
-            print(f"  [bounds probe {attempt_idx+1}] success → {normalized}")
-            return normalized, {
-                "source":  "one-time-bounds",
-                "status":  bounds_out.get("status"),
-                "attempt": attempt_idx + 1,
-            }
+
+            c = float(norm_constants.get("C_max", 0.0))
+            r = float(norm_constants.get("R_max", 0.0))
+            best_c_max  = max(best_c_max, c)
+            best_r_max  = max(best_r_max, r)
+            n_success  += 1
+            last_status = bounds_out.get("status")
+            print(f"  [bounds probe {attempt_idx+1}/{attempts}] "
+                  f"C_max={c:.4f}  R_max={r:.4f}  "
+                  f"(best so far: C_max={best_c_max:.4f}  R_max={best_r_max:.4f})")
 
         except ValueError as exc:
             msg = str(exc)
@@ -242,21 +255,31 @@ def _compute_one_time_normalization_constants(
                     "source": "defaults",
                     "reason": f"stock composition: {exc}",
                 }
-            print(f"  [bounds probe {attempt_idx+1}] value error: {exc} — retrying")
+            print(f"  [bounds probe {attempt_idx+1}/{attempts}] value error: {exc} — skipping")
             continue
 
         except Exception as exc:
-            print(f"  [bounds probe {attempt_idx+1}] exception: {exc} — retrying")
+            print(f"  [bounds probe {attempt_idx+1}/{attempts}] exception: {exc} — skipping")
             continue
 
-    warnings.warn(
-        f"Could not derive valid one-time bounds after {attempts} attempts. "
-        "Falling back to default normalization constants.",
-        stacklevel=2,
-    )
-    return defaults, {
-        "source": "defaults",
-        "reason": f"all {attempts} probe attempts failed",
+    if n_success == 0:
+        warnings.warn(
+            f"Could not derive valid one-time bounds after {attempts} attempts. "
+            "Falling back to default normalization constants.",
+            stacklevel=2,
+        )
+        return defaults, {
+            "source": "defaults",
+            "reason": f"all {attempts} probe attempts failed",
+        }
+
+    normalized = _normalize_bounds_constants({"C_max": best_c_max, "R_max": best_r_max})
+    print(f"  [bounds] final (best of {n_success}/{attempts} probes) → {normalized}")
+    return normalized, {
+        "source":       "one-time-bounds",
+        "status":       last_status,
+        "n_probes":     attempts,
+        "n_successful": n_success,
     }
 
 
