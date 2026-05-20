@@ -485,7 +485,7 @@ def run_export(
         dataset_label = Path(str(stock_source_path)).stem.split("_")[-1]
     else:
         dataset_label = "?"
-    run_part      = f"_RUN{run_tag}" if run_tag else ""
+    run_part      = f"_{run_tag}" if run_tag else ""
     artifact_stem = f"GA_{dataset_label}_{ts}{run_part}_GEN{n_gens}_EVAL{n_evals}_F{best_f}"
     export_dir    = config.GA_DATA_PATH / artifact_stem
     export_dir.mkdir(parents=True, exist_ok=True)

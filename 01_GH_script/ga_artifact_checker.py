@@ -32,8 +32,8 @@ _EDGES_REQUIRED    = {"edge_id", "V1", "V2"}
 _VERTICES_REQUIRED = {"vertex_index", "x", "y", "z"}
 _MATERIAL_REQUIRED = {"Member_ID"}
 
-# Matches e.g. "20260518_141615_GEN250_EVAL7500_F-2_2315" or "F0_8873"
-_GA_ID_RE = re.compile(r"(\d{8}_\d{6}_GEN\d+_EVAL\d+_F-?\d+_\d+)")
+# Matches e.g. "20260518_141615_RUN1_GEN250_EVAL7500_F-2_2315" or without RUN segment
+_GA_ID_RUN = re.compile(r"(\d{8}_\d{6}(?:_RUN\d+)?_GEN\d+_EVAL\d+_F-?\d+_\d+)")
 
 # Matches the date+time stamp alone, e.g. "20260518_141615"
 _TIMESTAMP_RE = re.compile(r"(\d{8}_\d{6})")
@@ -48,10 +48,9 @@ _STOCK_LABELS = {0: "new", 1: "A", 2: "B"}
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _extract_ga_id(path):
-    m = _GA_ID_RE.search(path.replace("\\", "/"))
+def _extract_ga_run_id(path):
+    m = _GA_ID_RUN.search(path.replace("\\", "/"))
     return m.group(1) if m else None
-
 
 def _extract_timestamp(path):
     m = _TIMESTAMP_RE.search(path.replace("\\", "/"))
@@ -171,9 +170,9 @@ else:
         passed.append(False)
 
     # --- 3. Same GA artifact ---
-    id_edges    = _extract_ga_id(path_edges)
-    id_vertices = _extract_ga_id(path_vertices)
-    id_material = _extract_ga_id(path_material)
+    id_edges    = _extract_ga_run_id(path_edges)
+    id_vertices = _extract_ga_run_id(path_vertices)
+    id_material = _extract_ga_run_id(path_material)
 
     if None in (id_edges, id_vertices, id_material):
         lines.append("GA ID check FAILED — could not parse GA run ID from one or more paths")

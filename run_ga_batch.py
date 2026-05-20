@@ -31,7 +31,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 TRAINING_SCENARIO = "A"          # "A", "B", or "new"
-N_RUNS            = 5            # number of independent GA runs
+N_RUNS            = 10            # number of independent GA runs
 BASE_SEED         = 42           # seeds will be 42, 43, 44, 45, 46
 
 MODEL_PREFIX = "ID20260516_182257_LR1e-04_EP200_BS64_PW2.5_ROC0.863"
