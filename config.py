@@ -3,59 +3,43 @@ import sys
 import os
 
 # ==========================================
-# 0. ENVIRONMENT DETECTION (DelftBlue vs Local)
+# 1. LOCAL CODE REPOSITORY (PyRepo on C drive)
 # ==========================================
-# Check if running on DelftBlue by looking for SLURM environment variable
-IS_DELFTBLUE = "SLURM_ARRAY_TASK_ID" in os.environ or os.getenv("DELFTBLUE_DATA_BASE")
+# This resolves the repository folder where this script lives.
+REPO_ROOT = Path(__file__).resolve().parent
+SRC_PATH = REPO_ROOT / "src"
+WORKFLOWS_PATH = REPO_ROOT / "workflows"
+DATA_IO_PATH = REPO_ROOT / "02_data_io"
 
-if IS_DELFTBLUE:
-    # Import DelftBlue-specific configuration
-    from config_delftblue import (
-        REPO_ROOT, SRC_PATH, WORKFLOWS_PATH, DATA_IO_PATH,
-        DATA_PATH, EXPORT_PATH, GH_DATA_PATH, RAW_DATA_PATH, 
-        TIMBER_STOCK_PATH, SM_EXPORT_PATH, SM_DATA_PATH
-    )
-    print("✓ Loaded DelftBlue configuration\n")
+# Make sure Python can always resolve imports from the src folder.
+if str(SRC_PATH) not in sys.path:
+    sys.path.append(str(SRC_PATH))
+if str(WORKFLOWS_PATH) not in sys.path:
+    sys.path.append(str(WORKFLOWS_PATH))
+if str(DATA_IO_PATH) not in sys.path:
+    sys.path.append(str(DATA_IO_PATH))
 
-else:
-    # ==========================================
-    # 1. LOCAL CODE REPOSITORY (PyRepo on C drive)
-    # ==========================================
-    # This resolves the repository folder where this script lives.
-    REPO_ROOT = Path(__file__).resolve().parent
-    SRC_PATH = REPO_ROOT / "src"
-    WORKFLOWS_PATH = REPO_ROOT / "workflows"
-    DATA_IO_PATH = REPO_ROOT / "02_data_io"
+# ==========================================
+# 2. CLOUD DATA STORAGE (OneDrive)
+# ==========================================
+# Path.home() automatically resolves C:\Users\YourName on any machine.
+ONEDRIVE_ROOT = Path.home() / "OneDrive" / "06 Building Technology TU" / "2.2 - 2.4"
 
-    # Make sure Python can always resolve imports from the src folder.
-    if str(SRC_PATH) not in sys.path:
-        sys.path.append(str(SRC_PATH))
-    if str(WORKFLOWS_PATH) not in sys.path:
-        sys.path.append(str(WORKFLOWS_PATH))
-    if str(DATA_IO_PATH) not in sys.path:
-        sys.path.append(str(DATA_IO_PATH))
+# Specific folders in OneDrive.
+DATA_PATH = ONEDRIVE_ROOT / "30_Data_Inventory"
+EXPORT_PATH = ONEDRIVE_ROOT / "60_Research_Exports"
 
-    # ==========================================
-    # 2. CLOUD DATA STORAGE (OneDrive)
-    # ==========================================
-    # Path.home() automatically resolves C:\Users\YourName on any machine.
-    ONEDRIVE_ROOT = Path.home() / "OneDrive" / "06 Building Technology TU" / "2.2 - 2.4"
+# Subfolders inside the data inventory.
+GEOM_DATA_PATH = DATA_PATH / "01_geometry_data"
+GH_DATA_PATH = DATA_PATH / "02_grasshopper_data"
+TIMBER_STOCK_PATH = DATA_PATH / "03_timber_data"
 
-    # Specific folders in OneDrive.
-    DATA_PATH = ONEDRIVE_ROOT / "30_Data_Inventory"
-    EXPORT_PATH = ONEDRIVE_ROOT / "60_Research_Exports"
+# Subfolders inside the research exports.
+SM_EXPORT_PATH = EXPORT_PATH / "01_surrogate_models"
+SM_DATA_PATH = EXPORT_PATH / "02_surrogate_model_data"
+GA_DATA_PATH = EXPORT_PATH / "03_ga_data"
 
-    # Subfolders inside the data inventory.
-    GEOM_DATA_PATH = DATA_PATH / "01_geometry_data"
-    GH_DATA_PATH = DATA_PATH / "02_grasshopper_data"
-    TIMBER_STOCK_PATH = DATA_PATH / "03_timber_data"
-
-    # Subfolders inside the research exports.
-    SM_EXPORT_PATH = EXPORT_PATH / "01_surrogate_models"
-    SM_DATA_PATH = EXPORT_PATH / "02_surrogate_model_data"
-    GA_DATA_PATH = EXPORT_PATH / "03_ga_data"
-
-    print(f"Config System loaded successfully, Code running locally from {REPO_ROOT.name} and Data is connected to OneDrive {ONEDRIVE_ROOT.name}.\n")
+print(f"Config System loaded successfully, Code running locally from {REPO_ROOT.name} and Data is connected to OneDrive {ONEDRIVE_ROOT.name}.\n")
     
 # ==========================================
 # 4. VISUALIZATION THEME (Centralized Color Palette)

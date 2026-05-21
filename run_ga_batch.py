@@ -33,8 +33,8 @@ import pandas as pd
 # CONFIG — edit here before each batch
 # ---------------------------------------------------------------------------
 
-TRAINING_SCENARIO = "A"          # "A", "B", or "new"
-MULTIPLE_SCENARIOS = True         # True runs A, B, and new with N_RUNS each
+TRAINING_SCENARIO = "new"          # "A", "B", or "new"
+MULTIPLE_SCENARIOS = False         # True runs A, B, and new with N_RUNS each
 N_RUNS            = 3            # number of independent GA runs
 BASE_SEED         = 42           # seeds will be 42, 43, 44, 45, 46
 
@@ -43,7 +43,7 @@ USE_GNN      = True              # set False to skip GNN (cost+reuse only)
 
 GA_CONFIG = {
     "fitness_weights":    {"omega_1": 1.0, "omega_2": 1.0},
-    "new_stock_max_uses": 10,
+    "new_stock_max_uses": 120,
     "min_reuse_fraction": 0.0,
     "penalty_fitness":    1e6,
     "use_one_time_bounds":   True,
