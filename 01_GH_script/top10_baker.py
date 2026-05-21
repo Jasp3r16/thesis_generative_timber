@@ -8,7 +8,7 @@ Add these inputs in the GH component editor:
   color_rs    : Colour — object + layer colour for RS (default: ochre orange)
   rank        : int   — slider 1–10, which design rank to bake
   bake        : bool  — button, triggers bake on True
-  clear       : bool  — if True, deletes the existing rank layer first
+    clear       : bool  — if True, deletes objects in the rank layer tree
 
 Outputs:
   status      : string — result message
@@ -19,6 +19,7 @@ import Rhino
 import rhinoscriptsyntax as rs
 import scriptcontext as sc
 import System.Drawing
+import System
 
 
 # =============================================================================
@@ -86,7 +87,7 @@ def _ensure_layer(name, parent_index=-1, color=None):
 
 
 def _clear_layer_tree(layer_full_path):
-    """Delete all objects and sublayers under layer_full_path using rhinoscriptsyntax."""
+    """Delete all objects under layer_full_path, keep layers intact."""
     if not rs.IsLayer(layer_full_path):
         return
 
@@ -103,11 +104,6 @@ def _clear_layer_tree(layer_full_path):
         objs = rs.ObjectsByLayer(name)
         if objs:
             rs.DeleteObjects(objs)
-
-    for name in reversed(all_names):
-        if rs.IsLayer(name):
-            rs.DeleteLayer(name)
-
 
 def _to_geom_base(item, ghdoc):
     """Extract GeometryBase from a GH input item.
@@ -187,7 +183,6 @@ else:
     ghdoc    = sc.doc
     ns_geoms = [_to_geom_base(item, ghdoc) for item in ns_geom]
     rs_geoms = [_to_geom_base(item, ghdoc) for item in rs_geom]
-
     # Switch sc.doc to Rhino doc for all layer + object operations
     sc.doc = Rhino.RhinoDoc.ActiveDoc
     try:

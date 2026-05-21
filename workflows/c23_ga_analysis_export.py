@@ -682,6 +682,7 @@ def run_export(
         "n_generations":           n_gens,
         "n_evals":                 n_evals,
         "n_restarts":              result["n_restarts"],
+        "elapsed_seconds":         result.get("elapsed_seconds"),
         "best_fitness":            float(best.fitness),
         "model_prefix":            model_prefix,
         "n_search_params":         n_search_params,

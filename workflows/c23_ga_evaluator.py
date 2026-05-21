@@ -321,7 +321,7 @@ def evaluate_design_candidate(
         "gnn_feasibility":     None,
         "gnn_unsafe_members":  None,
         "preds_physical":      None,
-        "w_structural":        None,
+        "w_structural":        float("nan"),
         "df_vertices":         None,
         "df_edges":            None,
         "df_results":          None,
