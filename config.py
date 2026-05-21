@@ -22,24 +22,49 @@ if str(DATA_IO_PATH) not in sys.path:
 # ==========================================
 # 2. CLOUD DATA STORAGE (OneDrive)
 # ==========================================
+# Data is stored in onedrive but when onedrive_root is not available, data_path and export_path will be set to repo_root and subfolders will be created there. This allows the code to run without OneDrive, but data won't be shared or persistent across machines.
+
 # Path.home() automatically resolves C:\Users\YourName on any machine.
 ONEDRIVE_ROOT = Path.home() / "OneDrive" / "06 Building Technology TU" / "2.2 - 2.4"
 
-# Specific folders in OneDrive.
-DATA_PATH = ONEDRIVE_ROOT / "30_Data_Inventory"
-EXPORT_PATH = ONEDRIVE_ROOT / "60_Research_Exports"
+# Specific folders in OneDrive, fallback to repo-local paths if OneDrive is missing.
+_onedrive_ok = ONEDRIVE_ROOT.exists()
+if _onedrive_ok:
+    DATA_PATH = ONEDRIVE_ROOT / "30_Data_Inventory"
+    EXPORT_PATH = ONEDRIVE_ROOT / "60_Research_Exports"
+else:
+    DATA_PATH = REPO_ROOT / "30_Data_Inventory"
+    EXPORT_PATH = REPO_ROOT / "60_Research_Exports"
+
+DATA_PATH.mkdir(parents=True, exist_ok=True)
+EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 
 # Subfolders inside the data inventory.
 GEOM_DATA_PATH = DATA_PATH / "01_geometry_data"
 GH_DATA_PATH = DATA_PATH / "02_grasshopper_data"
 TIMBER_STOCK_PATH = DATA_PATH / "03_timber_data"
 
+GEOM_DATA_PATH.mkdir(parents=True, exist_ok=True)
+GH_DATA_PATH.mkdir(parents=True, exist_ok=True)
+TIMBER_STOCK_PATH.mkdir(parents=True, exist_ok=True)
+
 # Subfolders inside the research exports.
 SM_EXPORT_PATH = EXPORT_PATH / "01_surrogate_models"
 SM_DATA_PATH = EXPORT_PATH / "02_surrogate_model_data"
 GA_DATA_PATH = EXPORT_PATH / "03_ga_data"
 
-print(f"Config System loaded successfully, Code running locally from {REPO_ROOT.name} and Data is connected to OneDrive {ONEDRIVE_ROOT.name}.\n")
+SM_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
+SM_DATA_PATH.mkdir(parents=True, exist_ok=True)
+GA_DATA_PATH.mkdir(parents=True, exist_ok=True)
+
+if _onedrive_ok:
+    print(
+        f"Config System loaded successfully, Code running locally from {REPO_ROOT.name} and Data is connected to OneDrive {ONEDRIVE_ROOT.name}.\n"
+    )
+else:
+    print(
+        f"Config System loaded successfully, Code running locally from {REPO_ROOT.name} and Data is stored locally in {REPO_ROOT.name}.\n"
+    )
     
 # ==========================================
 # 4. VISUALIZATION THEME (Centralized Color Palette)
