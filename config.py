@@ -60,7 +60,6 @@ else:
 # ==========================================
 # 4. VISUALIZATION THEME (Centralized Color Palette)
 # ==========================================
-# Color scheme for all plots and visualizations
 PLOT_COLORS = {
     "primary": "#61788C",       # Dark blue (convergence best, primary lines)
     "secondary": "#9CA5A6",     # Sage/light blue-green (mean, secondary)
@@ -73,11 +72,13 @@ PLOT_COLORS = {
     "RS": "#F2994B",
     "upper_node": "#2F3E4F",
     "lower_node": "#D9653B",
-    "extra_colors": {
+    "extra_colors": 
+    {
     "deep_navy": "#2F3E4F",
     "muted_teal": "#4F8A8B",
     "soft_sage_green": "#A8B89A",
-    "dusty_plum": "#7B667D"}
+    "dusty_plum": "#7B667D"
+    }
 
 }
 

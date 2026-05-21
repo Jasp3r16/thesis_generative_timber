@@ -1,9 +1,0 @@
-Loaded modules:
-
-Currently Loaded Modules:
-  1) gcc/11.3.0   3) python/3.10.13   5) cudnn/8.7.0.84-11.8
-  2) 2024r1       4) cuda/11.6
-
- 
-
-Running index=39, run_id=RUN_039 with lr=0.0005, epochs=200, batch_size=16, hidden_dim=128, weight_decay=0.0001

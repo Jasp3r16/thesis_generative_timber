@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "/home/jcluistra/thesis_generative_timber/workflows/c21_slurm_train.py", line 15, in <module>
-    from src.c21_train import main
-  File "/home/jcluistra/thesis_generative_timber/src/c21_train.py", line 9, in <module>
-    import numpy as np
-ModuleNotFoundError: No module named 'numpy'
