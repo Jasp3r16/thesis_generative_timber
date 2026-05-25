@@ -53,16 +53,11 @@ edges = [
 N_COLORS = [C_DARK] * 3 + [C_NS] * 3
 
 # ---------------------------------------------------------------------------
-# Figure layout: [wide 3D panel | vertex table | edge index]
+# Figure 1: 3D space frame
 # ---------------------------------------------------------------------------
-fig = plt.figure(figsize=(13, 5.6))
-fig.patch.set_facecolor(BG)
-gs = fig.add_gridspec(1, 3, width_ratios=[1.6, 1.0, 1.0],
-                      left=0.03, right=0.97, wspace=0.05)
-
-ax3d = fig.add_subplot(gs[0], projection="3d")
-ax_vt = fig.add_subplot(gs[1])
-ax_ei = fig.add_subplot(gs[2])
+fig1 = plt.figure(figsize=(6.5, 5.6))
+fig1.patch.set_facecolor(BG)
+ax3d = fig1.add_subplot(111, projection="3d")
 
 # ---------------------------------------------------------------------------
 # 3D space frame panel
@@ -102,6 +97,16 @@ ax3d.legend(handles=[
     mpatches.Patch(facecolor=C_RS,   label="Web members"),
 ], loc="lower left", fontsize=7.5, frameon=True,
    framealpha=0.92, edgecolor=C_MUTED)
+
+# ---------------------------------------------------------------------------
+# Figure 2: Vertex Table + Edge Index
+# ---------------------------------------------------------------------------
+fig2 = plt.figure(figsize=(8.0, 5.6))
+fig2.patch.set_facecolor(BG)
+gs2 = fig2.add_gridspec(1, 2, width_ratios=[1.0, 1.0],
+                        left=0.03, right=0.97, wspace=0.08)
+ax_vt = fig2.add_subplot(gs2[0])
+ax_ei = fig2.add_subplot(gs2[1])
 
 # ---------------------------------------------------------------------------
 # Table helper
@@ -208,15 +213,18 @@ draw_table(
     col_widths=[0.28, 0.36, 0.36],
 )
 
-# ---------------------------------------------------------------------------
-# Caption
-# ---------------------------------------------------------------------------
-plt.tight_layout(pad=0.8)
-
 out_dir = Path(__file__).resolve().parent
-for fmt in ["pdf", "png"]:
-    out = out_dir / f"fig_graph_abstraction.{fmt}"
-    plt.savefig(out, dpi=300, bbox_inches="tight", facecolor=BG)
-    print(f"Saved: {out}")
 
-plt.close()
+fig1.tight_layout(pad=0.8)
+for fmt in ["pdf", "png"]:
+    out = out_dir / f"fig_graph_abstraction_spaceframe.{fmt}"
+    fig1.savefig(out, dpi=300, bbox_inches="tight", facecolor=BG)
+    print(f"Saved: {out}")
+plt.close(fig1)
+
+fig2.tight_layout(pad=0.8)
+for fmt in ["pdf", "png"]:
+    out = out_dir / f"fig_graph_abstraction_tables.{fmt}"
+    fig2.savefig(out, dpi=300, bbox_inches="tight", facecolor=BG)
+    print(f"Saved: {out}")
+plt.close(fig2)
