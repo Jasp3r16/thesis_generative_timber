@@ -12,6 +12,13 @@ import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
 import numpy as np
 from pathlib import Path
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from config import FIG_PDF_DIR, FIG_PNG_DIR
 
 C_NS     = "#61788C"
 C_DARK   = "#2F3E4F"
@@ -148,9 +155,9 @@ fig.add_artist(mlines.Line2D([0.5, 0.5], [0.06, 0.94],
 # ---------------------------------------------------------------------------
 plt.tight_layout(pad=1.0)
 
-out_dir = Path(__file__).resolve().parent
+out_dirs = {"pdf": FIG_PDF_DIR, "png": FIG_PNG_DIR}
 for fmt in ["pdf", "png"]:
-    out = out_dir / f"fig_node_connections.{fmt}"
+    out = out_dirs[fmt] / f"fig_node_connections.{fmt}"
     plt.savefig(out, dpi=300, bbox_inches="tight", facecolor=BG)
     print(f"Saved: {out}")
 

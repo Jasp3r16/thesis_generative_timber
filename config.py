@@ -65,6 +65,16 @@ else:
     print(
         f"Config System loaded successfully, Code running locally from {REPO_ROOT.name} and Data is stored locally in {REPO_ROOT.name}.\n"
     )
+
+# ==========================================
+# 3. FIGURES (Export paths)
+# ==========================================
+FIGURES_DIR = REPO_ROOT / "figures"
+FIG_PDF_DIR = FIGURES_DIR / "pdf"
+FIG_PNG_DIR = FIGURES_DIR / "png"
+
+FIG_PDF_DIR.mkdir(parents=True, exist_ok=True)
+FIG_PNG_DIR.mkdir(parents=True, exist_ok=True)
     
 # ==========================================
 # 4. VISUALIZATION THEME (Centralized Color Palette)

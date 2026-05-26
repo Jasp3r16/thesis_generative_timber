@@ -13,6 +13,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 from pathlib import Path
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from config import FIG_PDF_DIR, FIG_PNG_DIR
 
 C_NS     = "#61788C"
 C_RS     = "#F2994B"
@@ -213,18 +220,17 @@ draw_table(
     col_widths=[0.28, 0.36, 0.36],
 )
 
-out_dir = Path(__file__).resolve().parent
-
 fig1.tight_layout(pad=0.8)
+out_dirs = {"pdf": FIG_PDF_DIR, "png": FIG_PNG_DIR}
 for fmt in ["pdf", "png"]:
-    out = out_dir / f"fig_graph_abstraction_spaceframe.{fmt}"
+    out = out_dirs[fmt] / f"fig_graph_abstraction_spaceframe.{fmt}"
     fig1.savefig(out, dpi=300, bbox_inches="tight", facecolor=BG)
     print(f"Saved: {out}")
 plt.close(fig1)
 
 fig2.tight_layout(pad=0.8)
 for fmt in ["pdf", "png"]:
-    out = out_dir / f"fig_graph_abstraction_tables.{fmt}"
+    out = out_dirs[fmt] / f"fig_graph_abstraction_tables.{fmt}"
     fig2.savefig(out, dpi=300, bbox_inches="tight", facecolor=BG)
     print(f"Saved: {out}")
 plt.close(fig2)

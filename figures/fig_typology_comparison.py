@@ -9,6 +9,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from pathlib import Path
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from config import FIG_PDF_DIR, FIG_PNG_DIR
 
 C_NS     = "#61788C"
 C_DARK   = "#2F3E4F"
@@ -148,9 +155,9 @@ leg.get_frame().set_linewidth(0.6)
 
 plt.tight_layout(pad=0.8)
 
-out_dir = Path(__file__).resolve().parent
+out_dirs = {"pdf": FIG_PDF_DIR, "png": FIG_PNG_DIR}
 for fmt in ["pdf", "png"]:
-    out = out_dir / f"fig_typology_comparison.{fmt}"
+    out = out_dirs[fmt] / f"fig_typology_comparison.{fmt}"
     plt.savefig(out, dpi=300, bbox_inches="tight", facecolor=BG)
     print(f"Saved: {out}")
 

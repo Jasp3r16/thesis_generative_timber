@@ -13,6 +13,13 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import FancyArrowPatch, Ellipse
 import numpy as np
 from pathlib import Path
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from config import FIG_PDF_DIR, FIG_PNG_DIR
 
 # ---------------------------------------------------------------------------
 # Palette
@@ -202,9 +209,9 @@ plt.tight_layout(pad=0.5)
 # ---------------------------------------------------------------------------
 # Save
 # ---------------------------------------------------------------------------
-out_dir = Path(__file__).resolve().parent
+out_dirs = {"pdf": FIG_PDF_DIR, "png": FIG_PNG_DIR}
 for fmt in ["pdf", "png"]:
-    out = out_dir / f"fig_domain_intersection.{fmt}"
+    out = out_dirs[fmt] / f"fig_domain_intersection.{fmt}"
     plt.savefig(out, dpi=300, bbox_inches="tight", facecolor=BG)
     print(f"Saved: {out}")
 
