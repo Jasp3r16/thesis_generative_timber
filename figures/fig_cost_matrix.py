@@ -80,7 +80,7 @@ fig.patch.set_facecolor(BG)
 
 # Data axis limits: x = [−2.2, N_SLOT+1.8],  y = [−1.4, N_ELEM+2.2]
 ax.set_xlim(-2.2, N_SLOT + 1.8)
-ax.set_ylim(-1.4, N_ELEM + 2.2)
+ax.set_ylim(-1.0, N_ELEM + 1.0)
 ax.set_aspect("equal")
 ax.axis("off")
 
@@ -134,11 +134,6 @@ for col, lbl in enumerate(SLOT_LABELS):
             ha="center", va="center",
             fontsize=9.5, color=C_DARK, fontweight="bold")
 
-ax.text(N_SLOT / 2, N_ELEM + 1.25,
-        "Structural slots",
-        ha="center", va="center",
-        fontsize=10, color=C_DARK, fontweight="bold", style="italic")
-
 # Light separator bar under slot headers
 ax.add_patch(mpatches.Rectangle(
     (-0.05, N_ELEM + 0.02), N_SLOT + 0.10, 0.03,
@@ -156,24 +151,18 @@ for row, (lbl, col) in enumerate(zip(ELEM_LABELS,
             ha="right", va="center",
             fontsize=9.5, color=col, fontweight="bold")
 
-# Centered horizontal legend below the grid — RS and NS swatches
-LEG_Y   = -1.20
-SW_W, SW_H = 0.55, 0.36
-SPACING    = 0.22
-LEG_TOTAL  = 2 * SW_W + 2.80 + SPACING   # rough total width
-LEG_X0     = N_SLOT / 2 - LEG_TOTAL / 2
+# Group annotations — vertically centred next to each group's rows
+ANN_X = -1.50
 
-for xi, (fc, label) in enumerate([(C_RS, "Reclaimed stock  (RS)"),
-                                   (C_NS, "New stock  (NS)")]):
-    bx = LEG_X0 + xi * (SW_W + 2.80 + SPACING)
-    ax.add_patch(mpatches.FancyBboxPatch(
-        (bx, LEG_Y), SW_W, SW_H,
-        boxstyle="round,pad=0.04",
-        facecolor=fc, edgecolor="none", zorder=3,
-    ))
-    ax.text(bx + SW_W + 0.15, LEG_Y + SW_H / 2, label,
-            ha="left", va="center",
-            fontsize=9, color=fc, fontweight="bold")
+rs_y_center = (cell_y(0) + CH + cell_y(N_RS - 1)) / 2
+ns_y_center = (cell_y(N_RS) + CH + cell_y(N_ELEM - 1)) / 2
+
+ax.text(ANN_X, rs_y_center, "Reclaimed\nstock  (RS)",
+        ha="center", va="center", fontsize=8.5,
+        color=C_RS, fontweight="bold", linespacing=1.5)
+ax.text(ANN_X, ns_y_center, "New\nstock  (NS)",
+        ha="center", va="center", fontsize=8.5,
+        color=C_NS, fontweight="bold", linespacing=1.5)
 
 # Dashed divider between RS and NS rows
 div_y = cell_y(N_RS - 1) - GAP / 2 + 0.02
@@ -230,13 +219,6 @@ ax.text(RAMP_X0 + RAMP_W + 0.18, INF_Y0 + 0.25,
         "infeasible  (∞)", va="center", fontsize=7.5, color=C_DARK)
 
 
-# ---------------------------------------------------------------------------
-# Figure title and caption
-# ---------------------------------------------------------------------------
-ax.text(N_SLOT / 2, N_ELEM + 1.90,
-        "Cost matrix  $C$  [n_stock × n_slots]  ·  cell value in kg CO₂e",
-        ha="center", va="center",
-        fontsize=11, fontweight="bold", color=C_DARK, zorder=5)
 
 plt.tight_layout(rect=[0.04, 0.04, 0.96, 0.97])
 

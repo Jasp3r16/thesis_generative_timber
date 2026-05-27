@@ -184,7 +184,7 @@ def draw_table(ax, title, col_headers, rows, row_fills, col_widths=None):
 # ---------------------------------------------------------------------------
 draw_table(
     ax_vt,
-    "V — Vertex Table",
+    "V - Vertex Table",
     ["node", "x", "y", "z"],
     rows=[
         ("0", "0.0", "0.0", "0.0"),
@@ -203,7 +203,7 @@ draw_table(
 # ---------------------------------------------------------------------------
 draw_table(
     ax_ei,
-    "E — Edge Index",
+    "E - Edge Index",
     ["edge", "start", "end"],
     rows=[
         ("0", "0", "1"),

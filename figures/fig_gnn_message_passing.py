@@ -188,14 +188,23 @@ def draw_graph(ax, show, agg_arrows=None):
 # ---------------------------------------------------------------------------
 # Figure + GridSpec
 # ---------------------------------------------------------------------------
-FIG_W, FIG_H = 13.0, 5.2
+# Figure size driven by a single panel-size constant so content is never condensed.
+# PANEL_SIZE = physical width (and height) of one ratio-1.0 panel in inches.
+PANEL_SIZE = 3.4
+
+_L, _R, _B, _T = 0.02, 0.98, 0.13, 0.88
+_RATIOS = [1.0, 1.0, 1.0, 0.06, 1.0]
+
+FIG_W = PANEL_SIZE * sum(_RATIOS) / (_R - _L)
+FIG_H = PANEL_SIZE / (_T - _B)
+
 fig = plt.figure(figsize=(FIG_W, FIG_H), facecolor=BG)
 
 gs = fig.add_gridspec(
     1, 5,
-    width_ratios=[1.0, 1.0, 1.0, 0.06, 0.85],
-    left=0.02, right=0.98, bottom=0.07, top=0.87,
-    wspace=0.04,
+    width_ratios=_RATIOS,
+    left=_L, right=_R, bottom=_B, top=_T,
+    wspace=0.06,
 )
 
 ax_k0  = fig.add_subplot(gs[0, 0])
@@ -231,22 +240,7 @@ for ax in [ax_k0, ax_k1, ax_k2]:
 # ---------------------------------------------------------------------------
 draw_graph(ax_k0, show=0)
 ax_k0.set_title("$k = 0$  ·  initial features",
-                fontsize=9.5, fontweight="bold", color=C_DARK, pad=5)
-
-# Annotate feature vector on target nodes
-for ni, xoff in [(1, -0.05), (2, +0.05)]:
-    cx, cy = NODES[ni]
-    ha = "right" if xoff < 0 else "left"
-    ax_k0.text(cx + xoff, cy + NODE_R + 0.06,
-               "[L, A, I, E]",
-               ha=ha, va="bottom", fontsize=6.5,
-               color=COL_TARGET, style="italic",
-               transform=ax_k0.transAxes, zorder=5)
-
-ax_k0.text(0.50, 0.10,
-           "each node holds its\nown features only",
-           ha="center", va="top", fontsize=7.5, color=C_MUTED,
-           style="italic", transform=ax_k0.transAxes, zorder=5)
+                fontsize=9.5, fontweight="bold", color=C_DARK, pad=10)
 
 
 # ---------------------------------------------------------------------------
@@ -260,12 +254,7 @@ agg_k1 = [
 ]
 draw_graph(ax_k1, show=1, agg_arrows=agg_k1)
 ax_k1.set_title("$k = 1$  ·  1-hop aggregation",
-                fontsize=9.5, fontweight="bold", color=COL_HOP1, pad=5)
-
-ax_k1.text(0.50, 0.10,
-           "target nodes absorb\ndirect neighbours",
-           ha="center", va="top", fontsize=7.5, color=COL_HOP1,
-           style="italic", transform=ax_k1.transAxes, zorder=5)
+                fontsize=9.5, fontweight="bold", color=COL_HOP1, pad=10)
 
 
 # ---------------------------------------------------------------------------
@@ -285,12 +274,7 @@ agg_k2 = [
 ]
 draw_graph(ax_k2, show=2, agg_arrows=agg_k2)
 ax_k2.set_title("$k = 2$  ·  2-hop aggregation",
-                fontsize=9.5, fontweight="bold", color=COL_HOP2, pad=5)
-
-ax_k2.text(0.50, 0.10,
-           "full load-path context\nreached in two layers",
-           ha="center", va="top", fontsize=7.5, color=COL_HOP2,
-           style="italic", transform=ax_k2.transAxes, zorder=5)
+                fontsize=9.5, fontweight="bold", color=COL_HOP2, pad=10)
 
 
 # ---------------------------------------------------------------------------
@@ -312,95 +296,18 @@ inter_panel_arrow(ax_k1, ax_k2, "layer 2\nmessage pass", fig)
 
 
 # ---------------------------------------------------------------------------
-# MLP contrast panel
+# MLP contrast panel — same graph, frozen at k = 0 (no aggregation ever)
 # ---------------------------------------------------------------------------
-def _box(ax, cx, cy, w, h, fc, ec=C_MUTED, lw=1.2, zorder=3,
-         label="", sublabel=""):
-    patch = mpatches.FancyBboxPatch(
-        (cx - w/2, cy - h/2), w, h,
-        boxstyle="round,pad=0.025",
-        facecolor=fc, edgecolor=ec, linewidth=lw, zorder=zorder,
-        transform=ax.transAxes, clip_on=False,
-    )
-    ax.add_patch(patch)
-    tc = "white" if fc not in (BG, "#F7F9FB") else C_DARK
-    if label:
-        ax.text(cx, cy + (0.016 if sublabel else 0), label,
-                ha="center", va="center", fontsize=7.5, fontweight="bold",
-                color=tc, transform=ax.transAxes, zorder=zorder + 1)
-    if sublabel:
-        ax.text(cx, cy - 0.028, sublabel,
-                ha="center", va="center", fontsize=6.5, color="#AAAAAA",
-                transform=ax.transAxes, zorder=zorder + 1)
-
-
-def _arr(ax, x, y0, y1, col=C_MUTED):
-    ax.annotate("",
-        xy=(x, y1), xytext=(x, y0),
-        xycoords="axes fraction", textcoords="axes fraction",
-        arrowprops=dict(arrowstyle="-|>", color=col, lw=1.5, mutation_scale=11),
-        zorder=8,
-    )
-
-
-ax = ax_mlp
-
-# Background
-rect = mpatches.FancyBboxPatch(
+ax_mlp.add_patch(mpatches.FancyBboxPatch(
     (0, 0), 1, 1,
     boxstyle="round,pad=0.02",
-    facecolor="#FFF8F5", edgecolor=C_RS,
-    linewidth=0.8, linestyle="dashed", zorder=0,
-    transform=ax.transAxes, clip_on=False,
-)
-ax.add_patch(rect)
-
-ax.set_title("MLP  (no context)",
-             fontsize=9.5, fontweight="bold", color=C_DARK, pad=5)
-
-# Isolated member icon
-MEM_Y = 0.880
-ax.plot([0.22, 0.78], [MEM_Y, MEM_Y],
-        color=COL_TARGET, lw=3.8, solid_capstyle="round",
-        transform=ax.transAxes, zorder=3)
-for nx in (0.22, 0.78):
-    ax.add_patch(plt.Circle((nx, MEM_Y), NODE_R * 0.85,
-                             facecolor=COL_TARGET, edgecolor="white",
-                             linewidth=1.5, zorder=4,
-                             transform=ax.transAxes))
-ax.text(0.50, MEM_Y + NODE_R + 0.04,
-        "$e_{\\mathrm{tgt}}$  (isolated)",
-        ha="center", va="bottom", fontsize=8, color=COL_TARGET,
-        fontweight="bold", transform=ax.transAxes, zorder=5)
-
-# Feature vector
-_box(ax, 0.50, 0.725, 0.75, 0.075, fc=C_DARK,
-     label="[L,  α,  A,  E·I,  ...]",
-     sublabel="per-member features only")
-
-_arr(ax, 0.50, 0.688, 0.640)
-
-# Hidden layers
-for y, lbl in [(0.600, "dense  64"), (0.490, "dense  64"), (0.378, "output  1")]:
-    _box(ax, 0.50, y, 0.70, 0.072, fc=C_NS, label=lbl)
-    if y != 0.378:
-        _arr(ax, 0.50, y - 0.036, y - 0.086)
-
-# Output label
-ax.text(0.50, 0.302,
-        "safe / unsafe",
-        ha="center", va="center", fontsize=7.5, fontweight="bold",
-        color=C_DARK, transform=ax.transAxes, zorder=5)
-
-# "No context" warning badge
-_box(ax, 0.50, 0.175, 0.86, 0.110, fc="#FFF0F0",
-     ec="#CC3333", lw=0.9, zorder=4)
-ax.text(0.50, 0.205, "no load-path information",
-        ha="center", va="center", fontsize=7.5, color="#CC3333",
-        fontweight="bold", transform=ax.transAxes, zorder=5)
-ax.text(0.50, 0.160, "neighbour context discarded",
-        ha="center", va="center", fontsize=7, color="#CC3333",
-        style="italic", transform=ax.transAxes, zorder=5)
+    facecolor="#F7F9FB", edgecolor=C_RS,
+    linewidth=1.2, zorder=0,
+    transform=ax_mlp.transAxes, clip_on=False,
+))
+draw_graph(ax_mlp, show=0)
+ax_mlp.set_title("MLP  ·  no aggregation",
+                 fontsize=9.5, fontweight="bold", color=C_RS, pad=10)
 
 
 # ---------------------------------------------------------------------------
@@ -417,17 +324,6 @@ line2d = plt.Line2D(
 fig.add_artist(line2d)
 
 
-# ---------------------------------------------------------------------------
-# Section header
-# ---------------------------------------------------------------------------
-p0 = ax_k0.get_position()
-p2 = ax_k2.get_position()
-fig.text(
-    (p0.x0 + p2.x1) / 2, 0.94,
-    "GNN — message passing expands receptive field across truss topology",
-    ha="center", va="bottom", fontsize=10, fontweight="bold", color=C_DARK,
-)
-
 
 # ---------------------------------------------------------------------------
 # Legend (below the three GNN panels)
@@ -438,14 +334,14 @@ legend_patches = [
     mpatches.Patch(facecolor=COL_HOP2,   label="2-hop  (neighbours of neighbours)"),
     mpatches.Patch(facecolor=COL_FADED,  label="outside receptive field"),
 ]
-ax_k1.legend(
+fig.legend(
     handles=legend_patches,
     loc="lower center",
     ncol=4,
     frameon=True, framealpha=0.95,
     edgecolor=C_MUTED, fontsize=7.5,
-    bbox_to_anchor=(0.50, -0.20),
-    bbox_transform=ax_k1.transAxes,
+    bbox_to_anchor=(0.50, 0.01),
+    bbox_transform=fig.transFigure,
 )
 
 

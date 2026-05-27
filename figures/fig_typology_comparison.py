@@ -42,7 +42,6 @@ col_headers = [
     "Structural\nredundancy",
     "Geometric\nversatility",
     "Computational\nsuitability",
-    "",   # Selected checkmark column
 ]
 
 fig, ax = plt.subplots(figsize=(11, 4.5))
@@ -116,14 +115,6 @@ for (name, ratings, selected), y in zip(data, Y_ROWS):
                 fontweight="bold", color=RATING_TC[r],
                 transform=ax.transAxes, zorder=4)
 
-    # Selected checkmark
-    x_sel = X_COLS_L + 4.5 * COL_W
-    ax.text(x_sel, y, "✓" if selected else "—",
-            ha="center", va="center",
-            fontsize=15 if selected else 10,
-            fontweight="bold" if selected else "normal",
-            color=C_ACCENT if selected else C_LIGHT,
-            transform=ax.transAxes, zorder=4)
 
 # Vertical column dividers (light dashed)
 for i in range(1, N_COLS):
@@ -139,19 +130,6 @@ ax.plot([X_NAME_L, X_COLS_R],
          Y_ROWS[-1] - ROW_H / 2 - 0.015],
         color=C_LIGHT, lw=0.7, transform=ax.transAxes)
 
-# ---------------------------------------------------------------------------
-# Legend
-# ---------------------------------------------------------------------------
-legend_patches = [
-    mpatches.Patch(facecolor=C_BIO,     edgecolor="white", label="High"),
-    mpatches.Patch(facecolor="#E8C97A", edgecolor="white", label="Medium"),
-    mpatches.Patch(facecolor=C_LIGHT,   edgecolor=C_MUTED, label="Low"),
-]
-leg = ax.legend(handles=legend_patches, loc="lower right",
-                bbox_to_anchor=(0.98, 0.01), ncol=3,
-                fontsize=8, frameon=True, framealpha=0.95,
-                edgecolor=C_MUTED)
-leg.get_frame().set_linewidth(0.6)
 
 plt.tight_layout(pad=0.8)
 
