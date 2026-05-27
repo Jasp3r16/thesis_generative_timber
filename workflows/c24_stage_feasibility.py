@@ -485,7 +485,7 @@ def build_cost_filter(node_positions, edges_df, stock_df,
     # by intersecting the length mask with progressively applied EC5 masks
     depth_mm_s   = stock_df['Depth'].values
     width_mm_s   = stock_df['Width'].values
-    i_y_s        = depth_mm_s / np.sqrt(12.0)
+    i_z_s        = np.minimum(depth_mm_s, width_mm_s) / np.sqrt(12.0)  # weak-axis, matches structural_filter
     slot_mm_s    = slot_lengths_m * 1000.0
 
     # 3a: slenderness mask (compression only) — vectorised
@@ -493,7 +493,7 @@ def build_cost_filter(node_positions, edges_df, stock_df,
     comp_s       = N_design_s < -1.0                                  # [n_slots] bool
     mask_3a      = np.ones((len(slot_lengths_m), len(stock_df)), dtype=bool)
     if comp_s.any():
-        lambda_s_3a       = slot_mm_s[comp_s, None] / i_y_s[None, :]
+        lambda_s_3a       = slot_mm_s[comp_s, None] / i_z_s[None, :]
         mask_3a[comp_s]   = (lambda_s_3a <= MAX_SLENDERNESS)
 
     # 3b: depth-to-length mask
