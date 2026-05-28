@@ -112,7 +112,7 @@ def arrow_down(x, y_from, y_to, col=C_DARK):
 # ---------------------------------------------------------------------------
 # Title
 # ---------------------------------------------------------------------------
-ax.text(CX, 13.45,
+ax.text(CX, 13.7,
         "Training data generation pipeline  ·  20 000 samples",
         ha="center", va="center", fontsize=10.5,
         fontweight="bold", color=C_DARK, zorder=6)

@@ -52,8 +52,6 @@ ax2d.set_xlim(-5.5, 20.5)
 ax2d.set_ylim(-5.8, 14.5)
 ax2d.set_aspect("equal")
 ax2d.axis("off")
-ax2d.set_title("Top chord  —  variable assignment by node type  (28 variables)",
-               fontsize=10, fontweight="bold", color=C_DARK, pad=6)
 
 
 def node_type(ix, iy):
@@ -109,7 +107,7 @@ BOX_KW = lambda col: dict(boxstyle="round,pad=0.22", fc=BG, ec=col + "55", lw=0.
 # Corner (0, 0)
 ax2d.annotate(
     "corner node  (×4)\nfixed  —  0 variables\npin support",
-    xy=(0, 0), xytext=(-5.0, -0.8),
+    xy=(0, 0), xytext=(-3.2, -0.5),
     fontsize=7.5, color=C_DARK, ha="right", style="italic",
     arrowprops=dict(arrowstyle="-", color=C_DARK + "70", lw=0.9),
     bbox=BOX_KW(C_DARK), **ANN_KW)
@@ -117,7 +115,7 @@ ax2d.annotate(
 # Edge left/right (0, 1) — Y shift
 ax2d.annotate(
     "edge node, left/right  (×4)\n1 variable  —  Δy",
-    xy=(0, CW), xytext=(-5.0, CW + 1.2),
+    xy=(0, CW), xytext=(-3.2, CW + 0.8),
     fontsize=7.5, color=C_NS, ha="right",
     arrowprops=dict(arrowstyle="-", color=C_NS + "70", lw=0.9),
     bbox=BOX_KW(C_NS), **ANN_KW)
@@ -125,7 +123,7 @@ ax2d.annotate(
 # Edge top/bottom (2, 0) — X shift
 ax2d.annotate(
     "edge node, top/bottom  (×8)\n1 variable  —  Δx",
-    xy=(2*CW, 0), xytext=(2*CW, -3.2),
+    xy=(2*CW, 0), xytext=(2*CW, -2.2),
     fontsize=7.5, color=C_NS, ha="center",
     arrowprops=dict(arrowstyle="-", color=C_NS + "70", lw=0.9),
     bbox=BOX_KW(C_NS), **ANN_KW)
@@ -133,7 +131,7 @@ ax2d.annotate(
 # Interior (2, 1) — XY shifts
 ax2d.annotate(
     "interior node  (×8)\n2 variables  —  Δx + Δy",
-    xy=(2*CW, CW), xytext=(17.5, CW + 1.2),
+    xy=(2*CW, CW), xytext=(15.8, CW + 0.8),
     fontsize=7.5, color=C_NS, ha="left",
     arrowprops=dict(arrowstyle="-", color=C_NS + "70", lw=0.9),
     bbox=BOX_KW(C_NS), **ANN_KW)
@@ -156,9 +154,6 @@ ax2d.add_patch(FancyBboxPatch(
 ax2d.text(RULER_CX, RULER_Y + 0.52,
           "7 discrete training positions",
           ha="center", va="bottom", fontsize=7.5, color=C_MUTED, style="italic")
-ax2d.text(RULER_CX, RULER_Y - 0.62,
-          "continuous optimisation range  [−1.125, +1.125] m",
-          ha="center", va="top", fontsize=7.5, color=C_NS)
 
 ax2d.scatter(step_x, [RULER_Y]*7, s=22, color=C_DARK, zorder=4)
 for sx, sv in zip(step_x, STEPS):
@@ -233,7 +228,7 @@ ax3d.text(U_FAR + 0.22, (V_L+V_H)/2, bz_ex - 0.28,
 
 # shift_z indicator — vertical bracket outside cell at front-right corner
 SZ = 1.125
-SZ_X, SZ_Y = CW + 0.55, -0.05
+SZ_X, SZ_Y = CW + 0.15, +0.05
 ax3d.plot([SZ_X, SZ_X], [SZ_Y, SZ_Y], [bz_ex - SZ, bz_ex + SZ],
           color=C_DARK, lw=1.8)
 ax3d.plot([SZ_X - 0.15, SZ_X + 0.15], [SZ_Y, SZ_Y],
@@ -254,14 +249,11 @@ ib_xs = [U_L, U_H, U_H, U_L, U_L]
 ib_ys = [V_L, V_L, V_H, V_H, V_L]
 ax3d.plot(ib_xs, ib_ys, [bz_ex]*5, color=C_RS, lw=0.9, ls=":", alpha=0.75)
 
-ax3d.view_init(elev=28, azim=-48)
+ax3d.view_init(elev=18, azim=-48)
 ax3d.set_box_aspect([1, 1, 0.55])
 ax3d.set_xticks([]); ax3d.set_yticks([]); ax3d.set_zticks([])
 ax3d.set_xlabel(""); ax3d.set_ylabel(""); ax3d.set_zlabel("")
 ax3d.grid(False)
-ax3d.set_title("Bottom node  —  cell-local parameters\n"
-               "3 vars × 15 nodes = 45 variables",
-               fontsize=9.5, fontweight="bold", color=C_DARK, pad=4)
 
 fig.subplots_adjust(left=0.02, right=0.98, bottom=0.05, top=0.93)
 
