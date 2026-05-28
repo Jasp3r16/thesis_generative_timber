@@ -2,9 +2,11 @@
 fig_cost_matrix_branches.py — Two-branch cost formula, section 2.5.x.
 
 Split-path diagram: C_ij branches at χ_i into new-stock and reclaimed-stock
-paths, each listing its LCA component boxes (A1–A3, A4, A5_prep, A5_saw),
-converging into shared end-of-life terms (C1, C2, C3+C4) → total C_ij.
-Excluded / zero-burden terms shown greyed with strikethrough.
+paths. New stock incurs A1–A3 and A4 only (A5_prep and A5_saw excluded).
+Reclaimed stock incurs A4, A5_prep, A5_saw (conditional), C1 recovery from
+the donor structure, C2+C3+C4 offcut waste (conditional), and an optional
+scarcity penalty (ω=0, currently inactive). Both branches converge to C_ij.
+Excluded / zero-burden / inactive terms shown greyed with strikethrough.
 No caption embedded — provided separately.
 """
 
@@ -31,12 +33,12 @@ BG      = "#FFFFFF"
 # ---------------------------------------------------------------------------
 # Figure
 # ---------------------------------------------------------------------------
-FIG_W, FIG_H = 12.0, 10.5
+FIG_W, FIG_H = 12.0, 13.5
 fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
 fig.patch.set_facecolor(BG)
 ax.set_facecolor(BG)
 ax.set_xlim(0, 12)
-ax.set_ylim(0, 10.5)
+ax.set_ylim(0, 13.5)
 ax.axis("off")
 
 CX_L = 3.0      # new-stock column centre
@@ -46,15 +48,19 @@ BH   = 0.82     # component box height
 R    = 0.07     # corner radius
 
 # y-centres (top to bottom)
-Y_FORM  = 9.65
-SPLIT_Y = 8.80
-Y1      = 7.90   # A1–A3
-Y2      = 6.72   # A4
-Y3      = 5.54   # A5_prep
-Y4      = 4.36   # A5_saw
-MERGE_Y = 3.54   # horizontal merge bar
-SHARED_Y = 2.62  # shared end-of-life boxes
-TOTAL_Y  = 1.38  # total cost box
+Y_FORM   = 13.10
+SPLIT_Y  = 12.30
+Y1       = 11.40   # A1–A3
+Y2       = 10.20   # A4
+Y3       =  9.00   # A5_prep
+Y4       =  7.80   # A5_saw
+# Reclaimed-only rows (right column only)
+Y5       =  6.40   # C1: recovery from donor structure
+Y6       =  5.20   # C2 + C3+C4: offcut waste
+Y7       =  4.00   # ω: scarcity penalty (ω=0, inactive)
+# Convergence
+CONV_Y   =  3.10
+TOTAL_Y  =  1.80
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -89,27 +95,40 @@ def arr(x, y0, y1, col=C_DARK, lw=1.4):
                         mutation_scale=11), zorder=5)
 
 # ---------------------------------------------------------------------------
-# Section backgrounds (light tint behind each column of component boxes)
+# Section backgrounds
 # ---------------------------------------------------------------------------
-bg_top = Y1 + BH/2 + 0.18
-bg_bot = Y4 - BH/2 - 0.18
+bg_top       = Y1 + BH/2 + 0.18
+bg_bot_comm  = Y4 - BH/2 - 0.18   # bottom of shared rows
+
+# New-stock column (rows Y1–Y4)
 ax.add_patch(FancyBboxPatch(
-    (CX_L - BW/2 - 0.20, bg_bot), BW + 0.40, bg_top - bg_bot,
+    (CX_L - BW/2 - 0.20, bg_bot_comm), BW + 0.40, bg_top - bg_bot_comm,
     boxstyle="round,pad=0.05",
     facecolor=C_NS + "0D", edgecolor=C_NS + "38", linewidth=0.8,
     zorder=1, clip_on=False))
+
+# Reclaimed column — shared rows (Y1–Y4)
 ax.add_patch(FancyBboxPatch(
-    (CX_R - BW/2 - 0.20, bg_bot), BW + 0.40, bg_top - bg_bot,
+    (CX_R - BW/2 - 0.20, bg_bot_comm), BW + 0.40, bg_top - bg_bot_comm,
     boxstyle="round,pad=0.05",
     facecolor=C_RS + "0D", edgecolor=C_RS + "38", linewidth=0.8,
     zorder=1, clip_on=False))
 
-# Shared section background
+# Reclaimed column — reclaimed-only rows (Y5–Y7), dashed border
+bg_bot_extra = Y7 - BH/2 - 0.18
+bg_top_extra = Y5 + BH/2 + 0.18
 ax.add_patch(FancyBboxPatch(
-    (0.42, SHARED_Y - BH/2 - 0.16), 11.16, BH + 0.32,
+    (CX_R - BW/2 - 0.20, bg_bot_extra), BW + 0.40, bg_top_extra - bg_bot_extra,
     boxstyle="round,pad=0.05",
-    facecolor=C_DARK + "09", edgecolor=C_DARK + "28", linewidth=0.8,
+    facecolor=C_RS + "0D", edgecolor=C_RS + "55", linewidth=0.8,
+    linestyle="--",
     zorder=1, clip_on=False))
+
+# "reclaimed-only terms" divider label
+ax.text(CX_R, (Y4 + Y5) / 2,
+        "reclaimed-only terms  ↓",
+        ha="center", va="center", fontsize=7.5,
+        color=C_RS, style="italic", alpha=0.80, zorder=6)
 
 # ---------------------------------------------------------------------------
 # Formula box
@@ -166,11 +185,11 @@ arr(CX_R, Y1 - BH/2 - 0.04, Y2 + BH/2 + 0.04, col=C_RS)
 
 box(CX_L, Y2, BW, BH, fc=C_NS + "28", ec=C_NS, lw=1.5)
 label(CX_L, Y2, "A4  ·  transport  (supplier → site)",
-      "tkm × emission factor  per element length")
+      "tkm × emission factor  ·  required mass only  (cut-to-size)")
 
 box(CX_R, Y2, BW, BH, fc=C_RS + "28", ec=C_RS, lw=1.5)
 label(CX_R, Y2, "A4  ·  transport  (donor → site)",
-      "tkm × emission factor  per element length")
+      "tkm × emission factor  ·  full stock element mass shipped")
 
 # ---------------------------------------------------------------------------
 # Row 3 — A5_prep
@@ -185,64 +204,73 @@ label(CX_L, Y3, "A5_prep  ·  preparation",
 
 box(CX_R, Y3, BW, BH, fc=C_RS + "28", ec=C_RS, lw=1.5)
 label(CX_R, Y3, "A5_prep  ·  preparation",
-      "inspection, cleaning, surface treatment")
+      "inspection, cleaning, surface treatment  (Bergman 2010)")
 
 # ---------------------------------------------------------------------------
 # Row 4 — A5_saw
+# New stock: excluded (bought cut-to-size, no on-site sawing charged)
+# Reclaimed: conditional — only when L_stock > L_req
 # ---------------------------------------------------------------------------
 arr(CX_L, Y3 - BH/2 - 0.04, Y4 + BH/2 + 0.04, col=C_NS)
 arr(CX_R, Y3 - BH/2 - 0.04, Y4 + BH/2 + 0.04, col=C_RS)
 
-box(CX_L, Y4, BW, BH, fc=C_NS + "28", ec=C_NS, lw=1.5)
+box(CX_L, Y4, BW, BH, fc=C_EXCL, ec=C_MUTED, lw=0.9)
 label(CX_L, Y4, "A5_saw  ·  on-site sawing",
-      "cutting to required length  ·  kg CO₂e per cut")
+      "new stock ordered cut-to-size — not applicable",
+      excluded=True)
 
 box(CX_R, Y4, BW, BH, fc=C_RS + "28", ec=C_RS, lw=1.5)
 label(CX_R, Y4, "A5_saw  ·  on-site sawing",
-      "cutting to required length  ·  kg CO₂e per cut")
+      "conditional: only when L_stock > L_req  ·  kg CO₂e per cut")
 
 # ---------------------------------------------------------------------------
-# Merge into shared end-of-life section
+# Reclaimed-only rows — right column only
+# Left column: dashed pass-through connector (no cost terms added)
 # ---------------------------------------------------------------------------
-# Vertical continuations from both columns down to merge bar
-ax.plot([CX_L, CX_L], [Y4 - BH/2 - 0.04, MERGE_Y],
-        color=C_DARK, lw=1.3, alpha=0.65, zorder=5)
-ax.plot([CX_R, CX_R], [Y4 - BH/2 - 0.04, MERGE_Y],
-        color=C_DARK, lw=1.3, alpha=0.65, zorder=5)
-ax.plot([CX_L, CX_R], [MERGE_Y, MERGE_Y],
+
+# Left-side dashed pass-through line (no boxes)
+ax.plot([CX_L, CX_L],
+        [Y4 - BH/2 - 0.04, CONV_Y],
+        color=C_NS, lw=1.1, ls="--", alpha=0.45, zorder=2)
+
+# Y5 — C1: recovery burden from donor structure
+arr(CX_R, Y4 - BH/2 - 0.04, Y5 + BH/2 + 0.04, col=C_RS)
+box(CX_R, Y5, BW, BH, fc=C_RS + "28", ec=C_RS, lw=1.5)
+label(CX_R, Y5, "C1  ·  recovery from donor structure",
+      "deconstruction of prior-use building  (Bergman 2010, kg CO₂e/kg)")
+
+# Y6 — C2 + C3+C4: offcut waste (transport + disposal)
+arr(CX_R, Y5 - BH/2 - 0.04, Y6 + BH/2 + 0.04, col=C_RS)
+box(CX_R, Y6, BW, BH, fc=C_RS + "28", ec=C_RS, lw=1.5)
+label(CX_R, Y6, "C2 + C3+C4  ·  offcut waste",
+      "transport + disposal of cut-off  ·  conditional: L_stock > L_req")
+
+# Y7 — ω: scarcity penalty (currently ω=0, shown inactive)
+arr(CX_R, Y6 - BH/2 - 0.04, Y7 + BH/2 + 0.04, col=C_RS)
+box(CX_R, Y7, BW, BH, fc=C_EXCL, ec=C_MUTED, lw=0.9)
+label(CX_R, Y7, "ω  ·  scarcity penalty on cut-off volume",
+      "ω = 0  ·  inactive  ·  penalises waste of scarce reclaimed stock",
+      excluded=True)
+
+# ---------------------------------------------------------------------------
+# Convergence
+# ---------------------------------------------------------------------------
+ax.plot([CX_R, CX_R], [Y7 - BH/2 - 0.04, CONV_Y],
+        color=C_RS, lw=1.3, alpha=0.65, zorder=5)
+ax.plot([CX_L, CX_R], [CONV_Y, CONV_Y],
         color=C_DARK, lw=1.3, alpha=0.65, zorder=5)
 
-ax.text(6.0, MERGE_Y + 0.14,
-        "end-of-life  —  same for both routes",
+ax.text(6.0, CONV_Y + 0.14,
+        "cost per slot–element pair  (both routes)",
         ha="center", va="bottom", fontsize=8.0,
         color=C_MUTED, style="italic", zorder=6,
         bbox=dict(boxstyle="round,pad=0.12", fc=BG, ec="none", alpha=0.95))
 
-# Arrow from merge bar to shared boxes
-arr(6.0, MERGE_Y, SHARED_Y + BH/2 + 0.06, col=C_DARK)
-
-# ---------------------------------------------------------------------------
-# Shared end-of-life boxes
-# ---------------------------------------------------------------------------
-BW_S = 3.20
-for cx, tag, desc in [
-    (2.10, "C1  ·  deconstruction",  "demolition / disassembly at end of service"),
-    (6.00, "C2  ·  waste transport", "transport to disposal facility"),
-    (9.90, "C3+C4  ·  disposal",     "waste processing and landfill"),
-]:
-    box(cx, SHARED_Y, BW_S, BH, fc=C_DARK + "14", ec=C_DARK, lw=1.4)
-    ax.text(cx, SHARED_Y + 0.14, tag,
-            ha="center", va="center", fontsize=8.5,
-            fontweight="bold", color=C_DARK, zorder=4)
-    ax.text(cx, SHARED_Y - 0.19, desc,
-            ha="center", va="center", fontsize=6.8,
-            color=C_MUTED, style="italic", zorder=4)
+arr(6.0, CONV_Y, TOTAL_Y + 0.44, col=C_DARK)
 
 # ---------------------------------------------------------------------------
 # Total cost box
 # ---------------------------------------------------------------------------
-arr(6.0, SHARED_Y - BH/2 - 0.04, TOTAL_Y + 0.44, col=C_DARK)
-
 box(6.0, TOTAL_Y, 7.2, 0.88, fc=C_DARK + "22", ec=C_DARK, lw=2.0)
 ax.text(6.0, TOTAL_Y + 0.20,
         r"$C_{ij}$  —  total assignment cost",
@@ -256,6 +284,8 @@ ax.text(6.0, TOTAL_Y - 0.18,
 # ---------------------------------------------------------------------------
 # Save
 # ---------------------------------------------------------------------------
+fig.subplots_adjust(left=0.02, right=0.98, bottom=0.04, top=0.98)
+
 stem = "fig_cost_matrix_branches"
 for fmt, out_dir in [("pdf", FIG_PDF_DIR), ("png", FIG_PNG_DIR)]:
     out = out_dir / f"{stem}.{fmt}"
