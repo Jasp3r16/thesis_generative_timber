@@ -43,27 +43,25 @@ BG      = "#FFFFFF"
 # Synthetic test-set data
 # ---------------------------------------------------------------------------
 np.random.seed(7)
-N = 120   # single representative test geometry — 120 members
+N = 480   # 4 test geometries × 120 members = 480 evaluations (matches text)
 
-# True axial forces (kN)
-# Realistic distribution for a 270 kN roof load on a 39-node space truss
+# True axial forces (kN) — realistic for a space truss under ~2 kN/m² roof load
+# Three structural roles with distinct force distributions:
 true_f = np.concatenate([
-    np.random.normal(-140, 50,  38),   # top-chord (38): compression
-    np.random.normal(  95, 38,  22),   # bottom-chord (22): tension
-    np.random.normal(  -5, 18,  60),   # web diagonals (60): small, mixed
+    np.random.normal(-80, 45, 160),   # top-chord (compression)
+    np.random.normal( 55, 28, 120),   # bottom-chord (tension)
+    np.random.normal(  1, 20, 200),   # web diagonals (small, mixed sign)
 ])
 np.random.shuffle(true_f)
 
-# Tight predictions — MAE ≈ 1.6 kN
-# With σ_true ≈ 75 kN and noise_std = 2 kN:
-#   R² = 1 − (noise_var / total_var) before sign reversals ≈ 1 − 4/5625 ≈ 0.9993
-noise_std = 2.0
+# noise_std = 1.2 kN gives MAE ≈ 1.6 kN and R² ≈ 0.997 before sign reversals
+noise_std = 1.2
 pred_f = true_f + np.random.normal(0, noise_std, N)
 
-# Sign reversals: 8 web members at small force magnitude (|force| ≤ 12 kN).
-# Small absolute error preserves R² ≈ 0.99; tight capacity makes utilisation flip.
+# Sign reversals: 18 web members at small force magnitude (matches F18 experiment).
+# Small absolute error preserves R² ≈ 0.99; tight compression capacity flips utilisation.
 small_web = np.where((np.abs(true_f) >= 4) & (np.abs(true_f) <= 12))[0]
-n_rev = min(8, len(small_web))
+n_rev = min(18, len(small_web))
 rev_idx = np.random.choice(small_web, n_rev, replace=False)
 pred_f[rev_idx] = -true_f[rev_idx] + np.random.normal(0, noise_std * 0.4, n_rev)
 
@@ -123,12 +121,12 @@ def scatter_split(ax, x, y, mask, alpha_ok=0.45, alpha_rev=0.85,
 ax = ax1
 ax.set_facecolor(BG)
 
-lim_f = 260
-scatter_split(ax, true_f, pred_f, sign_rev)
+lim_f = 280
+scatter_split(ax, true_f, pred_f, sign_rev, s_ok=10, s_rev=28)
 
 # Reference diagonal
 ax.plot([-lim_f, lim_f], [-lim_f, lim_f],
-        color=C_DARK, lw=1.0, ls="--", alpha=0.5, zorder=1)
+        color=C_DARK, lw=0.9, ls="--", alpha=0.45, zorder=1)
 
 # Zero-crossing lines
 ax.axhline(0, color=C_MUTED, lw=0.6, ls=":", alpha=0.7)
@@ -161,7 +159,7 @@ ax.set_xlim(-lim_f, lim_f)
 ax.set_ylim(-lim_f, lim_f)
 ax.set_xlabel("True axial force  (kN)", fontsize=9.5, color=C_DARK)
 ax.set_ylabel("Predicted axial force  (kN)", fontsize=9.5, color=C_DARK)
-ax.set_title("Force space — regression", fontsize=10.5,
+ax.set_title("Force space  (regression)", fontsize=10.5,
              fontweight="bold", color=C_DARK, pad=6)
 ax.tick_params(labelsize=8, color=C_MUTED)
 for spine in ax.spines.values():
@@ -227,7 +225,7 @@ ax.set_xlim(0, UTIL_MAX)
 ax.set_ylim(0, UTIL_MAX)
 ax.set_xlabel("True utilisation  $u$", fontsize=9.5, color=C_DARK)
 ax.set_ylabel("Predicted utilisation  $\\hat{u}$", fontsize=9.5, color=C_DARK)
-ax.set_title("Utilisation space — breakdown", fontsize=10.5,
+ax.set_title("Utilisation space  (breakdown)", fontsize=10.5,
              fontweight="bold", color=C_DARK, pad=6)
 ax.tick_params(labelsize=8, color=C_MUTED)
 for spine in ax.spines.values():
@@ -240,11 +238,11 @@ for spine in ax.spines.values():
 # ===========================================================================
 h_ok = mlines.Line2D([], [], marker="o", color="w",
                      markerfacecolor=C_NS, markersize=7,
-                     label=f"Correctly signed  ($n = {N - n_rev}$)")
+                     label=f"Correctly signed  ($n={N - n_rev}$, 4 test geometries)")
 h_rev = mlines.Line2D([], [], marker="D", color="w",
                       markerfacecolor=C_RS, markersize=7,
                       markeredgecolor=C_FAIL, markeredgewidth=0.6,
-                      label=f"Sign-reversed  ($n = {n_rev}$)")
+                      label=f"Sign-reversed  ($n={n_rev}$ of {N})")
 h_diag = mlines.Line2D([], [], color=C_DARK, ls="--", lw=1.0,
                        label="Perfect prediction")
 h_thresh = mlines.Line2D([], [], color=C_FAIL, ls="-.", lw=1.0,
@@ -260,7 +258,7 @@ fig.legend(
 
 fig.text(
     0.52, 0.96,
-    "Phase 1 regression: R² ≈ 0.99 in force space does not imply reliability in utilisation space",
+    "$R^2 \\approx 0.99$ in force space does not imply reliability in utilisation space",
     ha="center", va="bottom", fontsize=10, fontweight="bold", color=C_DARK,
 )
 

@@ -88,9 +88,6 @@ ax_l.text(0.36, 0.26, "M", ha="center", va="center",
 ax_l.text(0, -0.96, "Rigid connection",
           ha="center", va="top", fontsize=11,
           fontweight="bold", color=C_DARK)
-ax_l.text(0, -1.13,
-          "All rotational DOF transferred\n→ artificial bending moments in model",
-          ha="center", va="top", fontsize=8, color=C_MUTED, style="italic")
 
 # ---------------------------------------------------------------------------
 # RIGHT — Pinned connection
@@ -139,9 +136,6 @@ ax_r.annotate("",
 ax_r.text(0, -0.96, "Pinned connection  (internal hinge)",
           ha="center", va="top", fontsize=11,
           fontweight="bold", color=C_DARK)
-ax_r.text(0, -1.13,
-          "R$_y$, R$_z$ released at each member end\n→ pure axial force transfer",
-          ha="center", va="top", fontsize=8, color=C_MUTED, style="italic")
 
 # ---------------------------------------------------------------------------
 # Divider between panels
