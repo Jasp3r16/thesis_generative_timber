@@ -1,30 +1,5 @@
 from __future__ import annotations
 
-# =============================================================================
-# c27_stage_GNN.py — GNN Structural Feasibility Stage
-# =============================================================================
-#
-# Changes vs v2:
-#   1. load_gnn_model() removed — dead loader that duplicated c21_surrogate_io.
-#      Use load_surrogate_bundle() from c21_surrogate_io exclusively.
-#      Removed json / Path / config / create_model imports (only needed there).
-#   2. prepare_stock_for_gnn() now called once before the GA loop, not inside
-#      run_gnn_stage(). Pass pre-converted stock as stock_df to run_gnn_stage()
-#      and gnn_feasibility() to avoid a full DataFrame copy per evaluation.
-#   3. support_nodes / load_nodes accepted as explicit parameters in
-#      _build_node_features, gnn_feasibility, and run_gnn_stage — defaulting to
-#      the hardcoded 5x3-grid constants. GA evaluator now passes the dynamically
-#      derived values so the GNN receives correct boundary condition features.
-#   4. build_milp_assignment raises ValueError on unassigned slots instead of
-#      silently substituting row 0 (corrupted GNN features with no warning).
-#   5. threshold=None in gnn_feasibility — resolves from bundle["config"]
-#      ["recommended_threshold"] when not explicitly set, so the training-tuned
-#      threshold is used automatically.
-#   6. w_structural default changed 0.3 -> 0.0; structural_penalty is for
-#      notebook convenience only — the GA evaluator reads feasibility_score
-#      directly and passes structural_infeasibility to run_fitness_stage.
-#   7. Stale module name references fixed in docstrings.
-
 import warnings
 from typing import Any
 

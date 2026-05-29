@@ -1,20 +1,5 @@
 from __future__ import annotations
 
-# =============================================================================
-# c26_stage_MILP.py
-# Changes:
-#   1. varValue == 1 -> > 0.5  (float equality on binary vars is fragile)
-#   2. solver_time_limit parameter added (default 30 s); CBC timeout wired in
-#   3. new_stock_max_uses=None skips new-item constraint loop entirely
-#      (previously added <= 120 dead constraints for every new item)
-#   4. new_stock_max_uses default changed 1 -> None (new stock reusable by default)
-#   5. _resolve_stock_state uses >= 0.5 threshold (consistent with c25)
-#   6. _identify_stock_groups double fallback removed (redundant with _resolve_stock_state)
-#   7. valid_matches removed from return dict (up to 60k tuples per call, unused downstream)
-#   8. CBC seeded with RandomSeed 0 for reproducible solve order
-#   9. Docstring: c26_stage_cost_matrix -> c25_stage_cost_matrix
-# =============================================================================
-
 from typing import Any
 
 import numpy as np

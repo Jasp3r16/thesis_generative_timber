@@ -1,33 +1,3 @@
-# =============================================================================
-# c23_ga_evaluator.py — Design Evaluator + One-Time Bounds
-# =============================================================================
-#
-# Changes vs v4:
-#   5. stock_df_raw=df_stock added to run_milp_stage() in both
-#      evaluate_design_candidate() and _compute_one_time_normalization_constants().
-#      milp_assignment is now built once inside run_milp_stage() and read from
-#      milp_out["milp_assignment"] directly — stage_gnn.build_milp_assignment()
-#      is no longer called in the evaluator.
-#   6. _normalize_bounds_constants() validates C_max and R_max. W_max removed
-#      — waste is no longer a fitness term (captured by LCA cost in c25).
-#      R_max = 0.0 now names the stock composition cause and fix.
-#   7. _compute_one_time_normalization_constants() catches stock-composition
-#      ValueErrors immediately (skips remaining probes) vs transient errors
-#      (continues retrying).
-#   8. evaluate_design_candidate() accepts prepared_stock (pre-computed output
-#      of stage_cost.prepare_stock_cost_inputs) and forwards it to
-#      build_cost_matrix() — avoids repeating the stock prep on every GA call.
-#   9. evaluate_design_candidate() accepts prepared_gnn_stock (pre-computed
-#      output of stage_gnn.prepare_stock_for_gnn) and passes it to
-#      run_gnn_stage() — avoids copying and converting the stock DataFrame on
-#      every GNN call. Also passes support_nodes / load_nodes from the derived
-#      geometry so GNN receives correct boundary condition features.
-#
-# Changes vs v3 (carried forward):
-#   1. v_idx derivation added to _compute_one_time_normalization_constants().
-#   2. Duplicate v_idx derivation removed from evaluate_design_candidate().
-#   3. build_logs=True added to build_cost_matrix() in bounds probe.
-
 import warnings
 import numpy as np
 import pandas as pd

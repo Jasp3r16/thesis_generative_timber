@@ -1,36 +1,3 @@
-"""
-TrussEdgeSafetyGNN: PyTorch Geometric Model for Structural Safety Prediction
-v4 — Improved architecture with deeper encoder, dropout, symmetric edge embeddings,
-     edge-aware skip connections, and numerical stability fixes.
-
-Architecture Overview:
-    1. Encoder:   Project node features (10D) -> hidden_dim via 2-layer MLP (with activation)
-    2. Processor: Stack of NNConv layers with adaptive edge weights, residuals (applied from
-                  layer 0), dropout, and batch normalization
-    3. Decoder:   Concatenate symmetric edge embedding (|h_i - h_j|, h_i * h_j) + raw edge
-                  features -> binary classification with dropout
-    4. Loss:      Focal Loss with numerically stable log computation
-
-Changes vs v3:
-    - NodeEncoder is now a 2-layer MLP with activation (was a bare Linear)
-    - Residual skip connections now applied from layer 0 (was layer 1+)
-    - EdgeDecoder uses symmetric interactions: |h_i - h_j| and h_i x h_j
-      instead of raw concatenation, making predictions invariant to edge direction
-    - Dropout added to both processor and decoder for regularisation
-    - FocalLoss uses numerically stable log (clamp + log instead of BCE-from-sigmoid)
-    - EdgeFeatureMLPFilter gains a third hidden layer for richer edge weight generation
-    - create_model() exposes dropout_p argument
-    - Sanity check updated to reflect actual truss dimensions (39 nodes, 120 edges)
-
-Usage:
-    >>> device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    >>> model = TrussEdgeSafetyGNN(node_features_dim=10, edge_features_dim=9, hidden_dim=128).to(device)
-    >>> model.cache_topology(edge_index)
-    >>> predictions = model(x, edge_attr=edge_attr)  # [num_edges, 1], binary probabilities
-    >>> loss_fn = FocalLoss(alpha=0.1, gamma=2.0)
-    >>> loss = loss_fn(predictions, targets)
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

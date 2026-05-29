@@ -1,22 +1,3 @@
-# =============================================================================
-# c23_ga_algorithm.py -- CMA-ES optimiser for truss geometry
-# =============================================================================
-#
-# Optimises continuous geometry parameters (node positions / spans) using
-# CMA-ES (Covariance Matrix Adaptation Evolution Strategy) via the `cma`
-# library (v4.4.4).
-#
-# Usage:
-#   from workflows import c23_ga_algorithm as ga_algo
-#
-#   es = ga_algo.CMAEvolutionStrategy(
-#       search_space = es_search_space,
-#       evaluate_fn  = evaluate_fn,
-#       config       = ga_algo.CMAESConfig(popsize=30, n_generations=250),
-#       seed         = 42,
-#   )
-#   result = es.run()
-
 from __future__ import annotations
 
 import time

@@ -21,11 +21,6 @@ import numpy as np
 import pandas as pd
 import pulp
 
-
-# Default normalization constants used when no bounds are computed.
-# R_max = 1.0 because reuse_fraction is now volume-weighted and lives in [0, 1].
-# 1.0 is a valid upper bound (fraction cannot exceed 1), but is loose when
-# reclaimed stock is scarce — run compute_normalization_bounds() for a tight value.
 DEFAULT_NORMALIZATION_CONSTANTS = {
     "C_max": 8.0,
     "R_max": 1.0,
