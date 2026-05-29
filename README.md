@@ -160,6 +160,14 @@ Four stock conditions were tested across 21 total runs (3 seeds × 3 conditions 
 
 ## Quick Start
 
+### Requirements
+
+Python 3.14, PyTorch 2.11, PyTorch Geometric 2.7.
+
+```bash
+pip install -r requirements.txt
+```
+
 ### GNN inference on a single design
 
 ```python

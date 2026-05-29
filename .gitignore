@@ -1,57 +1,50 @@
-# === Python Base ===
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 .env
 venv/
 env/
-*.log
 
-# === Jupyter / Colab ===
+# Jupyter
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 checkpoint_*.ipynb
 
-# === Deep Learning / Models (Cruciaal voor Generative Design) ===
-# Negeer grote model-gewichten die je lokaal traint
+# Model weights and checkpoints
 *.pth
+*.pt
 *.h5
 *.ckpt
 *.onnx
 *.weights
 
-# === Data & Excel ===
-# except in 02_data_io
+# Data files (kept only in 02_data_io/)
 ~$*.xlsx
 ~$*.xls
-*.csv 
+*.csv
 !02_data_io/*.csv
 
-# Als je per ongeluk een data-map binnen je repo maakt:
+# Scratch directories
 data/
 temp/
 .context/
 
-# === Rhino & Grasshopper ===
+# Rhino / Grasshopper
 *.bak
 *.ghx
 *.gh~
 *.3dm.bak
 *.3dm.tmp
-# Rhino autosave bestanden
 *.3dm.rhl
 *.gh.rhl
 
-# === VS Code Specifiek ===
-# Negeer de algemene VS Code werkruimte bestanden
+# VS Code
 .vscode/*
-
-# MAAR behoud de project-specifieke instellingen (zoals extraPaths)
 !.vscode/settings.json
-# Maar als je je workspace-bestand IN de repo hebt staan, haal deze dan weg:
 *.code-workspace
 
-# === OS Specific ===
+# OS
 .DS_Store
 Thumbs.db
 desktop.ini
