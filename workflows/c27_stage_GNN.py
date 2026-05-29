@@ -10,10 +10,7 @@ import torch
 import c24_stage_feasibility
 from c24_stage_feasibility import compute_nodal_fz, LOAD_KN_PER_M2
 
-
-# =============================================================================
 # CONFIGURATION
-# =============================================================================
 
 THRESHOLD          = 0.35
 NUM_EDGES_PHYSICAL = 120
@@ -27,10 +24,7 @@ _DEFAULT_SUPPORT_NODES = [0, 5, 18, 23]
 _DEFAULT_LOAD_NODES    = [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
                           16, 17, 19, 20, 21, 22]
 
-
-# =============================================================================
 # STOCK PREPARATION — unit conversion + section properties
-# =============================================================================
 
 def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
     """
@@ -81,10 +75,7 @@ def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
 
     return stock
 
-
-# =============================================================================
 # MILP ASSIGNMENT BUILDER — fallback if stock_df_raw not passed to c26
-# =============================================================================
 
 def build_milp_assignment(
     df_results:     pd.DataFrame,
@@ -141,10 +132,7 @@ def build_milp_assignment(
 
     return milp_assignment
 
-
-# =============================================================================
 # FEATURE BUILDERS (internal)
-# =============================================================================
 
 def _build_node_features(
     node_positions: np.ndarray,
@@ -173,7 +161,6 @@ def _build_node_features(
     x_norm = (x_raw - norm_stats["node_means"]) / norm_stats["node_stds"]
     x_norm = np.clip(x_norm, -5.0, 5.0)
     return torch.tensor(x_norm, dtype=torch.float32, device=device)
-
 
 def _build_edge_features(
     milp_assignment:  np.ndarray,
@@ -225,10 +212,7 @@ def _build_edge_features(
     edge_norm = np.clip(edge_norm, -5.0, 5.0).astype(np.float32)
     return torch.tensor(edge_norm, dtype=torch.float32, device=device)
 
-
-# =============================================================================
 # GNN FEASIBILITY — call every GA iteration
-# =============================================================================
 
 def gnn_feasibility(
     node_positions:  np.ndarray,
@@ -321,10 +305,7 @@ def gnn_feasibility(
 
     return feasibility_score, unsafe_member_ids, preds_physical
 
-
-# =============================================================================
 # ORCHESTRATION — single call per GA iteration
-# =============================================================================
 
 def run_gnn_stage(
     node_positions:  np.ndarray,

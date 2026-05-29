@@ -34,10 +34,7 @@ from torch_geometric.utils import to_undirected
 import config
 from c21_surrogate_model_v4 import create_model, FocalLoss, WeightedBCELoss
 
-
-# =============================================================================
 # INTERNAL HELPERS
-# =============================================================================
 
 def _collect_preds(dataloader, model, device) -> tuple[np.ndarray, np.ndarray]:
     """Run inference over a DataLoader. Returns (probs, targets) as flat arrays."""
@@ -53,7 +50,6 @@ def _collect_preds(dataloader, model, device) -> tuple[np.ndarray, np.ndarray]:
     targets = torch.cat(all_targets, dim=0).view(-1).numpy()
     return probs, targets
 
-
 def _scores_at(threshold: float, probs: np.ndarray, targets: np.ndarray) -> dict:
     pred               = (probs >= threshold).astype(int)
     cm                 = confusion_matrix(targets, pred, labels=[0, 1])
@@ -67,7 +63,6 @@ def _scores_at(threshold: float, probs: np.ndarray, targets: np.ndarray) -> dict
         f1        = f1_score(targets, pred, zero_division=0),
         mcc       = matthews_corrcoef(targets, pred),
     )
-
 
 def _classification_report_at_threshold(probs, targets, threshold, label=""):
     from sklearn.metrics import confusion_matrix, classification_report as cr
@@ -89,10 +84,7 @@ def _classification_report_at_threshold(probs, targets, threshold, label=""):
     print(f"Unsafe class -> Recall: {rec:.4f}  Precision: {prec:.4f}  F1: {f1:.4f}")
     return rec, prec, f1
 
-
-# =============================================================================
 # STAGE 1 — PREPROCESSING
-# =============================================================================
 
 def run_preprocessing(
     edge_csv:        str,
@@ -342,10 +334,7 @@ def run_preprocessing(
         "nodes_df": nodes_df, "edges_df": edges_df,
     }
 
-
-# =============================================================================
 # STAGE 2 — TRAINING
-# =============================================================================
 
 def run_training(
     pre: dict,
@@ -576,10 +565,7 @@ def run_training(
         "min_precision": min_precision,
     }
 
-
-# =============================================================================
 # STAGE 3 — EVALUATION
-# =============================================================================
 
 def run_evaluation(
     train_out: dict,
@@ -901,10 +887,7 @@ def run_evaluation(
         "per_member_unsafe_rate": per_member_unsafe_rate,
     }
 
-
-# =============================================================================
 # STAGE 4 — EXPORT
-# =============================================================================
 
 def run_export(
     pre:       dict,

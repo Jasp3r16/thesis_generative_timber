@@ -1,9 +1,3 @@
-"""Parameter definitions and defaults for timber generation.
-
-This module loads representative beam statistics (if available) and
-exposes constants used by the timber dataset generation code.
-"""
-
 from functools import lru_cache
 import json
 import logging
@@ -62,15 +56,6 @@ logger.info(
     edge_count,
 )
 
-# ================================
-# RECLAIMED STOCK — DONOR BUILDINGS
-# ================================
-# Two switchable donor building profiles.
-# Pass donor_building="A" or "B" to generate_reclaimed_stock().
-# Member types: (role, nominal_width_mm, nominal_depth_mm, count_per_floor, span_mm)
-# Lengths = span - uniform random cut loss [0, RECLAIMED_CUT_LOSS_MAX_MM], NOT rounded.
-# Cross-sections = nominal dimensions minus RECLAIMED_PLANING_ALLOWANCE_MM per dimension.
-
 RECLAIMED_PLANING_ALLOWANCE_MM = 10  # mm removed per dimension during light planing
 
 DONOR_BUILDING_FLOORS = 3
@@ -79,8 +64,6 @@ DONOR_BUILDING_SURVIVAL_RATE = 0.75  # fraction of elements passing visual inspe
 # Cut loss applied per element during deconstruction: uniform random int in [0, CUT_LOSS_MAX_MM]
 RECLAIMED_CUT_LOSS_MAX_MM = 20
 
-# --- Donor Building A: 3-storey Dutch residential, mixed-bay timber floors ---
-# Hardcoded residential spans; shorter elements dominate (max 4500 mm).
 DONOR_BUILDING_A_MEMBER_TYPES = [
     ("primary_beam",    120, 240, 12, 4500),
     ("secondary_joist",  80, 200, 15, 3000),
@@ -88,15 +71,10 @@ DONOR_BUILDING_A_MEMBER_TYPES = [
     ("edge_beam",       100, 200,  8, 2700),
 ]
 
-# --- Donor Building B: commercial/industrial, long-span timber structure ---
-# Spans derived from the structure's own length statistics so the RS pool
-# covers the same [MIN_LENGTH_MM, MAX_LENGTH_MM] range as new stock.
-# Biased toward longer members (upper half of range) to fill slots the GA
-# currently can't match with RS from Building A.
-_b_long  = int(max_length_mm + 300)                              # at or near structural max (matches MAX_LENGTH_MM = max_length_mm + LENGTH_INCREMENT_MM)
-_b_upper = int((average_length_mm + max_length_mm + 300) / 2)   # halfway avg→max
-_b_avg   = int(average_length_mm)                                # at structural average
-_b_short = int(max(1000, min_length_mm - 300))                   # near structural min (matches MIN_LENGTH_MM)
+_b_long  = int(max_length_mm + 300)
+_b_upper = int((average_length_mm + max_length_mm + 300) / 2)
+_b_avg   = int(average_length_mm)
+_b_short = int(max(1000, min_length_mm - 300))
 
 DONOR_BUILDING_B_MEMBER_TYPES = [
     ("long_rafter",   140, 280, 21, _b_long),   # ×1.5 vs donor A counts → ~150% pool size
@@ -113,7 +91,6 @@ RECLAIMED_TIMBER_LCA = {
     "electric_transport_probability": 0.30,
 }
 
-# --- PARAMETERS NEW STOCK (CATALOGUS) ---
 LENGTH_INCREMENT_MM = 300
 LENGTH_LIBRARY_SIZE = 13
 LENGTH_ROUND_TO_MM = 50
@@ -143,7 +120,6 @@ DEPTH_WIDTH_MAPPING = {
     300: [50, 75, 100, 150, 300]
 }
 
-# Auto-generate DEPTH_WIDTH_COMBINATIONS from DEPTH_WIDTH_MAPPING.
 DEPTH_WIDTH_COMBINATIONS: List[Tuple[int, int]] = [
     (int(depth), int(width))
     for depth in sorted(DEPTH_WIDTH_MAPPING)
@@ -158,7 +134,6 @@ __all__ = [
     "generate_length_tuple_from_average",
 ]
 
-# LCA assumptions for new timber.
 NEW_TIMBER_LCA = {
     "diesel_emission_factor_range": (0.17, 0.18),  # Diesel transport only for new timber
 }

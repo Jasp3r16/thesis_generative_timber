@@ -24,10 +24,7 @@ from config import PLOT_COLORS as C, PLOT_STYLE as S
 import c00_headquarter_params as _lca
 import workflows.c24_stage_feasibility as _feas
 
-
-# =============================================================================
 # ANALYSIS
-# =============================================================================
 
 def run_analysis(
     result:                 dict,
@@ -430,10 +427,7 @@ def run_analysis(
         "top_k":               top_k,
     }
 
-
-# =============================================================================
 # EXPORT
-# =============================================================================
 
 def run_export(
     analysis_out:         dict,

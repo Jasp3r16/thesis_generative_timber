@@ -1,6 +1,3 @@
-# =====================================
-# GEOMETRY CONFIGURATION
-# =====================================
 GRID_CELLS_X = 5          # cells in X
 GRID_CELLS_Y = 3          # cells in Y
 EDGE_LENGTH  = 3.0        # cell size [m]
@@ -12,10 +9,6 @@ SCALE_UV     = 0.25, 0.75 # vertex random position range within cell
 GRID = f"{GRID_CELLS_X}x{GRID_CELLS_Y}"
 
 print(f"Grid: {GRID}, edge={EDGE_LENGTH} m, height={LAYER_HEIGHT} m, divisions={DIVISIONS}, samples={NUM_SAMPLES}")
-
-# =====================================
-# COST MATRIX VALUES
-# =====================================
 
 IMPACT_FACTOR_A1_A3         = 0.25
 IMPACT_FACTOR_RECOVERED_C1  = 0.0085

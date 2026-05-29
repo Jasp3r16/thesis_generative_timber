@@ -2,9 +2,7 @@ from pathlib import Path
 import sys
 import os
 
-# ==========================================
 # 1. LOCAL CODE REPOSITORY (PyRepo on C drive)
-# ==========================================
 # This resolves the repository folder where this script lives.
 REPO_ROOT = Path(__file__).resolve().parent
 SRC_PATH = REPO_ROOT / "src"
@@ -19,9 +17,7 @@ if str(WORKFLOWS_PATH) not in sys.path:
 if str(DATA_IO_PATH) not in sys.path:
     sys.path.append(str(DATA_IO_PATH))
 
-# ==========================================
 # 2. CLOUD DATA STORAGE (OneDrive)
-# ==========================================
 # Data is stored in onedrive but when onedrive_root is not available, data_path and export_path will be set to repo_root and subfolders will be created there. This allows the code to run without OneDrive, but data won't be shared or persistent across machines.
 
 # Path.home() automatically resolves C:\Users\YourName on any machine.
@@ -66,9 +62,7 @@ else:
         f"Config System loaded successfully, Code running locally from {REPO_ROOT.name} and Data is stored locally in {REPO_ROOT.name}.\n"
     )
 
-# ==========================================
 # 3. FIGURES (Export paths)
-# ==========================================
 FIGURES_DIR = REPO_ROOT / "figures"
 FIG_PDF_DIR = FIGURES_DIR / "pdf"
 FIG_PNG_DIR = FIGURES_DIR / "png"
@@ -76,9 +70,7 @@ FIG_PNG_DIR = FIGURES_DIR / "png"
 FIG_PDF_DIR.mkdir(parents=True, exist_ok=True)
 FIG_PNG_DIR.mkdir(parents=True, exist_ok=True)
     
-# ==========================================
 # 4. VISUALIZATION THEME (Centralized Color Palette)
-# ==========================================
 PLOT_COLORS = {
     "primary": "#61788C",       # Dark blue (convergence best, primary lines)
     "secondary": "#9CA5A6",     # Sage/light blue-green (mean, secondary)

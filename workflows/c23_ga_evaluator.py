@@ -5,17 +5,14 @@ import config
 
 from c21_surrogate_io import load_surrogate_bundle
 from workflows import c22_stage_geometry             as stage_geometry
-from workflows import c24_stage_feasibility          as stage_feas       # stage_feas throughout
+from workflows import c24_stage_feasibility          as stage_feas
 from workflows import c25_stage_cost_matrix          as stage_cost
 from workflows import c26_stage_MILP                 as stage_milp
 from workflows import c27_stage_GNN                  as stage_gnn
 from workflows import c28_stage_fitness_score        as stage_fitness
 from workflows import c28_stage_normalization_bounds as stage_bounds
 
-
-# =============================================================================
 # INTERNAL HELPERS
-# =============================================================================
 
 def _resolve_weight_config(
     config_dict:  dict,
@@ -36,7 +33,6 @@ def _resolve_weight_config(
     base["omega_4"] = float(w_structural)
     return base
 
-
 def _resolve_w_structural(
     config_dict:     dict,
     generation:      int = 0,
@@ -48,7 +44,6 @@ def _resolve_w_structural(
         return w_end
     t = min(generation / max_generations, 1.0)
     return w_start + (w_end - w_start) * t
-
 
 def _normalize_bounds_constants(constants: dict) -> dict:
     out = {
@@ -71,7 +66,6 @@ def _normalize_bounds_constants(constants: dict) -> dict:
         )
     return out
 
-
 def _derive_node_roles(df_vertices: pd.DataFrame) -> tuple:
     """
     Derive node_positions, support_nodes, load_nodes from df_vertices.
@@ -85,10 +79,7 @@ def _derive_node_roles(df_vertices: pd.DataFrame) -> tuple:
     load_nodes     = verts[verts["attribute"] == "load"]["v_idx"].tolist()
     return verts, node_positions, support_nodes, load_nodes
 
-
-# =============================================================================
 # ONE-TIME NORMALISATION BOUNDS
-# =============================================================================
 
 def _compute_one_time_normalization_constants(
     search_space: dict,
@@ -252,10 +243,7 @@ def _compute_one_time_normalization_constants(
         "n_successful": n_success,
     }
 
-
-# =============================================================================
 # DESIGN EVALUATOR
-# =============================================================================
 
 def evaluate_design_candidate(
     design_params:        dict,

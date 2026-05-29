@@ -6,10 +6,7 @@ import numpy as np
 import pandas as pd
 import pulp
 
-
-# =============================================================================
 # Helpers
-# =============================================================================
 
 def _resolve_stock_state(enriched_stock: pd.DataFrame) -> pd.Series:
     columns_by_lower = {str(col).strip().lower(): col for col in enriched_stock.columns}
@@ -26,7 +23,6 @@ def _resolve_stock_state(enriched_stock: pd.DataFrame) -> pd.Series:
         index=enriched_stock.index, dtype=int,
     )
 
-
 def _identify_stock_groups(
     enriched_stock: pd.DataFrame,
 ) -> tuple[list[str], list[str]]:
@@ -34,7 +30,6 @@ def _identify_stock_groups(
     reclaimed_items = enriched_stock.loc[stock_state == 1, "Member_ID"].astype(str).tolist()
     new_items       = enriched_stock.loc[stock_state == 0, "Member_ID"].astype(str).tolist()
     return reclaimed_items, new_items
-
 
 def _build_milp_assignment(
     df_results:   pd.DataFrame,
@@ -91,10 +86,7 @@ def _build_milp_assignment(
 
     return milp_assignment
 
-
-# =============================================================================
 # Main
-# =============================================================================
 
 def run_milp_stage(
     cost_matrix:               np.ndarray,
