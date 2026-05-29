@@ -73,7 +73,6 @@ def build_run_id(dt: datetime | None = None) -> str:
 
 def build_run_folder_name(
     run_id: str,
-    dt: datetime | None = None,
     feature_count: int | None = None,
 ) -> str:
     """Build the output folder name for a training/evaluation run."""
@@ -85,13 +84,12 @@ def build_run_folder_name(
 
 def build_evaluation_folder_name(base_name: str, feature_count: int | None = None) -> str:
     """Build the output folder name for exported surrogate evaluation data."""
-    return build_run_folder_name(base_name, feature_count=feature_count)
+    return build_run_folder_name(base_name, feature_count)
 
 
 __all__ = [
     "build_dataset_filename",
     "build_dataset_label",
-    "build_model_artifact_stem",
     "build_evaluation_folder_name",
     "build_run_folder_name",
     "build_run_id",

@@ -60,7 +60,7 @@ for p in [REPO_ROOT, REPO_ROOT / "src", REPO_ROOT / "workflows"]:
         sys.path.insert(0, str(p))
 
 import config
-import c00_headquarter_params as c11_params
+import c00_headquarter_params as c11_params  # consistent alias used throughout src/
 from workflows import c22_stage_geometry             as stage_geometry
 from workflows import c24_stage_feasibility          as stage_feas
 from workflows import c25_stage_cost_matrix          as stage_cost

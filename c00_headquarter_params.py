@@ -8,8 +8,6 @@ SCALE_UV     = 0.25, 0.75 # vertex random position range within cell
 
 GRID = f"{GRID_CELLS_X}x{GRID_CELLS_Y}"
 
-print(f"Grid: {GRID}, edge={EDGE_LENGTH} m, height={LAYER_HEIGHT} m, divisions={DIVISIONS}, samples={NUM_SAMPLES}")
-
 IMPACT_FACTOR_A1_A3         = 0.25
 IMPACT_FACTOR_RECOVERED_C1  = 0.0085
 ENERGY_PREP_A5              = 0.010
@@ -17,5 +15,3 @@ ENERGY_SAW_A5               = 0.004
 ENERGY_OFFCUT_FACTOR_C3_C4  = 0.031
 WASTE_TRANSPORT_DIST_KM     = 50
 SCARCITY_PENALTY            = 0
-
-print(f"LCA factors: A1-A3={IMPACT_FACTOR_A1_A3}, C1={IMPACT_FACTOR_RECOVERED_C1}, A5 prep={ENERGY_PREP_A5}, A5 saw={ENERGY_SAW_A5}, C2 dist={WASTE_TRANSPORT_DIST_KM} km, C3-C4={ENERGY_OFFCUT_FACTOR_C3_C4}, ω={SCARCITY_PENALTY}")
