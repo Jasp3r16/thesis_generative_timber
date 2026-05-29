@@ -147,9 +147,6 @@ ax3d.set_box_aspect([10, 6, 1])    # true proportions: 15 m × 9 m × 1.5 m
 ax3d.set_xticks([]); ax3d.set_yticks([]); ax3d.set_zticks([])
 ax3d.set_xlabel(""); ax3d.set_ylabel(""); ax3d.set_zlabel("")
 ax3d.grid(False)
-ax3d.set_title("Space frame - regular configuration\n"
-               "5×3 cells  ·  39 nodes  ·  120 members",
-               fontsize=9.5, fontweight="bold", color=C_DARK, pad=4)
 
 # ---------------------------------------------------------------------------
 # RIGHT — plan view of top chord with shift arrows
@@ -159,8 +156,6 @@ ax2d.set_xlim(-2.5, 17.5)
 ax2d.set_ylim(-2.8, 12.0)
 ax2d.set_aspect("equal")
 ax2d.axis("off")
-ax2d.set_title("Top chord - plan view  ·  node shift directions",
-               fontsize=9.5, fontweight="bold", color=C_DARK, pad=8)
 
 ARROW_L = 0.52   # visual arrow half-length (m)
 

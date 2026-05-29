@@ -80,8 +80,6 @@ def _make_table(ax, rows, subtitle):
         cell.set_width(COL_W[col])
         if row == 0:
             cell.set_text_props(fontweight="bold", color="#222222")
-    ax.set_title(subtitle, fontsize=9, fontweight="bold", color="#222222",
-                 pad=5, loc="left")
 
 
 # ── FIGURE 1: feature table ───────────────────────────────────────────────────

@@ -95,7 +95,6 @@ ax3d.tick_params(labelsize=6, pad=-2)
 ax3d.set_xlabel("x", fontsize=7, labelpad=-4)
 ax3d.set_ylabel("y", fontsize=7, labelpad=-4)
 ax3d.set_zlabel("z", fontsize=7, labelpad=-4)
-ax3d.set_title("Space frame  (6 nodes, 9 edges)",
                fontsize=10, fontweight="bold", pad=8, color=C_DARK)
 
 ax3d.legend(handles=[

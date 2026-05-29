@@ -239,8 +239,6 @@ for ax in [ax_k0, ax_k1, ax_k2]:
 # Panel 0 — k = 0  (target edge only)
 # ---------------------------------------------------------------------------
 draw_graph(ax_k0, show=0)
-ax_k0.set_title("$k = 0$  ·  initial features",
-                fontsize=9.5, fontweight="bold", color=C_DARK, pad=10)
 
 
 # ---------------------------------------------------------------------------
@@ -253,8 +251,6 @@ agg_k1 = [
     (3, 2, COL_HOP1, -0.25),
 ]
 draw_graph(ax_k1, show=1, agg_arrows=agg_k1)
-ax_k1.set_title("$k = 1$  ·  1-hop aggregation",
-                fontsize=9.5, fontweight="bold", color=COL_HOP1, pad=10)
 
 
 # ---------------------------------------------------------------------------
@@ -273,8 +269,6 @@ agg_k2 = [
     (3, 2, COL_HOP1, -0.25),
 ]
 draw_graph(ax_k2, show=2, agg_arrows=agg_k2)
-ax_k2.set_title("$k = 2$  ·  2-hop aggregation",
-                fontsize=9.5, fontweight="bold", color=COL_HOP2, pad=10)
 
 
 # ---------------------------------------------------------------------------
@@ -306,8 +300,6 @@ ax_mlp.add_patch(mpatches.FancyBboxPatch(
     transform=ax_mlp.transAxes, clip_on=False,
 ))
 draw_graph(ax_mlp, show=0)
-ax_mlp.set_title("MLP  ·  no aggregation",
-                 fontsize=9.5, fontweight="bold", color=C_RS, pad=10)
 
 
 # ---------------------------------------------------------------------------

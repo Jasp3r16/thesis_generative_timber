@@ -159,8 +159,6 @@ def arr(ax, x, y0, y1, col=C_MUTED, lw=1.5):
 # LEFT PANEL — MLP
 # ===========================================================================
 ax = ax_mlp
-ax.set_title("Flat MLP", fontsize=11, fontweight="bold",
-             color=C_DARK, pad=7)
 
 # ── Input: coordinate vector ──────────────────────────────────────────────
 VEC_Y = 0.885
@@ -246,8 +244,6 @@ for i, line in enumerate([
 # RIGHT PANEL — GNN
 # ===========================================================================
 ax = ax_gnn
-ax.set_title("TrussEdgeSafetyGNN", fontsize=11, fontweight="bold",
-             color=C_DARK, pad=7)
 
 NODE_R = 0.045
 

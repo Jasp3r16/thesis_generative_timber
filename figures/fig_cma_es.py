@@ -138,8 +138,6 @@ for k, (ax, gd) in enumerate(zip(axes, GEN_DATA)):
                             lw=1.6, mutation_scale=14),
             zorder=9)
 
-    ax.set_title(gd["label"], fontsize=10.5, fontweight="bold",
-                 color=C_DARK, pad=8)
     # Note below the panel (outside axes, clip_on=False)
     ax.text(0.5, -0.04, gd["note"],
             ha="center", va="top", fontsize=7.8, color=C_MUTED,

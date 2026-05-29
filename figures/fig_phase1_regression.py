@@ -159,8 +159,6 @@ ax.set_xlim(-lim_f, lim_f)
 ax.set_ylim(-lim_f, lim_f)
 ax.set_xlabel("True axial force  (kN)", fontsize=9.5, color=C_DARK)
 ax.set_ylabel("Predicted axial force  (kN)", fontsize=9.5, color=C_DARK)
-ax.set_title("Force space  (regression)", fontsize=10.5,
-             fontweight="bold", color=C_DARK, pad=6)
 ax.tick_params(labelsize=8, color=C_MUTED)
 for spine in ax.spines.values():
     spine.set_edgecolor(C_MUTED)
@@ -225,8 +223,6 @@ ax.set_xlim(0, UTIL_MAX)
 ax.set_ylim(0, UTIL_MAX)
 ax.set_xlabel("True utilisation  $u$", fontsize=9.5, color=C_DARK)
 ax.set_ylabel("Predicted utilisation  $\\hat{u}$", fontsize=9.5, color=C_DARK)
-ax.set_title("Utilisation space  (breakdown)", fontsize=10.5,
-             fontweight="bold", color=C_DARK, pad=6)
 ax.tick_params(labelsize=8, color=C_MUTED)
 for spine in ax.spines.values():
     spine.set_edgecolor(C_MUTED)
@@ -256,11 +252,6 @@ fig.legend(
     bbox_to_anchor=(0.52, 0.00),
 )
 
-fig.text(
-    0.52, 0.96,
-    "$R^2 \\approx 0.99$ in force space does not imply reliability in utilisation space",
-    ha="center", va="bottom", fontsize=10, fontweight="bold", color=C_DARK,
-)
 
 # ---------------------------------------------------------------------------
 # Save

@@ -56,12 +56,14 @@ nc_front = reuse[nc_mask]
 nc_chord = reuse_left + (reuse_right - reuse_left) * (nc_co2e - co2e_left) / (co2e_right - co2e_left)
 
 # ---------------------------------------------------------------------------
-# Curriculum schedule — linear ramp to w_max, then plateau
+# Curriculum schedule — linear ramp 0.2 → 0.8 across all 250 generations
+# (no plateau; structural penalty increases continuously)
 # ---------------------------------------------------------------------------
-G_MAX    = 600
-ramp_end = int(0.72 * G_MAX)
+G_MAX   = 250
+W_START = 0.2
+W_END   = 0.8
 gens = np.linspace(0, G_MAX, 500)
-w_s  = np.where(gens <= ramp_end, gens / ramp_end, 1.0)
+w_s  = W_START + (W_END - W_START) * gens / G_MAX
 
 # ---------------------------------------------------------------------------
 # Figure
@@ -154,8 +156,6 @@ ax_pf.annotate("non-convex gap\n— inaccessible to\nweighted sum",
     fontsize=7.5, color=C_RS, style="italic", ha="left",
     arrowprops=dict(arrowstyle="-", color=C_RS, lw=0.9))
 
-ax_pf.set_title("Pareto front  ·  two-objective trade-off",
-                 fontsize=10.5, fontweight="bold", color=C_DARK, pad=8)
 
 pf_legend = [
     Line2D([0], [0], color=C_NS, lw=2.5, label="Pareto front"),
@@ -173,7 +173,7 @@ ax_pf.legend(handles=pf_legend, loc="lower right", fontsize=7.5,
 # ---------------------------------------------------------------------------
 style_ax(ax_cs)
 ax_cs.set_xlim(0, G_MAX)
-ax_cs.set_ylim(-0.05, 1.22)
+ax_cs.set_ylim(-0.05, 1.05)
 ax_cs.set_xlabel("Generation  $g$", fontsize=9.5, color=C_DARK, labelpad=6)
 ax_cs.set_ylabel("Structural penalty weight  $w_s(g)$", fontsize=9.5,
                   color=C_DARK, labelpad=6)
@@ -181,31 +181,28 @@ ax_cs.set_ylabel("Structural penalty weight  $w_s(g)$", fontsize=9.5,
 ax_cs.fill_between(gens, 0, w_s, alpha=0.13, color=C_NS, zorder=1)
 ax_cs.plot(gens, w_s, color=C_NS, lw=2.5, zorder=3)
 
-ax_cs.axhline(1.0, color=C_MUTED, lw=0.8, ls="--", alpha=0.7, zorder=2)
-ax_cs.text(G_MAX * 0.02, 1.05, "$w_{\\mathrm{max}}$",
+ax_cs.axhline(W_END, color=C_MUTED, lw=0.8, ls="--", alpha=0.7, zorder=2)
+ax_cs.text(G_MAX * 0.02, W_END + 0.03, "$w_{\\mathrm{max}} = 0.8$",
             fontsize=8.5, color=C_MUTED, va="bottom")
 
-# Vertical marker at ramp end
-ax_cs.axvline(ramp_end, color=C_MUTED, lw=0.8, ls=":", alpha=0.6, zorder=2)
-ax_cs.text(ramp_end + G_MAX * 0.015, 0.04, "$G$",
+ax_cs.axhline(W_START, color=C_MUTED, lw=0.8, ls=":", alpha=0.5, zorder=2)
+ax_cs.text(G_MAX * 0.02, W_START + 0.03, "$w_{\\mathrm{start}} = 0.2$",
             fontsize=8.5, color=C_MUTED, va="bottom")
 
-# Phase labels
-ax_cs.text(ramp_end * 0.35, 0.22,
+# Phase labels — early-ramp (low penalty, more topology freedom) vs late-ramp
+ax_cs.text(G_MAX * 0.22, 0.34,
             "exploration\n(lenient)",
             ha="center", va="center", fontsize=8.5, color=C_NS,
             style="italic",
             bbox=dict(boxstyle="round,pad=0.28", fc=BG,
                       ec=C_NS + "80", lw=0.9))
-ax_cs.text(ramp_end + (G_MAX - ramp_end) * 0.50, 0.78,
+ax_cs.text(G_MAX * 0.75, 0.66,
             "feasibility\nenforced",
             ha="center", va="center", fontsize=8.5, color=C_DARK,
             style="italic",
             bbox=dict(boxstyle="round,pad=0.28", fc=BG,
                       ec=C_DARK + "80", lw=0.9))
 
-ax_cs.set_title("Curriculum schedule  ·  penalty weight ramp",
-                 fontsize=10.5, fontweight="bold", color=C_DARK, pad=8)
 
 fig.tight_layout()
 

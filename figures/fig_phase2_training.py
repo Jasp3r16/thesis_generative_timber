@@ -171,7 +171,6 @@ for lr_ep in LR_REDUCTIONS:
 ax.set_xlim(0, N_EP)
 ax.set_xlabel("Epoch", fontsize=9.5, color=C_DARK)
 ax.set_ylabel("Focal loss", fontsize=9.5, color=C_DARK)
-ax.set_title("Training dynamics", fontsize=10.5, fontweight="bold", color=C_DARK, pad=6)
 
 h_tr = mlines.Line2D([], [], color=C_DARK, lw=1.5, label="Train loss")
 h_vl = mlines.Line2D([], [], color=C_NS,   lw=1.5, label="Validation loss")
@@ -228,18 +227,12 @@ ax.set_xlim(0, 1)
 ax.set_ylim(0, 1.02)
 ax.set_xlabel("Recall  (unsafe class)", fontsize=9.5, color=C_DARK)
 ax.set_ylabel("Precision  (unsafe class)", fontsize=9.5, color=C_DARK)
-ax.set_title("Precision–recall  (test set)", fontsize=10.5,
-             fontweight="bold", color=C_DARK, pad=6)
 ax.legend(fontsize=7.5, frameon=True, framealpha=0.95,
           edgecolor=C_LIGHT, loc="upper right")
 
 # ---------------------------------------------------------------------------
 # Shared super-title
 # ---------------------------------------------------------------------------
-fig.text(0.52, 0.96,
-         "Phase 2 classification: convergence and operating point selection",
-         ha="center", va="bottom", fontsize=10,
-         fontweight="bold", color=C_DARK)
 
 # ---------------------------------------------------------------------------
 # Save
