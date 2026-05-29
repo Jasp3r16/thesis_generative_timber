@@ -1,5 +1,5 @@
 # Deep Generative Design for Reclaimed Timber Structures
-**MSc Thesis — Building Technology | TU Delft**
+**MSc Thesis - Building Technology | TU Delft**
 
 ---
 
@@ -7,7 +7,7 @@
 
 This research develops a hybrid computational workflow for integrating **reclaimed timber** into **generative structural design**. The pipeline co-optimises the three-dimensional geometry of a space frame and the assignment of specific salvaged elements to structural slots, minimising embodied carbon while maximising material reuse.
 
-The core challenge is bridging continuous geometric optimisation — which requires thousands of fast fitness evaluations — and discrete material matching against a finite, heterogeneous reclaimed stock. The solution is a three-component architecture:
+The core challenge is bridging continuous geometric optimisation - which requires thousands of fast fitness evaluations - and discrete material matching against a finite, heterogeneous reclaimed stock. The solution is a three-component architecture:
 
 - **CMA-ES** searches the continuous geometry parameter space (node positions)
 - **MILP** finds the globally optimal stock-to-slot assignment for each candidate geometry
@@ -19,31 +19,31 @@ Final designs from the top-k shortlist are verified with full Karamba3D FEA and 
 
 ## Computational Pipeline
 
-### Phase I — Data generation
+### Phase I - Data generation
 
-1. **Parametric geometry** — Diverse spatial truss variations generated within a bounded 73-dimensional search space, scripted in `01_GH_script/` and driven by Grasshopper + Karamba3D.
-2. **Structural ground truth** — Automated FEA computes member forces and utilisation ratios (UC) per Eurocode 5. Labels: UC > 1.0 = unsafe.
-3. **Data serialisation** — Node coordinates, graph topology, cross-section features, and binary safety labels exported to `30_Data_Inventory/` (OneDrive). Training set: 20,000 labelled configurations (16k train / 2k val / 2k test).
+1. **Parametric geometry**: Diverse spatial truss variations generated within a bounded 73-dimensional search space, scripted in `01_GH_script/` and driven by Grasshopper + Karamba3D.
+2. **Structural ground truth**: Automated FEA computes member forces and utilisation ratios (UC) per Eurocode 5. Labels: UC > 1.0 = unsafe.
+3. **Data serialisation**: Node coordinates, graph topology, cross-section features, and binary safety labels exported to `30_Data_Inventory/` (OneDrive). Training set: 20,000 labelled configurations (16k train / 2k val / 2k test).
 
-### Phase II — Surrogate training
+### Phase II - Surrogate training
 
-1. **GNN training** — `TrussEdgeSafetyGNN` (v4) trained to predict per-member failure probability from node coordinates, boundary conditions, and cross-section edge features. See model details below.
+1. **GNN training**: `TrussEdgeSafetyGNN` (v4) trained to predict per-member failure probability from node coordinates, boundary conditions, and cross-section edge features. See model details below.
 
-### Phase III — Generative optimisation loop
+### Phase III - Generative optimisation loop
 
-1. **Feasibility filter** (`c24_stage_feasibility.py`) — Applies hard geometric and EC5 force constraints to eliminate infeasible slot/stock pairs before assignment.
-2. **LCA cost matrix** (`c25_stage_cost_matrix.py`) — Computes embodied carbon cost for all feasible (slot, stock) pairs, accounting for A1–A3 embodied carbon, A4 transport, A5 preparation/sawing, and C2/C3–C4 waste costs.
-3. **MILP assignment** (`c26_stage_MILP.py`) — Finds the globally optimal stock assignment minimising total LCA cost subject to uniqueness, coverage, new-use cap, and optional reuse floor constraints.
-4. **GNN inference** (`c27_stage_GNN.py`) — Re-evaluates the assigned structure; returns per-member failure probabilities and a scalar feasibility score.
-5. **Fitness scoring** (`c28_stage_fitness_score.py`) — Computes the compound objective F = ω₁·Ĉ − ω₂·R̂ + ω₄·S (minimised), where Ĉ is normalised LCA cost, R̂ is normalised reuse fraction, and S is structural infeasibility. ω₄ is annealed 2.0 → 0.8 over 250 generations.
+1. **Feasibility filter** (`c24_stage_feasibility.py`) - Applies hard geometric and EC5 force constraints to eliminate infeasible slot/stock pairs before assignment.
+2. **LCA cost matrix** (`c25_stage_cost_matrix.py`) - Computes embodied carbon cost for all feasible (slot, stock) pairs, accounting for A1–A3 embodied carbon, A4 transport, A5 preparation/sawing, and C2/C3–C4 waste costs.
+3. **MILP assignment** (`c26_stage_MILP.py`) - Finds the globally optimal stock assignment minimising total LCA cost subject to uniqueness, coverage, new-use cap, and optional reuse floor constraints.
+4. **GNN inference** (`c27_stage_GNN.py`) - Re-evaluates the assigned structure; returns per-member failure probabilities and a scalar feasibility score.
+5. **Fitness scoring** (`c28_stage_fitness_score.py`) - Computes the compound objective F = ω₁·Ĉ − ω₂·R̂ + ω₄·S (minimised), where Ĉ is normalised LCA cost, R̂ is normalised reuse fraction, and S is structural infeasibility. ω₄ is annealed 2.0 → 0.8 over 250 generations.
 
 The CMA-ES driver (`c23_ga_algorithm.py` / `c23_ga_evaluator.py`) calls steps 1–5 above as a black-box oracle on every candidate. Budget: **250 generations × 30 population = 7,500 evaluations per run**.
 
-### Phase IV — Verification and export
+### Phase IV - Verification and export
 
-1. **Top-k reconstruction** — The best-ranked designs are translated back to 3D geometry via `src/c12_reconstruction.py`.
-2. **Final FEA validation** — Full Karamba3D analysis on the top-k shortlist verifies GNN predictions and flags any residual utilisation violations.
-3. **Export** — Bill of materials (`_bom.csv`), node coordinates (`_vertices.csv`), cross-section schedule (`_crosssections.csv`), and assignment table (`_edges.csv`) written to `60_Research_Exports/`.
+1. **Top-k reconstruction**: The best-ranked designs are translated back to 3D geometry via `src/c12_reconstruction.py`.
+2. **Final FEA validation**: Full Karamba3D analysis on the top-k shortlist verifies GNN predictions and flags any residual utilisation violations.
+3. **Export**: Bill of materials (`_bom.csv`), node coordinates (`_vertices.csv`), cross-section schedule (`_crosssections.csv`), and assignment table (`_edges.csv`) written to `60_Research_Exports/`.
 
 ---
 
@@ -77,7 +77,7 @@ thesis_generative_timber/
 │   ├── c21_surrogate_training.py          # GNN training loop
 │   ├── c22_stage_geometry.py              # Stage 1: geometry feature extraction
 │   ├── c23_ga_algorithm.py                # CMA-ES driver
-│   ├── c23_ga_evaluator.py                # Fitness oracle — calls stages 5–9
+│   ├── c23_ga_evaluator.py                # Fitness oracle - calls stages 5–9
 │   ├── c23_ga_analysis_export.py          # GA result export utilities
 │   ├── c24_stage_feasibility.py           # Stage 2: hard-constraint filtering
 │   ├── c25_stage_cost_matrix.py           # Stage 3: LCA assignment cost matrix
@@ -108,7 +108,7 @@ thesis_generative_timber/
     └── c30_final_batch_analysis.ipynb     # Final batch results (thesis ch. 6)
 ```
 
-**Data lives on OneDrive** — `30_Data_Inventory/` (stock, FEA datasets, model checkpoints) and `60_Research_Exports/` (GA outputs, figures, BOM exports). `config.py` resolves these paths automatically on any machine by detecting the local OneDrive root.
+**Data lives on OneDrive**: `30_Data_Inventory/` (stock, FEA datasets, model checkpoints) and `60_Research_Exports/` (GA outputs, figures, BOM exports). `config.py` resolves these paths automatically on any machine by detecting the local OneDrive root.
 
 ---
 
@@ -168,7 +168,7 @@ from src.c21_surrogate_io import load_surrogate_bundle, predict_edge_failure_pro
 
 bundle = load_surrogate_bundle()   # resolves latest checkpoint from 30_Data_Inventory/
 probs  = predict_edge_failure_probabilities(design_row, bundle)
-# probs: np.ndarray [120,] — P(unsafe) per member
+# probs: np.ndarray [120,] - P(unsafe) per member
 ```
 
 ### Run a single GA optimisation
@@ -218,7 +218,7 @@ Defined in `workflows/c25_stage_cost_matrix.py`. All constants are set in `c00_h
 | `ENERGY_SAW_A5` | 0.004 kg CO₂e/kg | A5 | Cross-cut sawing (if needed) |
 | `ENERGY_OFFCUT_FACTOR_C3_C4` | 0.031 kg CO₂e/kg | C3–C4 | Offcut disposal/incineration |
 | `WASTE_TRANSPORT_DIST_KM` | 50 km | C2 | Offcut transport to waste facility |
-| `SCARCITY_PENALTY` | 0.0 | — | Disabled in all reported runs |
+| `SCARCITY_PENALTY` | 0.0 | - | Disabled in all reported runs |
 
 Transport for new stock is calculated on required mass only; transport for reclaimed stock is calculated on full physical element mass.
 
