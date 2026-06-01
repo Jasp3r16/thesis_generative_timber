@@ -62,8 +62,8 @@ else:
         f"Config System loaded successfully, Code running locally from {REPO_ROOT.name} and Data is stored locally in {REPO_ROOT.name}.\n"
     )
 
-# 3. FIGURES (Export paths)
-FIGURES_DIR = REPO_ROOT / "figures"
+# 3. FIGURES (Export paths — lives alongside other research exports in OneDrive)
+FIGURES_DIR = EXPORT_PATH / "figures"
 FIG_PDF_DIR = FIGURES_DIR / "pdf"
 FIG_PNG_DIR = FIGURES_DIR / "png"
 
