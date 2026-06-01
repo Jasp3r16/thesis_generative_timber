@@ -1,27 +1,3 @@
-# =============================================================================
-# c21_surrogate_io_v2.py — Surrogate Model I/O Utilities
-# =============================================================================
-#
-# Provides load_surrogate_bundle() and predict_edge_failure_probabilities()
-# for loading the trained TrussEdgeSafetyGNN and running inference on new data.
-#
-# Changes vs v1:
-#   1. edge_index.json loaded from artifact_dir (not DATA_IO_PATH) — ensures
-#      the topology matches the checkpoint, not whatever is in the working dir.
-#   2. load_surrogate_bundle() computes num_edges and bidirectional from the
-#      loaded edge_index and stores them in the bundle — required by
-#      c21_stage_gnn_v3._build_edge_features() and gnn_feasibility().
-#   3. create_model() now reads architecture params from inference_config.json
-#      instead of relying on defaults — prevents silent architecture mismatch.
-#   4. Calibration functions removed (apply_psi_gamma, calibrate_failure_probs,
-#      compute_failure_threshold) — psi_gamma calibration was conceptually wrong
-#      for this model. Threshold-based decisions use the val-tuned threshold
-#      from training; no probability transformation is needed or applied.
-#   5. predict_edge_failure_probabilities() no longer applies calibration.
-#      apply_calibration parameter removed. Edge count validation uses
-#      num_edges_raw (CSV rows = 120) not edge_index.shape[1] (may be 240).
-#   6. _resolve_calibration_path removed (calibration.json no longer used).
-
 from __future__ import annotations
 
 import json
@@ -41,10 +17,7 @@ NUM_EDGES_PHYSICAL = 120   # physical members — constant regardless of bi/uni
 _NODE_COLS = ["x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz"]
 _EDGE_COLS = ["Width_m", "Depth_m", "Length", "E", "Iy", "Iz", "J", "EA/L", "N_mean_EA"]
 
-
-# =============================================================================
 # INTERNAL RESOLVERS
-# =============================================================================
 
 def _resolve_prefix(prefix_sm: str | None) -> str:
     if prefix_sm:
@@ -83,7 +56,6 @@ def _resolve_prefix(prefix_sm: str | None) -> str:
         )
     return chosen.stem
 
-
 def _resolve_artifact_dir(prefix_sm: str) -> Path:
     candidate_dir = config.SM_EXPORT_PATH / prefix_sm
     if candidate_dir.exists() and candidate_dir.is_dir():
@@ -107,7 +79,6 @@ def _resolve_artifact_dir(prefix_sm: str) -> Path:
     )
     return config.SM_EXPORT_PATH
 
-
 def _resolve_model_path(prefix_sm: str, artifact_dir: Path) -> Path:
     candidate = artifact_dir / f"{prefix_sm}.pth"
     if candidate.exists():
@@ -122,7 +93,6 @@ def _resolve_model_path(prefix_sm: str, artifact_dir: Path) -> Path:
         return hits[0]
 
     raise FileNotFoundError(f"No checkpoint found for prefix '{prefix_sm}'.")
-
 
 def _resolve_scalers_path(prefix_sm: str, artifact_dir: Path) -> Path:
     candidate = artifact_dir / f"{prefix_sm}_scalers.json"
@@ -141,7 +111,6 @@ def _resolve_scalers_path(prefix_sm: str, artifact_dir: Path) -> Path:
         f"No scaler metadata found for prefix '{prefix_sm}'."
     )
 
-
 def _resolve_inference_config_path(prefix_sm: str, artifact_dir: Path) -> Path | None:
     candidate = artifact_dir / f"{prefix_sm}_inference_config.json"
     if candidate.exists():
@@ -153,7 +122,6 @@ def _resolve_inference_config_path(prefix_sm: str, artifact_dir: Path) -> Path |
         reverse=True,
     )
     return hits[0] if hits else None
-
 
 def _resolve_edge_index_path(prefix_sm: str, artifact_dir: Path) -> Path:
     """
@@ -178,10 +146,7 @@ def _resolve_edge_index_path(prefix_sm: str, artifact_dir: Path) -> Path:
         "Re-export the model using c21_export_v3.py to include it."
     )
 
-
-# =============================================================================
 # LOADERS
-# =============================================================================
 
 def load_edge_index(edge_index_path: Path) -> torch.Tensor:
     """Load edge topology from JSON and return tensor [2, num_edges]."""
@@ -208,7 +173,6 @@ def load_edge_index(edge_index_path: Path) -> torch.Tensor:
         )
     return edge_index
 
-
 def _load_scalers(scalers_path: Path) -> dict[str, Any]:
     with open(scalers_path, "r", encoding="utf-8") as f:
         payload = json.load(f)
@@ -232,10 +196,7 @@ def _load_scalers(scalers_path: Path) -> dict[str, Any]:
         "edge_std":  edge_std,
     }
 
-
-# =============================================================================
 # MAIN LOADER
-# =============================================================================
 
 def load_surrogate_bundle(
     prefix_sm: str | None = None,
@@ -341,10 +302,7 @@ def load_surrogate_bundle(
         "model_path":    model_path,
     }
 
-
-# =============================================================================
 # INTERNAL HELPERS
-# =============================================================================
 
 def _resolve_sample_id_column(
     nodes_df: pd.DataFrame,
@@ -354,7 +312,6 @@ def _resolve_sample_id_column(
         if candidate in nodes_df.columns and candidate in edges_df.columns:
             return candidate
     return None
-
 
 def _select_sample_frame(
     nodes_df:      pd.DataFrame,
@@ -384,10 +341,7 @@ def _select_sample_frame(
         edges_df.loc[edges_df[sample_id_col] == sample_id].copy(),
     )
 
-
-# =============================================================================
 # INFERENCE
-# =============================================================================
 
 def predict_edge_failure_probabilities(
     nodes_df:   pd.DataFrame,
@@ -490,7 +444,6 @@ def predict_edge_failure_probabilities(
         "failure_prob_raw": raw_probs,
         "predicted_unsafe": raw_probs >= threshold,
     })
-
 
 __all__ = [
     "load_edge_index",

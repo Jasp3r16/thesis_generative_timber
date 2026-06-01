@@ -1,30 +1,5 @@
 from __future__ import annotations
 
-# =============================================================================
-# c27_stage_GNN.py — GNN Structural Feasibility Stage
-# =============================================================================
-#
-# Changes vs v2:
-#   1. load_gnn_model() removed — dead loader that duplicated c21_surrogate_io.
-#      Use load_surrogate_bundle() from c21_surrogate_io exclusively.
-#      Removed json / Path / config / create_model imports (only needed there).
-#   2. prepare_stock_for_gnn() now called once before the GA loop, not inside
-#      run_gnn_stage(). Pass pre-converted stock as stock_df to run_gnn_stage()
-#      and gnn_feasibility() to avoid a full DataFrame copy per evaluation.
-#   3. support_nodes / load_nodes accepted as explicit parameters in
-#      _build_node_features, gnn_feasibility, and run_gnn_stage — defaulting to
-#      the hardcoded 5x3-grid constants. GA evaluator now passes the dynamically
-#      derived values so the GNN receives correct boundary condition features.
-#   4. build_milp_assignment raises ValueError on unassigned slots instead of
-#      silently substituting row 0 (corrupted GNN features with no warning).
-#   5. threshold=None in gnn_feasibility — resolves from bundle["config"]
-#      ["recommended_threshold"] when not explicitly set, so the training-tuned
-#      threshold is used automatically.
-#   6. w_structural default changed 0.3 -> 0.0; structural_penalty is for
-#      notebook convenience only — the GA evaluator reads feasibility_score
-#      directly and passes structural_infeasibility to run_fitness_stage.
-#   7. Stale module name references fixed in docstrings.
-
 import warnings
 from typing import Any
 
@@ -35,10 +10,7 @@ import torch
 import c24_stage_feasibility
 from c24_stage_feasibility import compute_nodal_fz, LOAD_KN_PER_M2
 
-
-# =============================================================================
 # CONFIGURATION
-# =============================================================================
 
 THRESHOLD          = 0.35
 NUM_EDGES_PHYSICAL = 120
@@ -52,10 +24,7 @@ _DEFAULT_SUPPORT_NODES = [0, 5, 18, 23]
 _DEFAULT_LOAD_NODES    = [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
                           16, 17, 19, 20, 21, 22]
 
-
-# =============================================================================
 # STOCK PREPARATION — unit conversion + section properties
-# =============================================================================
 
 def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
     """
@@ -106,10 +75,7 @@ def prepare_stock_for_gnn(df_input_stock: pd.DataFrame) -> pd.DataFrame:
 
     return stock
 
-
-# =============================================================================
 # MILP ASSIGNMENT BUILDER — fallback if stock_df_raw not passed to c26
-# =============================================================================
 
 def build_milp_assignment(
     df_results:     pd.DataFrame,
@@ -166,10 +132,7 @@ def build_milp_assignment(
 
     return milp_assignment
 
-
-# =============================================================================
 # FEATURE BUILDERS (internal)
-# =============================================================================
 
 def _build_node_features(
     node_positions: np.ndarray,
@@ -198,7 +161,6 @@ def _build_node_features(
     x_norm = (x_raw - norm_stats["node_means"]) / norm_stats["node_stds"]
     x_norm = np.clip(x_norm, -5.0, 5.0)
     return torch.tensor(x_norm, dtype=torch.float32, device=device)
-
 
 def _build_edge_features(
     milp_assignment:  np.ndarray,
@@ -250,10 +212,7 @@ def _build_edge_features(
     edge_norm = np.clip(edge_norm, -5.0, 5.0).astype(np.float32)
     return torch.tensor(edge_norm, dtype=torch.float32, device=device)
 
-
-# =============================================================================
 # GNN FEASIBILITY — call every GA iteration
-# =============================================================================
 
 def gnn_feasibility(
     node_positions:  np.ndarray,
@@ -346,10 +305,7 @@ def gnn_feasibility(
 
     return feasibility_score, unsafe_member_ids, preds_physical
 
-
-# =============================================================================
 # ORCHESTRATION — single call per GA iteration
-# =============================================================================
 
 def run_gnn_stage(
     node_positions:  np.ndarray,

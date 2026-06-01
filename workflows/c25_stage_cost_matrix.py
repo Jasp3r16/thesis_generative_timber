@@ -7,9 +7,7 @@ import pandas as pd
 
 import c00_headquarter_params as _params
 
-# =============================================================================
 # LCA impact constants (from headquarter params)
-# =============================================================================
 
 M_A1_A3          = float(_params.IMPACT_FACTOR_A1_A3)
 M_RECOVER        = float(_params.IMPACT_FACTOR_RECOVERED_C1)
@@ -19,9 +17,7 @@ E_OFFCUT         = float(_params.ENERGY_OFFCUT_FACTOR_C3_C4)
 WASTE_DIST_KM    = float(_params.WASTE_TRANSPORT_DIST_KM)
 SCARCITY_PENALTY = float(_params.SCARCITY_PENALTY)
 
-# =============================================================================
 # Column name candidates (case-insensitive lookup)
-# =============================================================================
 
 _SLOT_ID_CANDIDATES           = ("edge_id", "Edge_ID", "Slot_ID", "slot_id")
 _STOCK_ID_CANDIDATES          = ("Member_ID", "member_id", "Stock_ID", "stock_id")
@@ -33,10 +29,7 @@ _DENSITY_CANDIDATES           = ("mean_density", "Mean_Density", "density", "Den
 _DISTANCE_CANDIDATES          = ("Transport_Dist", "transport_dist", "Distance", "distance_km")
 _TRANSPORT_FACTOR_CANDIDATES  = ("EmissionFactor", "emission_factor", "TransportFactor", "Transport_Factor")
 
-
-# =============================================================================
 # Column helpers
-# =============================================================================
 
 def _pick_column(df: pd.DataFrame, candidates: Sequence[str], *,
                  required: bool = True) -> str | None:
@@ -49,13 +42,11 @@ def _pick_column(df: pd.DataFrame, candidates: Sequence[str], *,
         raise ValueError(f"Missing required column. Expected one of: {list(candidates)}")
     return None
 
-
 def _coerce_numeric(series: pd.Series, *, label: str) -> pd.Series:
     coerced = pd.to_numeric(series, errors="coerce")
     if coerced.isna().any():
         raise ValueError(f"Column '{label}' contains empty or non-numeric values.")
     return coerced.astype(float)
-
 
 def _resolve_state(df_stock: pd.DataFrame, member_id: pd.Series) -> pd.Series:
     state_col = _pick_column(df_stock, _STATE_CANDIDATES, required=False)
@@ -69,10 +60,7 @@ def _resolve_state(df_stock: pd.DataFrame, member_id: pd.Series) -> pd.Series:
         index=df_stock.index, dtype=float,
     )
 
-
-# =============================================================================
 # Stock preparation
-# =============================================================================
 
 def prepare_stock_cost_inputs(df_stock_raw: pd.DataFrame) -> pd.DataFrame:
     """Validate and normalise stock data for cost calculation.
@@ -111,10 +99,7 @@ def prepare_stock_cost_inputs(df_stock_raw: pd.DataFrame) -> pd.DataFrame:
 
     return df_stock
 
-
-# =============================================================================
 # LCA vector computation — single source of truth for cost matrix and logs
-# =============================================================================
 
 def _compute_lca_vectors(
     slot_rows:  pd.DataFrame,
@@ -218,10 +203,7 @@ def _compute_lca_vectors(
         "total_costs":  total_costs,
     }
 
-
-# =============================================================================
 # Vectorised cost calculation (core — hot GA path)
-# =============================================================================
 
 def _calculate_costs_vectorised(
     feasible_i: np.ndarray,
@@ -233,10 +215,7 @@ def _calculate_costs_vectorised(
     v = _compute_lca_vectors(df_slots.iloc[feasible_i], stock.iloc[feasible_j])
     return v["total_costs"]
 
-
-# =============================================================================
 # Main — build_cost_matrix
-# =============================================================================
 
 def build_cost_matrix(
     df_slots:         pd.DataFrame,
@@ -323,10 +302,7 @@ def build_cost_matrix(
 
     return cost_matrix, stock, df_logs
 
-
-# =============================================================================
 # Log builder (only called when build_logs=True — not part of the hot GA loop)
-# =============================================================================
 
 def _build_logs(
     df_slots:         pd.DataFrame,

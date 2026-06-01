@@ -1,16 +1,4 @@
-"""Compute normalization upper bounds with auxiliary MILP solves.
-
-This module computes design-specific maxima for:
-- MILP assignment cost (C_max)
-- achievable volume-weighted reclaimed reuse fraction (R_max, in [0, 1])
-
-W_max (waste) is computed and returned under bounds["max_waste"] for
-informational purposes only — waste is not a fitness term. It is already
-captured by the LCA cost components (C3/C4 streams) in c25_stage_cost_matrix.
-
-It reuses the assignment constraints from c26_stage_MILP so bounds are
-compatible with the same feasible search space.
-"""
+"""Compute per-design normalisation bounds (C_max, R_max) via auxiliary MILP solves."""
 
 from __future__ import annotations
 
@@ -21,16 +9,10 @@ import numpy as np
 import pandas as pd
 import pulp
 
-
-# Default normalization constants used when no bounds are computed.
-# R_max = 1.0 because reuse_fraction is now volume-weighted and lives in [0, 1].
-# 1.0 is a valid upper bound (fraction cannot exceed 1), but is loose when
-# reclaimed stock is scarce — run compute_normalization_bounds() for a tight value.
 DEFAULT_NORMALIZATION_CONSTANTS = {
     "C_max": 8.0,
     "R_max": 1.0,
 }
-
 
 def get_default_normalization_constants() -> dict[str, float]:
     """Return explicit default normalization constants for external workflows."""
@@ -38,7 +20,6 @@ def get_default_normalization_constants() -> dict[str, float]:
         "C_max": float(DEFAULT_NORMALIZATION_CONSTANTS["C_max"]),
         "R_max": float(DEFAULT_NORMALIZATION_CONSTANTS["R_max"]),
     }
-
 
 def _resolve_stock_state(enriched_stock: pd.DataFrame) -> pd.Series:
     columns_by_lower = {str(col).strip().lower(): col for col in enriched_stock.columns}
@@ -51,7 +32,6 @@ def _resolve_stock_state(enriched_stock: pd.DataFrame) -> pd.Series:
 
     member_ids = enriched_stock["Member_ID"].astype(str).str.strip().str.upper()
     return pd.Series(np.where(member_ids.str.startswith("RS"), 1, 0), index=enriched_stock.index, dtype=int)
-
 
 def _identify_stock_groups(
     enriched_stock: pd.DataFrame,
@@ -71,7 +51,6 @@ def _identify_stock_groups(
 
     return reclaimed_items, new_items
 
-
 def _extract_valid_matches(
     cost_matrix: np.ndarray,
     stock_items: list[str],
@@ -90,7 +69,6 @@ def _extract_valid_matches(
 
     return valid_matches, costs
 
-
 def _build_connectivity(
     valid_matches: list[tuple[str, str]],
     construction_slots: list[str],
@@ -106,7 +84,6 @@ def _build_connectivity(
     slot_to_stock  = {s: _slot_to_stock.get(s, [])  for s in construction_slots}
     stock_to_slots = {k: _stock_to_slots.get(k, []) for k in stock_items}
     return slot_to_stock, stock_to_slots
-
 
 def _solve_extreme_assignment(
     *,
@@ -166,7 +143,6 @@ def _solve_extreme_assignment(
         "selected_pairs": selected_pairs,
     }
 
-
 def _build_stock_volume_lookup(enriched_stock: pd.DataFrame) -> dict[str, float]:
     """Build member_id → volume (mm³) lookup from enriched_stock dimensions."""
     cols = {str(c).strip().lower(): c for c in enriched_stock.columns}
@@ -182,7 +158,6 @@ def _build_stock_volume_lookup(enriched_stock: pd.DataFrame) -> dict[str, float]
         * pd.to_numeric(enriched_stock[l_col], errors="coerce").fillna(1.0)
     )
     return dict(zip(member_ids, volumes))
-
 
 def _build_waste_coefficients(
     df_logs: pd.DataFrame,
@@ -216,7 +191,6 @@ def _build_waste_coefficients(
             missing_count += 1
 
     return waste_coeffs, missing_count
-
 
 def compute_normalization_bounds(
     *,

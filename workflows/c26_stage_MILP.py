@@ -1,30 +1,12 @@
 from __future__ import annotations
 
-# =============================================================================
-# c26_stage_MILP.py
-# Changes:
-#   1. varValue == 1 -> > 0.5  (float equality on binary vars is fragile)
-#   2. solver_time_limit parameter added (default 30 s); CBC timeout wired in
-#   3. new_stock_max_uses=None skips new-item constraint loop entirely
-#      (previously added <= 120 dead constraints for every new item)
-#   4. new_stock_max_uses default changed 1 -> None (new stock reusable by default)
-#   5. _resolve_stock_state uses >= 0.5 threshold (consistent with c25)
-#   6. _identify_stock_groups double fallback removed (redundant with _resolve_stock_state)
-#   7. valid_matches removed from return dict (up to 60k tuples per call, unused downstream)
-#   8. CBC seeded with RandomSeed 0 for reproducible solve order
-#   9. Docstring: c26_stage_cost_matrix -> c25_stage_cost_matrix
-# =============================================================================
-
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import pulp
 
-
-# =============================================================================
 # Helpers
-# =============================================================================
 
 def _resolve_stock_state(enriched_stock: pd.DataFrame) -> pd.Series:
     columns_by_lower = {str(col).strip().lower(): col for col in enriched_stock.columns}
@@ -41,7 +23,6 @@ def _resolve_stock_state(enriched_stock: pd.DataFrame) -> pd.Series:
         index=enriched_stock.index, dtype=int,
     )
 
-
 def _identify_stock_groups(
     enriched_stock: pd.DataFrame,
 ) -> tuple[list[str], list[str]]:
@@ -49,7 +30,6 @@ def _identify_stock_groups(
     reclaimed_items = enriched_stock.loc[stock_state == 1, "Member_ID"].astype(str).tolist()
     new_items       = enriched_stock.loc[stock_state == 0, "Member_ID"].astype(str).tolist()
     return reclaimed_items, new_items
-
 
 def _build_milp_assignment(
     df_results:   pd.DataFrame,
@@ -106,10 +86,7 @@ def _build_milp_assignment(
 
     return milp_assignment
 
-
-# =============================================================================
 # Main
-# =============================================================================
 
 def run_milp_stage(
     cost_matrix:               np.ndarray,

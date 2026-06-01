@@ -1,22 +1,3 @@
-# =============================================================================
-# c23_ga_algorithm.py -- CMA-ES optimiser for truss geometry
-# =============================================================================
-#
-# Optimises continuous geometry parameters (node positions / spans) using
-# CMA-ES (Covariance Matrix Adaptation Evolution Strategy) via the `cma`
-# library (v4.4.4).
-#
-# Usage:
-#   from workflows import c23_ga_algorithm as ga_algo
-#
-#   es = ga_algo.CMAEvolutionStrategy(
-#       search_space = es_search_space,
-#       evaluate_fn  = evaluate_fn,
-#       config       = ga_algo.CMAESConfig(popsize=30, n_generations=250),
-#       seed         = 42,
-#   )
-#   result = es.run()
-
 from __future__ import annotations
 
 import time
@@ -28,9 +9,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-# =============================================================================
 # INDIVIDUAL
-# =============================================================================
 
 class Individual:
     """
@@ -71,11 +50,7 @@ class Individual:
         f = f"{self.fitness:.4f}" if self.fitness is not None else "?"
         return f"Individual(fitness={f}, gen={self.generation})"
 
-
-
-# =============================================================================
 # EVALUATE FUNCTION WRAPPER
-# =============================================================================
 
 def make_evaluate_fn(
     evaluate_fn_raw:       Callable,
@@ -119,10 +94,7 @@ def make_evaluate_fn(
 
     return _evaluate
 
-
-# =============================================================================
 # CMA-ES: Covariance Matrix Adaptation Evolution Strategy
-# =============================================================================
 #
 # Replaces the custom (mu+lambda)-ES with CMA-ES, which adapts the full
 # covariance matrix of the search distribution rather than independent
@@ -144,7 +116,6 @@ def make_evaluate_fn(
 # unchanged.
 
 import cma as _cma_lib
-
 
 @dataclass
 class CMAESConfig:
@@ -177,7 +148,6 @@ class CMAESConfig:
         # Compatibility attributes read by run_export in c23_ga_analysis_export.py
         self.mu  = self.popsize // 2
         self.lam = self.popsize
-
 
 class CMAEvolutionStrategy:
     """
@@ -222,9 +192,7 @@ class CMAEvolutionStrategy:
             f"Expected evaluations: {cfg.popsize * cfg.n_generations}"
         )
 
-    # -------------------------------------------------------------------------
     # Normalisation helpers
-    # -------------------------------------------------------------------------
 
     def _norm(self, x_abs: np.ndarray) -> np.ndarray:
         """Physical space -> [0,1]^n."""
@@ -234,9 +202,7 @@ class CMAEvolutionStrategy:
         """[0,1]^n -> physical space, clipped to bounds."""
         return self.bounds_lo + np.clip(x_norm, 0.0, 1.0) * (self.bounds_hi - self.bounds_lo)
 
-    # -------------------------------------------------------------------------
     # Public API
-    # -------------------------------------------------------------------------
 
     def run(self) -> dict[str, Any]:
         """
@@ -364,9 +330,7 @@ class CMAEvolutionStrategy:
             "elapsed_seconds":  round(time.time() - t_start, 1),
         }
 
-    # -------------------------------------------------------------------------
     # Top-k tracking (identical logic to EvolutionStrategy)
-    # -------------------------------------------------------------------------
 
     @staticmethod
     def _top_k_key(ind: Individual) -> tuple:
@@ -385,9 +349,7 @@ class CMAEvolutionStrategy:
         self.top_k.sort(key=lambda x: x.fitness)
         self.top_k = self.top_k[:k]
 
-    # -------------------------------------------------------------------------
     # History logging (same schema as EvolutionStrategy._record_history)
-    # -------------------------------------------------------------------------
 
     def _record_history(
         self, gen: int, individuals: list[Individual], sigma: float

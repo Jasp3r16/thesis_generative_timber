@@ -12,10 +12,7 @@ import pandas as pd
 
 import c00_headquarter_params as c11_params
 
-
-# =============================================================================
 # GEOMETRY
-# =============================================================================
 
 def _build_truss_edges(cells_x, cells_y):
     nodes_x_top = cells_x + 1
@@ -63,7 +60,6 @@ def _build_truss_edges(cells_x, cells_y):
 
     return edges
 
-
 def get_valid_shifts(divisions, edge_length):
     """Calculate the allowed shifts (excluding the extremes)."""
     half_div = divisions // 2
@@ -71,7 +67,6 @@ def get_valid_shifts(divisions, edge_length):
     valid_steps = all_steps[1:-1]
     valid_shifts = [(step / divisions) * edge_length for step in valid_steps]
     return valid_shifts
-
 
 def get_corner_indices(cells_x, cells_y):
     """
@@ -90,7 +85,6 @@ def get_corner_indices(cells_x, cells_y):
     }
 
     return indices
-
 
 def define_search_space(cells_x, cells_y, divisions, edge_length):
     """
@@ -164,7 +158,6 @@ def define_search_space(cells_x, cells_y, divisions, edge_length):
 
     return search_space
 
-
 def bilinear_interpolate(p00, p10, p01, p11, u, v):
     """
     Interpolate a point inside a quadrilateral.
@@ -186,7 +179,6 @@ def bilinear_interpolate(p00, p10, p01, p11, u, v):
 
     return final_x, final_y
 
-
 def _normalize_vertices_pca(vertices):
     """Center a sample at its centroid while keeping its original orientation."""
     coords = np.array([[v["x"], v["y"], v["z"]] for v in vertices], dtype=np.float64)
@@ -205,14 +197,12 @@ def _normalize_vertices_pca(vertices):
 
     return normalized_vertices
 
-
 def get_edge_dataframe(cells_x: int, cells_y: int) -> pd.DataFrame:
     """Return the fixed edge topology (edge_id, V1, V2) for a grid as a DataFrame."""
     edges = _build_truss_edges(cells_x, cells_y)
     df = pd.DataFrame(edges, columns=["V1", "V2"])
     df.insert(0, "edge_id", [f"e{i}" for i in range(len(df))])
     return df
-
 
 def generate_edges(num_samples, cells_x, cells_y):
     """
@@ -246,7 +236,6 @@ def generate_edges(num_samples, cells_x, cells_y):
 
     return pd.DataFrame(edges_data)
 
-
 def generate_sample_vertices(
     sample_id: int,
     params: Optional[Mapping[str, float]] = None,
@@ -275,7 +264,7 @@ def generate_sample_vertices(
     top_layer_coords = {}
     vertex_idx = 0
 
-    # --- STEP 1: TOP LAYER ---
+    # Top layer
     for i in range(num_nodes_y_top):
         for j in range(num_nodes_x_top):
             base_x = j * c11_params.EDGE_LENGTH
@@ -321,7 +310,7 @@ def generate_sample_vertices(
             })
             vertex_idx += 1
 
-    # --- STEP 2: BOTTOM LAYER ---
+    # Bottom layer
     for i in range(c11_params.GRID_CELLS_Y):
         for j in range(c11_params.GRID_CELLS_X):
             v_name = f"v{vertex_idx}"
@@ -355,7 +344,6 @@ def generate_sample_vertices(
             vertex_idx += 1
 
     return _normalize_vertices_pca(all_vertices)
-
 
 def generate_vertices(num_samples, round_decimals=2):
     """
@@ -393,35 +381,22 @@ def generate_vertices(num_samples, round_decimals=2):
 
     return pd.DataFrame(all_data)
 
-
-# =============================================================================
 # TRAINING DATA — GNN Retraining Data Generator
-# =============================================================================
 #
 # Generates training samples for GNN surrogate model retraining.
 # Produces node and edge feature CSVs to be processed by Grasshopper/Karamba
 # FEA (which adds the Utilization column) before c21_surrogate_training.py.
 #
-# Strategy: random stock assignment across randomly sampled geometries.
-# Mean-EA force estimation (c24) is retained as a fast single FEM solve per
-# geometry to produce N_mean_EA — structural demand per member.
-#
-# Outputs (saved to config.GH_DATA_PATH):
-#   training_nodes_raw.csv  — node features, one row per node per sample
-#   training_edges_raw.csv  — edge features without Utilization column
-#
-# After Grasshopper adds Utilization, run c21_surrogate_training.run_preprocessing()
-# with edge_csv="training_edges_raw" and node_csv="training_nodes_raw".
+# Outputs: node features CSV + edge features CSV (without Utilization).
+# Grasshopper adds Utilization via FEA; then run c21_surrogate_training.run_preprocessing().
 
 NEW_EDGE_COLS = ["Depth_m", "Width_m", "Length", "E", "Iy", "Iz", "J", "EA/L", "N_mean_EA"]
 NODE_COLS     = ["x", "y", "z", "Tx", "Ty", "Tz", "Rx", "Ry", "Rz", "Fz"]
-
 
 def _sort_vertices(df_vertices: pd.DataFrame) -> pd.DataFrame:
     verts = df_vertices.copy()
     verts["v_idx"] = verts["vertex_index"].str.replace("v", "", regex=False).astype(int)
     return verts.sort_values("v_idx").reset_index(drop=True)
-
 
 def _derive_node_roles(
     df_vertices: pd.DataFrame,
@@ -433,12 +408,10 @@ def _derive_node_roles(
     load_nodes     = verts[verts["attribute"] == "load"]["v_idx"].tolist()
     return verts, node_positions, support_nodes, load_nodes
 
-
 def _geometry_signature(df_vertices: pd.DataFrame, decimals: int = 2) -> tuple:
     """Coordinate-based signature for near-duplicate detection."""
     verts = _sort_vertices(df_vertices)
     return tuple(map(tuple, verts[["x", "y", "z"]].round(decimals).values))
-
 
 def _member_lengths_m(node_positions: np.ndarray, df_edges: pd.DataFrame) -> np.ndarray:
     """Euclidean length of each member in metres."""
@@ -446,11 +419,9 @@ def _member_lengths_m(node_positions: np.ndarray, df_edges: pd.DataFrame) -> np.
     v2 = df_edges["V2"].values.astype(int)
     return np.linalg.norm(node_positions[v2] - node_positions[v1], axis=1)
 
-
 def _random_assignment(n_slots: int, n_stock: int, rng: np.random.Generator) -> np.ndarray:
     """Assign one stock element per slot, drawn uniformly from the full stock pool."""
     return rng.integers(0, n_stock, size=n_slots)
-
 
 def _build_node_rows(
     verts_sorted:  pd.DataFrame,
@@ -481,7 +452,6 @@ def _build_node_rows(
             "Fz": round(float(fz_nodal[idx]), 4),
         })
     return rows
-
 
 def _build_edge_rows(
     df_edges:      pd.DataFrame,
@@ -515,13 +485,11 @@ def _build_edge_rows(
         })
     return rows
 
-
 def _save_checkpoint(node_rows: list[dict], edge_rows: list[dict], output_dir: Path) -> None:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     pd.DataFrame(node_rows).to_csv(output_dir / f"training_nodes_checkpoint_{ts}.csv", index=False)
     pd.DataFrame(edge_rows).to_csv(output_dir / f"training_edges_checkpoint_{ts}.csv", index=False)
     print(f"  [checkpoint: {len(node_rows)} node rows, {len(edge_rows)} edge rows]")
-
 
 def generate_training_samples(
     n_samples:         int                = 10_000,
@@ -710,10 +678,7 @@ def generate_training_samples(
         "df_edges_out":   df_edges_out,
     }
 
-
-# =============================================================================
 # CLI
-# =============================================================================
 
 if __name__ == "__main__":
     import argparse

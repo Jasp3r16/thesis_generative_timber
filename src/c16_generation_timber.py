@@ -1,7 +1,4 @@
-"""
-Timber Stock Generation Module
-Generates new and reclaimed timber inventories from parameters.
-"""
+"""Timber stock generation — new catalogue and reclaimed donor building inventories."""
 
 import itertools
 import json

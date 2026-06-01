@@ -353,8 +353,8 @@ class TrussEdgeSafetyGNN(nn.Module):
         [num_edges, 1]  P(unsafe) = P(Utilisation > 1.0) per member
     """
     def __init__(self, node_features_dim=10, edge_features_dim=9,
-                 hidden_dim=64, num_layers=4, use_batch_norm=True,
-                 use_residuals=True, dropout_p=0.3):
+                 hidden_dim=128, num_layers=4, use_batch_norm=True,
+                 use_residuals=True, dropout_p=0.1):
         super().__init__()
         self.num_layers     = num_layers
         self.use_batch_norm = use_batch_norm

@@ -1,33 +1,3 @@
-# =============================================================================
-# c23_ga_evaluator.py — Design Evaluator + One-Time Bounds
-# =============================================================================
-#
-# Changes vs v4:
-#   5. stock_df_raw=df_stock added to run_milp_stage() in both
-#      evaluate_design_candidate() and _compute_one_time_normalization_constants().
-#      milp_assignment is now built once inside run_milp_stage() and read from
-#      milp_out["milp_assignment"] directly — stage_gnn.build_milp_assignment()
-#      is no longer called in the evaluator.
-#   6. _normalize_bounds_constants() validates C_max and R_max. W_max removed
-#      — waste is no longer a fitness term (captured by LCA cost in c25).
-#      R_max = 0.0 now names the stock composition cause and fix.
-#   7. _compute_one_time_normalization_constants() catches stock-composition
-#      ValueErrors immediately (skips remaining probes) vs transient errors
-#      (continues retrying).
-#   8. evaluate_design_candidate() accepts prepared_stock (pre-computed output
-#      of stage_cost.prepare_stock_cost_inputs) and forwards it to
-#      build_cost_matrix() — avoids repeating the stock prep on every GA call.
-#   9. evaluate_design_candidate() accepts prepared_gnn_stock (pre-computed
-#      output of stage_gnn.prepare_stock_for_gnn) and passes it to
-#      run_gnn_stage() — avoids copying and converting the stock DataFrame on
-#      every GNN call. Also passes support_nodes / load_nodes from the derived
-#      geometry so GNN receives correct boundary condition features.
-#
-# Changes vs v3 (carried forward):
-#   1. v_idx derivation added to _compute_one_time_normalization_constants().
-#   2. Duplicate v_idx derivation removed from evaluate_design_candidate().
-#   3. build_logs=True added to build_cost_matrix() in bounds probe.
-
 import warnings
 import numpy as np
 import pandas as pd
@@ -35,17 +5,14 @@ import config
 
 from c21_surrogate_io import load_surrogate_bundle
 from workflows import c22_stage_geometry             as stage_geometry
-from workflows import c24_stage_feasibility          as stage_feas       # stage_feas throughout
+from workflows import c24_stage_feasibility          as stage_feas
 from workflows import c25_stage_cost_matrix          as stage_cost
 from workflows import c26_stage_MILP                 as stage_milp
 from workflows import c27_stage_GNN                  as stage_gnn
 from workflows import c28_stage_fitness_score        as stage_fitness
 from workflows import c28_stage_normalization_bounds as stage_bounds
 
-
-# =============================================================================
 # INTERNAL HELPERS
-# =============================================================================
 
 def _resolve_weight_config(
     config_dict:  dict,
@@ -66,7 +33,6 @@ def _resolve_weight_config(
     base["omega_4"] = float(w_structural)
     return base
 
-
 def _resolve_w_structural(
     config_dict:     dict,
     generation:      int = 0,
@@ -78,7 +44,6 @@ def _resolve_w_structural(
         return w_end
     t = min(generation / max_generations, 1.0)
     return w_start + (w_end - w_start) * t
-
 
 def _normalize_bounds_constants(constants: dict) -> dict:
     out = {
@@ -101,7 +66,6 @@ def _normalize_bounds_constants(constants: dict) -> dict:
         )
     return out
 
-
 def _derive_node_roles(df_vertices: pd.DataFrame) -> tuple:
     """
     Derive node_positions, support_nodes, load_nodes from df_vertices.
@@ -115,10 +79,7 @@ def _derive_node_roles(df_vertices: pd.DataFrame) -> tuple:
     load_nodes     = verts[verts["attribute"] == "load"]["v_idx"].tolist()
     return verts, node_positions, support_nodes, load_nodes
 
-
-# =============================================================================
 # ONE-TIME NORMALISATION BOUNDS
-# =============================================================================
 
 def _compute_one_time_normalization_constants(
     search_space: dict,
@@ -282,10 +243,7 @@ def _compute_one_time_normalization_constants(
         "n_successful": n_success,
     }
 
-
-# =============================================================================
 # DESIGN EVALUATOR
-# =============================================================================
 
 def evaluate_design_candidate(
     design_params:        dict,

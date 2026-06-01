@@ -1,15 +1,7 @@
-"""Fitness aggregation and evaluation for the MILP workflow.
+"""Multi-objective fitness: F = ω₁·Ĉ − ω₂·R̂ + ω₄·S (minimised).
 
-This module orchestrates fitness calculation by combining:
-- Individual metric evaluation (LCA cost, volume-weighted reuse fraction)
-- Normalization of metrics to [0, 1] range
-- Multi-objective fitness function with configurable weights
-- Sanity checks for normalization and weight configuration
-
-Waste is excluded from the fitness function: it is already captured through
-the LCA cost components (C3/C4 waste streams, over-purchase penalties) in
-c25_stage_cost_matrix. A separate waste term would double-count the same
-physical material.
+Waste is excluded from the fitness function — it is already captured by the
+LCA cost components (C3/C4 streams) in c25_stage_cost_matrix.
 """
 
 from __future__ import annotations
@@ -22,22 +14,14 @@ import pandas as pd
 
 from workflows.c28_stage_normalization_bounds import get_default_normalization_constants
 
-
-# ============================================================================
 # Column Resolution Helpers
-# ============================================================================
-
 
 def _column_by_lower(df: pd.DataFrame, name: str) -> str | None:
     """Find a DataFrame column case-insensitively."""
     mapping = {str(col).strip().lower(): str(col) for col in df.columns}
     return mapping.get(name.strip().lower())
 
-
-# ============================================================================
 # Weight Configuration
-# ============================================================================
-
 
 def validate_weight_config(weight_config: dict[str, float]) -> dict[str, float]:
     """Validate a notebook-provided weight config.
@@ -74,7 +58,6 @@ def validate_weight_config(weight_config: dict[str, float]) -> dict[str, float]:
         "omega_4": omega_4,
     }
 
-
 def weights_from_config(weight_config: dict[str, float]) -> tuple[float, float, float]:
     """Convert a weight config dictionary to the (omega_1, omega_2, omega_4) tuple."""
     validated = validate_weight_config(weight_config)
@@ -84,11 +67,7 @@ def weights_from_config(weight_config: dict[str, float]) -> tuple[float, float, 
         float(validated["omega_4"]),
     )
 
-
-# ============================================================================
 # Reclaimed State Resolution
-# ============================================================================
-
 
 def _resolve_stock_state_map(enriched_stock_df: pd.DataFrame) -> dict[str, int]:
     """Build a mapping of stock item IDs to their reclaimed state (0 or 1)."""
@@ -109,11 +88,7 @@ def _resolve_stock_state_map(enriched_stock_df: pd.DataFrame) -> dict[str, int]:
 
     return {mid: int(mid.upper().startswith("RS")) for mid in member_ids}
 
-
-# ============================================================================
 # Metric Calculation
-# ============================================================================
-
 
 def calculate_reuse_volume_fraction(
     milp_results_df:   pd.DataFrame,
@@ -171,7 +146,6 @@ def calculate_reuse_volume_fraction(
             reclaimed_vol += vol
 
     return float(reclaimed_vol / total_vol) if total_vol > 0.0 else 0.0
-
 
 def calculate_total_waste(
     milp_results_df:    pd.DataFrame,
@@ -237,16 +211,11 @@ def calculate_total_waste(
 
     return float(total_waste_m3)
 
-
 def get_inner_cost(milp_result: float) -> float:
     """Return MILP objective value as float."""
     return float(milp_result)
 
-
-# ============================================================================
 # Normalization
-# ============================================================================
-
 
 def normalize_metrics(
     cost:                    float,
@@ -267,7 +236,6 @@ def normalize_metrics(
     cost_norm  = float(np.clip(float(cost)            / c_max, 0.0, 1.0))
     reuse_norm = float(np.clip(float(reuse_fraction)  / r_max, 0.0, 1.0))
     return cost_norm, reuse_norm
-
 
 def derive_normalization_constants_from_solution(
     milp_results_df:     pd.DataFrame,
@@ -296,11 +264,7 @@ def derive_normalization_constants_from_solution(
         "R_max": float(min(r_max, 1.0)),
     }
 
-
-# ============================================================================
 # Multi-Objective Fitness
-# ============================================================================
-
 
 def fitness_function_multi_objective(
     cost_norm:               float,
@@ -329,7 +293,6 @@ def fitness_function_multi_objective(
         - omega_2 * reuse_norm
         + omega_4 * float(structural_infeasibility)
     )
-
 
 def interpret_fitness_score(
     fitness: float,
@@ -366,15 +329,11 @@ def interpret_fitness_score(
         return "FAIR", "Cost, low reuse, or structural infeasibility starting to dominate"
     return "POOR", "Solution dominated by cost, low reuse, or structural infeasibility"
 
-
-# ============================================================================
 # Solution Evaluation
-# ============================================================================
 
 # Fraction of members predicted unsafe above which a solution is flagged
 # structurally infeasible in `is_feasible`. Applies only when omega_4 > 0.
 STRUCTURAL_FEASIBILITY_THRESHOLD = 0.5
-
 
 def evaluate_milp_solution(
     milp_results_df:         pd.DataFrame,
@@ -429,11 +388,7 @@ def evaluate_milp_solution(
         "is_feasible":              is_feasible,
     }
 
-
-# ============================================================================
 # Sanity Checks
-# ============================================================================
-
 
 def run_fitness_sanity_checks(
     normalization_constants: dict[str, float],
@@ -476,11 +431,7 @@ def run_fitness_sanity_checks(
         },
     }
 
-
-# ============================================================================
 # Printing & Debugging
-# ============================================================================
-
 
 def print_fitness_breakdown(result: dict[str, Any]) -> None:
     """Pretty-print a fitness result dictionary for debugging."""
@@ -537,11 +488,7 @@ def print_fitness_breakdown(result: dict[str, Any]) -> None:
     print(f"  Bands: ≤ {q25:.3f} excellent, ≤ {q50:.3f} good, ≤ {q75:.3f} fair, > {q75:.3f} poor")
     print("=" * 70 + "\n")
 
-
-# ============================================================================
 # Orchestration
-# ============================================================================
-
 
 def run_fitness_stage(
     df_results:                     pd.DataFrame,

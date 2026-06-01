@@ -1,59 +1,6 @@
-# =============================================================================
-# Step 2 — Cost Matrix Pre-Filter  (v2)
-# =============================================================================
-#
-# Filters the 120 × 506 slot/stock combination matrix before MILP.
-# Outputs are directly compatible with c26_cost_calculation.build_cost_matrix().
-#
-# Load assumption:
-#   Single truss carrying full roof (15m × 9m = 135 m²)
-#   Design load: 2.0 kN/m² (self-weight + snow, per Eurocode guidelines)
-#   Total: 270 kN distributed equally across 20 load nodes = 13.5 kN/node
-#
-# Filter pipeline:
-#   Stage 1 — Length (hard constraint):
-#             Stock must be >= slot length (no shorter allowed).
-#             Stock may be longer by up to MAX_OVERSIZE_FRAC (cutting waste limit).
-#   Stage 2 — Force estimation:
-#             Linear truss solve with mean stock properties.
-#             Indeterminate structure → forces within ~10-20% of true values.
-#   Stage 3 — EC5 cross-section checks (v2: four sub-checks):
-#             3a. Slenderness:      lambda = L/i <= MAX_SLENDERNESS (compression)
-#             3b. Depth-to-length:  depth >= L / MAX_DEPTH_TO_LENGTH_RATIO (all members)
-#             3c. Width-to-depth:   width >= depth / MAX_WIDTH_DEPTH_RATIO (all members)
-#             3d. Tension:          A >= N / (kmod * f_tk  / gamma_M)
-#             3e. Compression+buckling: A >= N / (kc * kmod * f_c0k / gamma_M)
-#
-# v2 additions vs v1:
-#   - Stage 3a: slenderness check uses weak-axis i_z = min(w,d)/sqrt(12) (EC5 §6.3.2)
-#     — correctly filters laterally slender sections (e.g. 60×170mm at 3m: λ_z=173>150)
-#   - Stage 3b: depth-to-length ratio filter (d >= L/40) — loose sanity check
-#   - Stage 3c: width-to-depth ratio filter (w >= d/5) — eliminates laterally
-#     unstable sections (EC5 lateral stability)
-#   - filter_stats extended with per-stage elimination counts
-#
-# Outputs:
-#   df_slots          — pd.DataFrame [120 rows] with edge_id, length_m,
-#                       Length_Req, Width_Req, Depth_Req per slot
-#   feasibility_mask  — np.ndarray bool [120, 506]
-#                       True  = slot/stock combination is feasible
-#                       False = infeasible (set to inf in cost matrix)
-#   member_forces     — np.ndarray [120] estimated axial force per member (N)
-#   filter_stats      — dict summarising eliminations per stage
-#
-# Integration (call each GA iteration):
-#   df_slots, mask, forces, stats = build_cost_filter(node_positions, ...)
-#
-#   # Apply mask to your LCA cost matrix before MILP:
-#   cost_matrix[~mask] = np.inf
-
 import numpy as np
 import pandas as pd
 from scipy.spatial import Delaunay
-
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
 
 # --- Load ---
 ROOF_LENGTH_M     = 15.0     # truss long dimension (m)
@@ -93,16 +40,13 @@ MAX_WIDTH_DEPTH_RATIO = 5        # width >= depth / 5 (all members)
 DEFAULT_MIN_WIDTH_MM  = 38.0   # minimum standard timber width (mm)
 DEFAULT_MIN_DEPTH_MM  = 100.0  # minimum standard timber depth (mm)
 
-# =============================================================================
 # GEOMETRY HELPERS
-# =============================================================================
 
 def compute_member_lengths(node_positions, edges_v1, edges_v2):
     """Euclidean length of each member (metres)."""
     return np.linalg.norm(
         node_positions[edges_v2] - node_positions[edges_v1], axis=1
     )
-
 
 def compute_nodal_fz(
     node_positions: np.ndarray,
@@ -155,10 +99,7 @@ def compute_nodal_fz(
 
     return fz
 
-
-# =============================================================================
 # STAGE 1 — LENGTH FILTER (hard constraint)
-# =============================================================================
 
 def length_filter(slot_lengths_m, stock_lengths_mm):
     """
@@ -173,10 +114,7 @@ def length_filter(slot_lengths_m, stock_lengths_mm):
     return (stock_lengths_mm[None, :] >= min_required) & \
            (stock_lengths_mm[None, :] <= max_allowed)
 
-
-# =============================================================================
 # STAGE 2 — FORCE ESTIMATION (3D bar stiffness method)
-# =============================================================================
 
 def assemble_stiffness(node_positions, edges_v1, edges_v2, EA_per_member):
     """Assemble global stiffness matrix for 3D pin-jointed bar elements."""
@@ -198,7 +136,6 @@ def assemble_stiffness(node_positions, edges_v1, edges_v2, EA_per_member):
                 K[dofs[a], dofs[b]] += k_e[a, b]
     return K
 
-
 def apply_boundary_conditions(K, f_vec, support_nodes):
     """Enforce fixed pin supports (all 3 DOF fixed)."""
     K_bc = K.copy()
@@ -211,7 +148,6 @@ def apply_boundary_conditions(K, f_vec, support_nodes):
             K_bc[dof, dof] = 1.0
             f_bc[dof]      = 0.0
     return K_bc, f_bc
-
 
 def estimate_member_forces(node_positions, edges_v1, edges_v2,
                            support_nodes, load_nodes,
@@ -253,10 +189,7 @@ def estimate_member_forces(node_positions, edges_v1, edges_v2,
         forces[i] = (EA_arr[i] / L) * delta
     return forces
 
-
-# =============================================================================
 # STAGE 3 — EC5 CROSS-SECTION CHECKS
-# =============================================================================
 
 def buckling_factor_kc(slenderness, E_005, f_c0k):
     """EC5 §6.3.2 column buckling factor kc."""
@@ -266,7 +199,6 @@ def buckling_factor_kc(slenderness, E_005, f_c0k):
     k  = 0.5 * (1.0 + BETA_C * (lambda_rel - 0.3) + lambda_rel**2)
     kc = 1.0 / (k + np.sqrt(max(k**2 - lambda_rel**2, 0.0)))
     return float(np.clip(kc, 0.05, 1.0))
-
 
 def structural_filter(member_forces_n, member_lengths_m, stock_df):
     """
@@ -300,9 +232,7 @@ def structural_filter(member_forces_n, member_lengths_m, stock_df):
     N_design_all = member_forces_n * FORCE_SAFETY_FACTOR   # [n_slots]
     L_mm_all     = member_lengths_m * 1000.0               # [n_slots]
 
-    # ------------------------------------------------------------------
     # 3a. Slenderness (compression members only) — vectorised
-    # ------------------------------------------------------------------
     comp_slots = N_design_all < -1.0                                  # [n_slots] bool
     if comp_slots.any():
         lambda_s = L_mm_all[comp_slots, None] / i_z_all[None, :]     # [n_comp, n_stock]
@@ -310,33 +240,25 @@ def structural_filter(member_forces_n, member_lengths_m, stock_df):
 
     n_after_slenderness = int(mask.sum())
 
-    # ------------------------------------------------------------------
     # 3b. Depth-to-length ratio (all members) — vectorised
-    # ------------------------------------------------------------------
     min_depth_req = L_mm_all / MAX_DEPTH_TO_LENGTH_RATIO              # [n_slots]
     mask &= (depth_mm[None, :] >= min_depth_req[:, None])
 
     n_after_depth_ratio = int(mask.sum())
 
-    # ------------------------------------------------------------------
     # 3c. Width-to-depth ratio (all members) — vectorised
-    # ------------------------------------------------------------------
     min_width_req = depth_mm / MAX_WIDTH_DEPTH_RATIO                  # [n_stock]
     mask &= (width_mm[None, :] >= min_width_req[None, :])
 
     n_after_width_ratio = int(mask.sum())
 
-    # ------------------------------------------------------------------
     # 3d. Tension — vectorised over all tension slots
-    # ------------------------------------------------------------------
     tens_slots = N_design_all >= 1.0                                   # [n_slots] bool
     if tens_slots.any():
         min_area_tens = N_design_all[tens_slots, None] / f_td[None, :]  # [n_tens, n_stock]
         mask[tens_slots] &= (A_mm2[None, :] >= min_area_tens)
 
-    # ------------------------------------------------------------------
     # 3e. Compression + buckling — vectorised over all compression slots
-    # ------------------------------------------------------------------
     if comp_slots.any():
         N_comp     = np.abs(N_design_all[comp_slots])                                # [n_comp]
         lambda_s   = L_mm_all[comp_slots, None] / i_z_all[None, :]                  # [n_comp, n_stock]
@@ -374,10 +296,7 @@ def structural_filter(member_forces_n, member_lengths_m, stock_df):
 
     return mask, min_depth_per_slot, min_width_per_slot, substage_counts
 
-
-# =============================================================================
 # BUILD df_slots — compatible with c26_cost_calculation
-# =============================================================================
 
 def build_df_slots(edges_df, slot_lengths_m,
                    min_depth_per_slot, min_width_per_slot):
@@ -400,11 +319,7 @@ def build_df_slots(edges_df, slot_lengths_m,
     })
     return df_slots
 
-
-
-# =============================================================================
 # MAIN — call each GA iteration
-# =============================================================================
 
 def build_cost_filter(node_positions, edges_df, stock_df,
                       support_nodes, load_nodes,

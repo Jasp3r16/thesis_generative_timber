@@ -1,20 +1,3 @@
-"""
-run_ga_batch.py — Unattended multi-run GA batch runner.
-
-Runs the full CMA-ES optimizer N times on a chosen stock dataset, exporting
-each run to its own timestamped directory. Normalization bounds and the GNN
-bundle are computed/loaded once and shared across all runs. Seeds increment
-per run so each exploration is independent.
-
-includes also a option to do multiple runs for all three scenarios, but that is not the default.
-this is defined by MULTIPLE_SCENARIOS = False, if True it will run all three scenarios with N_RUNS each, if False it will only run the scenario defined in TRAINING_SCENARIO.
-
-Usage (from repo root, with venv active):
-    python run_ga_batch.py
-
-Edit the CONFIG block below to change scenario mode, run count, or GA parameters.
-"""
-
 import importlib
 import json
 import random
@@ -29,9 +12,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# ---------------------------------------------------------------------------
+
 # CONFIG — edit here before each batch
-# ---------------------------------------------------------------------------
+
 
 TRAINING_SCENARIO = "new"          # "A", "B", or "new"
 MULTIPLE_SCENARIOS = False         # True runs A, B, and new with N_RUNS each
@@ -62,9 +45,9 @@ CMAES_STAGNATION   = 30
 CMAES_LOG_EVERY    = 10         # print progress every N generations
 N_RESTART_MAX      = 0          # maximum number of restarts
 
-# ---------------------------------------------------------------------------
+
 # Repo path setup
-# ---------------------------------------------------------------------------
+
 
 REPO_ROOT = Path(__file__).resolve().parent
 for candidate in [REPO_ROOT, *REPO_ROOT.parents]:
@@ -77,7 +60,7 @@ for p in [REPO_ROOT, REPO_ROOT / "src", REPO_ROOT / "workflows"]:
         sys.path.insert(0, str(p))
 
 import config
-import c00_headquarter_params as c11_params
+import c00_headquarter_params as c11_params  # consistent alias used throughout src/
 from workflows import c22_stage_geometry             as stage_geometry
 from workflows import c24_stage_feasibility          as stage_feas
 from workflows import c25_stage_cost_matrix          as stage_cost
@@ -110,9 +93,9 @@ def _ss_to_bounds(ss: dict) -> dict:
 
 es_search_space = _ss_to_bounds(optimizer_search_space)
 
-# ---------------------------------------------------------------------------
+
 # Load GNN bundle once (if USE_GNN)
-# ---------------------------------------------------------------------------
+
 
 SURROGATE_BUNDLE = None
 if USE_GNN and MODEL_PREFIX:
