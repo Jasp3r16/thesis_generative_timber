@@ -1,5 +1,6 @@
 import importlib
 import json
+import os
 import random
 import sys
 import time
@@ -44,6 +45,23 @@ CMAES_SIGMA_MIN    = 1e-8
 CMAES_STAGNATION   = 30
 CMAES_LOG_EVERY    = 10         # print progress every N generations
 N_RESTART_MAX      = 0          # maximum number of restarts
+
+
+# Cluster / array-job overrides — no-op locally when the env vars are unset.
+# Lets the DelftBlue SLURM array run one seed per task without editing this file.
+
+
+TRAINING_SCENARIO = os.environ.get("GA_SCENARIO", TRAINING_SCENARIO)
+CMAES_GENERATIONS = int(os.environ.get("GA_GENERATIONS", CMAES_GENERATIONS))
+
+# GA_RUN_INDEX (0-based): run ONLY this run index instead of all N_RUNS.
+# BASE_SEED is deliberately left untouched so the one-time normalization bounds
+# (seeded from BASE_SEED) are identical across array tasks — only the per-run
+# seed (BASE_SEED + run_idx) and the RUN{n} export tag differ between tasks.
+_ga_run_index = os.environ.get("GA_RUN_INDEX")
+RUN_INDEX_OVERRIDE = int(_ga_run_index) if _ga_run_index not in (None, "") else None
+if RUN_INDEX_OVERRIDE is not None and not (0 <= RUN_INDEX_OVERRIDE < N_RUNS):
+    raise ValueError(f"GA_RUN_INDEX={RUN_INDEX_OVERRIDE} out of range [0, {N_RUNS})")
 
 
 # Repo path setup
@@ -153,8 +171,12 @@ def run_batch_for_scenario(training_scenario: str, run_offset: int, total_runs: 
 
     run_summaries = []
 
+    run_indices = ([RUN_INDEX_OVERRIDE] if RUN_INDEX_OVERRIDE is not None
+                   else list(range(N_RUNS)))
+
     print(f"\n{'='*65}")
-    print(f"BATCH: Stock={training_scenario}  N_RUNS={N_RUNS}  "
+    print(f"BATCH: Stock={training_scenario}  "
+          f"runs={[run_offset + i + 1 for i in run_indices]} of {total_runs}  "
           f"GNN={'Yes' if USE_GNN else 'No'}")
     print(f"Budget per run: popsize={CMAES_POPSIZE} × gens={CMAES_GENERATIONS} "
           f"= {CMAES_POPSIZE * CMAES_GENERATIONS:,} evaluations")
@@ -163,7 +185,7 @@ def run_batch_for_scenario(training_scenario: str, run_offset: int, total_runs: 
         print(f"  {k}: {v}")
     print(f"{'='*65}\n")
 
-    for run_idx in range(N_RUNS):
+    for run_idx in run_indices:
         global_run_idx = run_offset + run_idx + 1
         seed = BASE_SEED + run_idx
         random.seed(seed); np.random.seed(seed)
@@ -309,7 +331,7 @@ def run_batch_for_scenario(training_scenario: str, run_offset: int, total_runs: 
     # -----------------------------------------------------------------------
 
     print(f"\n{'='*65}")
-    print(f"BATCH COMPLETE — Stock {training_scenario}  ({N_RUNS} runs)")
+    print(f"BATCH COMPLETE — Stock {training_scenario}  ({len(run_indices)} runs)")
     print(f"{'='*65}")
     print(f"  {'Run':>7}  {'Stock':>5}  {'Seed':>6}  {'Fitness':>10}  {'Cost':>8}  {'Reuse':>7}  {'GNN':>7}  {'Min':>6}")
     print(f"  {'─'*7}  {'─'*5}  {'─'*6}  {'─'*10}  {'─'*8}  {'─'*7}  {'─'*7}  {'─'*6}")

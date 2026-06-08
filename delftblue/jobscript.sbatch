@@ -1,25 +1,30 @@
 #!/bin/bash
-# DelftBlue SLURM job: c23_run_ga_batch.py
-# Current config in the script: scenario "A", N_RUNS=3 (seeds 42/43/44),
-# CMAES_GENERATIONS=500, popsize 30  ->  3 runs x 15,000 evals.
+# DelftBlue SLURM ARRAY job: c23_run_ga_batch.py — one seed per task.
+#   task 0 -> seed 42 -> RUN1
+#   task 1 -> seed 43 -> RUN2
+#   task 2 -> seed 44 -> RUN3
+# Each task runs ONE 500-gen run (15,000 evals, ~4-6 h on CPU), all three in
+# parallel. The one-time normalization bounds are seeded from BASE_SEED inside
+# the script, so they are identical across tasks (runs stay comparable).
 #
 # Submit from the repo root on DelftBlue:
 #     sbatch delftblue/jobscript.sbatch
 #
-# !! Before first submit, set --account to YOUR allocation (run `sacctmgr show
-#    assoc user=$USER format=account` to list the ones you can charge to).
+# !! Before first submit, set --account to YOUR allocation:
+#    sacctmgr show assoc user=$USER format=account
 
-#SBATCH --job-name=ga_batch_A
+#SBATCH --job-name=ga_A
 #SBATCH --partition=compute
-#SBATCH --account=ACCOUNT_PLACEHOLDER
+#SBATCH --account=education-abe-msc-a
 #SBATCH --qos=normal
-#SBATCH --time=24:00:00
+#SBATCH --time=12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=2G
-#SBATCH --output=logs/ga_batch_%j.out
-#SBATCH --error=logs/ga_batch_%j.err
+#SBATCH --array=0-2
+#SBATCH --output=logs/ga_A_%A_%a.out
+#SBATCH --error=logs/ga_A_%A_%a.err
 
 set -euo pipefail
 
@@ -28,20 +33,24 @@ module load miniconda3
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate timber-ga
 
-# Run from the directory the job was submitted from (repo root expected).
 cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs
 
-# The GA evaluates candidates sequentially; extra cores only help the BLAS /
-# CBC / torch intra-op threads. Cap them to the allocation to avoid oversubscribe.
+# GA evaluates candidates sequentially; extra cores only help BLAS / CBC / torch
+# intra-op threads. Cap them to the allocation to avoid oversubscription.
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
-echo "Job $SLURM_JOB_ID on $(hostname) — $(date)"
-echo "Python: $(which python)"
+# Drive the run via the env-var hook in c23_run_ga_batch.py.
+export GA_SCENARIO=A
+export GA_GENERATIONS=500
+export GA_RUN_INDEX="${SLURM_ARRAY_TASK_ID}"
 
-# -u = unbuffered, so the per-generation prints stream into the .out log live.
+echo "Job ${SLURM_ARRAY_JOB_ID} task ${SLURM_ARRAY_TASK_ID} on $(hostname) — $(date)"
+echo "Scenario=${GA_SCENARIO}  gens=${GA_GENERATIONS}  run_index=${GA_RUN_INDEX} (seed $((42 + SLURM_ARRAY_TASK_ID)))"
+
+# -u = unbuffered so per-generation prints stream live into the .out log.
 python -u c23_run_ga_batch.py
 
-echo "Done — $(date)"
+echo "Done task ${SLURM_ARRAY_TASK_ID} — $(date)"
