@@ -16,7 +16,7 @@ import pandas as pd
 # CONFIG — edit here before each batch
 
 
-TRAINING_SCENARIO = "new"          # "A", "B", or "new"
+TRAINING_SCENARIO = "A"            # "A", "B", or "new"
 MULTIPLE_SCENARIOS = False         # True runs A, B, and new with N_RUNS each
 N_RUNS            = 3            # number of independent GA runs
 BASE_SEED         = 42           # seeds will be 42, 43, 44, 45, 46
@@ -38,7 +38,7 @@ GA_CONFIG = {
 }
 
 CMAES_POPSIZE      = 30
-CMAES_GENERATIONS  = 250
+CMAES_GENERATIONS  = 500
 CMAES_SIGMA_INIT   = 0.25
 CMAES_SIGMA_MIN    = 1e-8
 CMAES_STAGNATION   = 30
