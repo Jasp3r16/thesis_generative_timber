@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Sequence
 
 import numpy as np
@@ -16,6 +17,15 @@ E_SAW            = float(_params.ENERGY_SAW_A5)
 E_OFFCUT         = float(_params.ENERGY_OFFCUT_FACTOR_C3_C4)
 WASTE_DIST_KM    = float(_params.WASTE_TRANSPORT_DIST_KM)
 SCARCITY_PENALTY = float(_params.SCARCITY_PENALTY)
+
+# TDUK 2026 sensitivity (thesis §6.4.2). When the env var GA_A1A3_PER_M3 is set,
+# the new-timber A1–A3 embodied term switches from the per-MASS basis
+# (mass_req × M_A1_A3, kg CO2e/kg) to a per-VOLUME basis (v_req × factor,
+# kg CO2e/m³). The 2026 TDUK UK average is 47 kg CO2e/m³. Per-volume is the
+# faithful unit for that figure (it decouples from per-element density), and the
+# override leaves baseline behaviour unchanged when the var is unset.
+_A1A3_PER_M3_OVERRIDE = os.environ.get("GA_A1A3_PER_M3")
+_A1A3_PER_M3 = float(_A1A3_PER_M3_OVERRIDE) if _A1A3_PER_M3_OVERRIDE else None
 
 # Column name candidates (case-insensitive lookup)
 
@@ -159,7 +169,11 @@ def _compute_lca_vectors(
     mass_waste = v_waste * density
 
     # LCA components
-    e_embodied   = np.where(is_reclaimed, 0.0,       mass_req   * M_A1_A3)
+    # New-timber A1–A3: per-volume (TDUK 2026 override) or per-mass (baseline).
+    if _A1A3_PER_M3 is not None:
+        e_embodied = np.where(is_reclaimed, 0.0, v_req    * _A1A3_PER_M3)
+    else:
+        e_embodied = np.where(is_reclaimed, 0.0, mass_req * M_A1_A3)
     e_transport  = np.where(is_reclaimed, mass_stock, mass_req)  * distance_km * trans_factor
     e_recovered  = np.where(is_reclaimed, mass_stock * M_RECOVER, 0.0)
     # A5 prep: cleaning/de-nailing/testing — always applies to reclaimed elements

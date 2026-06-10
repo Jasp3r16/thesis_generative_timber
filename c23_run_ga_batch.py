@@ -19,7 +19,7 @@ import pandas as pd
 
 TRAINING_SCENARIO = "A"            # "A", "B", or "new"
 MULTIPLE_SCENARIOS = False         # True runs A, B, and new with N_RUNS each
-N_RUNS            = 3            # number of independent GA runs
+N_RUNS            = 10           # number of independent GA runs (seeds 42–51; §6.4.1)
 BASE_SEED         = 42           # seeds will be 42, 43, 44, 45, 46
 
 MODEL_PREFIX = "ID20260516_182257_LR1e-04_EP200_BS64_PW2.5_ROC0.863"
@@ -27,7 +27,7 @@ USE_GNN      = True              # set False to skip GNN (cost+reuse only)
 
 GA_CONFIG = {
     "fitness_weights":    {"omega_1": 1.0, "omega_2": 1.0},
-    "new_stock_max_uses": 120,
+    "new_stock_max_uses": 10,    # matches thesis Stock A baseline (§6.4 comparability)
     "min_reuse_fraction": 0.0,
     "penalty_fitness":    1e6,
     "use_one_time_bounds":   True,
@@ -294,6 +294,13 @@ def run_batch_for_scenario(training_scenario: str, run_offset: int, total_runs: 
             _ga_config_export = dict(GA_CONFIG)
             _ga_config_export["seed"]     = seed
             _ga_config_export["scenario"] = training_scenario
+            # Record the TDUK 2026 LCA override (if any) so exports are self-documenting,
+            # and tag the run folder with it so TDUK results never collide with the
+            # baseline RUN{n} (which can share the same seeds). §6.4.2.
+            _a1a3_override = os.environ.get("GA_A1A3_PER_M3")
+            _ga_config_export["a1a3_per_m3_override"] = _a1a3_override
+            _a1a3_tag = _a1a3_override.replace(".", "p") if _a1a3_override else ""
+            _tag_suffix = f"_TDUK{_a1a3_tag}" if _a1a3_override else ""
             export_out = ga_ae.run_export(
                 analysis_out         = analysis_out,
                 result               = result,
@@ -304,7 +311,8 @@ def run_batch_for_scenario(training_scenario: str, run_offset: int, total_runs: 
                 es                   = es,
                 df_stock             = df_input_stock,
                 stock_source_path    = stock_file,
-                run_tag              = f"RUN{global_run_idx}" if total_runs > 1 else None,
+                run_tag              = (f"RUN{global_run_idx}{_tag_suffix}" if total_runs > 1
+                                        else (f"TDUK{_a1a3_tag}" if _a1a3_override else None)),
             )
             export_dir = export_out["export_dir"]
             print(f"  Exported: {export_dir.name}")

@@ -1,11 +1,13 @@
 #!/bin/bash
 # DelftBlue SLURM ARRAY job: c23_run_ga_batch.py — one seed per task.
-#   task 0 -> seed 42 -> RUN1
-#   task 1 -> seed 43 -> RUN2
-#   task 2 -> seed 44 -> RUN3
-# Each task runs ONE 500-gen run (15,000 evals, ~4-6 h on CPU), all three in
-# parallel. The one-time normalization bounds are seeded from BASE_SEED inside
-# the script, so they are identical across tasks (runs stay comparable).
+#   task i -> seed (42 + i) -> RUN(i+1).  Array 0-9 = seeds 42..51 (10-seed
+#   convergence + stochastic-robustness set, thesis §6.4.1), at cap=10 to match
+#   the thesis Stock A baseline. Baseline LCA factor (GA_A1A3_PER_M3 unset).
+#   NOTE: this cap=10 set supersedes the earlier 3-run cap=120 batch (different
+#   cap — do not pool them). For the TDUK sweep use jobscript_tduk_sweep.sbatch.
+# Each task runs ONE 500-gen run (15,000 evals, ~3-5 h on CPU), all in parallel.
+# The one-time normalization bounds are seeded from BASE_SEED inside the script,
+# so they are identical across tasks (runs stay comparable).
 #
 # Submit from the repo root on DelftBlue:
 #     sbatch delftblue/jobscript.sbatch
@@ -22,7 +24,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=2G
-#SBATCH --array=0-2
+#SBATCH --array=0-9
 #SBATCH --output=logs/ga_A_%A_%a.out
 #SBATCH --error=logs/ga_A_%A_%a.err
 
