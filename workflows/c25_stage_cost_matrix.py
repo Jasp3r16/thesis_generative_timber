@@ -382,3 +382,51 @@ def _build_logs(
     })
 
     return pd.concat([df_feasible, df_infeasible], ignore_index=True)
+
+# Carbon-avoided-by-reuse metric (thesis §6.4.4 add-on — does NOT affect v1)
+
+def carbon_avoided_by_reuse(
+    cost_matrix: np.ndarray,
+    df_slots:    pd.DataFrame,
+    df_results:  pd.DataFrame,
+    stock:       pd.DataFrame,
+) -> float:
+    """Signed total embodied carbon (kg CO2e) avoided by the reclaimed assignments.
+
+    For each RECLAIMED-assigned slot:
+        (cheapest feasible NEW cost for that slot)  −  (actual reclaimed cost).
+    Positive where reuse undercuts the new-timber alternative; NEGATIVE where a
+    reclaimed piece costs more carbon than new would have for that slot. Summing
+    signed rewards carbon-reducing reuse and penalises carbon-wasteful reuse —
+    the "carbon-per-unit-reuse" idea from §7.5.
+
+    Add-on for §6.4.4. The volume-weighted reuse fraction (v1) is computed
+    separately in calculate_reuse_volume_fraction and is unaffected by this.
+
+    Parameters
+    ----------
+    cost_matrix : float [n_slots, n_stock]  (inf where infeasible) — from build_cost_matrix.
+    df_slots    : slot table (column edge_id), rows aligned to cost_matrix rows.
+    df_results  : MILP assignments (columns edge_id, assigned_timber).
+    stock       : prepared stock table (Member_ID, State_Resolved), aligned to columns.
+    """
+    if df_results is None or len(df_results) == 0:
+        return 0.0
+
+    slot_idx  = {s: i for i, s in enumerate(df_slots["edge_id"].astype(str).str.strip())}
+    stock_idx = {s: j for j, s in enumerate(stock["Member_ID"].astype(str).str.strip())}
+    is_rs     = stock["State_Resolved"].values.astype(float) >= 0.5
+    ns_cols   = np.where(~is_rs)[0]
+
+    total = 0.0
+    for _, row in df_results.iterrows():
+        i = slot_idx.get(str(row.get("edge_id", "")).strip())
+        j = stock_idx.get(str(row.get("assigned_timber", "")).strip())
+        if i is None or j is None or not is_rs[j]:
+            continue  # unmapped, or a new-timber slot (no reuse to credit)
+        ns_costs = cost_matrix[i, ns_cols]
+        finite   = ns_costs[np.isfinite(ns_costs)]
+        if finite.size == 0:
+            continue  # no feasible new alternative for this slot → no counterfactual
+        total += float(finite.min() - cost_matrix[i, j])
+    return float(total)

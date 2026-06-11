@@ -342,6 +342,8 @@ def evaluate_milp_solution(
     weights:                 tuple[float, float, float],
     normalization_constants: dict[str, float],
     structural_infeasibility: float = 0.0,
+    carbon_avoided:          float | None = None,
+    reuse_reward_mode:       str = "volume",
 ) -> dict[str, Any]:
     """Extract metrics, normalize them, and return fitness plus breakdown.
 
@@ -364,9 +366,21 @@ def evaluate_milp_solution(
         normalization_constants,
     )
 
+    # v2 add-on (§6.4.4): the carbon-avoided reward replaces the reuse reward in
+    # the fitness ONLY when reuse_reward_mode == "carbon_avoided". v1 (reuse_norm)
+    # is the default, and reuse_fraction is reported either way. Normalised by C_max
+    # (same kg-CO2e scale as cost); kept signed so carbon-wasteful reuse is penalised.
+    carbon_avoided_norm = None
+    if reuse_reward_mode == "carbon_avoided" and carbon_avoided is not None:
+        c_max = max(float(normalization_constants["C_max"]), 1e-9)
+        carbon_avoided_norm = float(np.clip(float(carbon_avoided) / c_max, -1.0, 1.0))
+        reward_norm = carbon_avoided_norm
+    else:
+        reward_norm = reuse_norm
+
     fitness = fitness_function_multi_objective(
         cost_norm,
-        reuse_norm,
+        reward_norm,
         weights,
         structural_infeasibility=float(structural_infeasibility),
     )
@@ -382,6 +396,9 @@ def evaluate_milp_solution(
         "reuse_fraction":           float(reuse_fraction),
         "cost_norm":                float(cost_norm),
         "reuse_norm":               float(reuse_norm),
+        "carbon_avoided":           (None if carbon_avoided is None else float(carbon_avoided)),
+        "carbon_avoided_norm":      carbon_avoided_norm,
+        "reuse_reward_mode":        reuse_reward_mode,
         "structural_infeasibility": float(structural_infeasibility),
         "structural_penalty":       float(omega_4 * structural_infeasibility),
         "weights":                  tuple(float(v) for v in weights),
@@ -502,6 +519,8 @@ def run_fitness_stage(
     run_sanity_checks:              bool = True,
     print_breakdown:                bool = False,
     structural_infeasibility:       float = 0.0,
+    carbon_avoided:                 float | None = None,
+    reuse_reward_mode:              str = "volume",
 ) -> dict[str, Any]:
     """Run fitness stage and return fitness values plus metadata.
 
@@ -573,6 +592,8 @@ def run_fitness_stage(
         weights=weights,
         normalization_constants=norm_constants,
         structural_infeasibility=float(structural_infeasibility),
+        carbon_avoided=carbon_avoided,
+        reuse_reward_mode=reuse_reward_mode,
     )
 
     if print_breakdown:

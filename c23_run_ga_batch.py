@@ -63,6 +63,21 @@ RUN_INDEX_OVERRIDE = int(_ga_run_index) if _ga_run_index not in (None, "") else 
 if RUN_INDEX_OVERRIDE is not None and not (0 <= RUN_INDEX_OVERRIDE < N_RUNS):
     raise ValueError(f"GA_RUN_INDEX={RUN_INDEX_OVERRIDE} out of range [0, {N_RUNS})")
 
+# Objective-weight overrides (§6.4.3 cost–reuse Pareto sweep) — no-op when unset.
+# At ω1=ω2=1.0 (the default) this reproduces the thesis weighting exactly.
+_omega_1 = os.environ.get("GA_OMEGA_1")
+_omega_2 = os.environ.get("GA_OMEGA_2")
+if _omega_1:
+    GA_CONFIG["fitness_weights"]["omega_1"] = float(_omega_1)
+if _omega_2:
+    GA_CONFIG["fitness_weights"]["omega_2"] = float(_omega_2)
+
+# Reuse-reward mode (§6.4.4): "volume" (default, v1 thesis metric) or
+# "carbon_avoided" (v2 add-on). No-op when GA_REUSE_REWARD is unset.
+_reuse_reward = os.environ.get("GA_REUSE_REWARD")
+if _reuse_reward:
+    GA_CONFIG["reuse_reward_mode"] = _reuse_reward
+
 
 # Repo path setup
 
@@ -300,7 +315,10 @@ def run_batch_for_scenario(training_scenario: str, run_offset: int, total_runs: 
             _a1a3_override = os.environ.get("GA_A1A3_PER_KG")
             _ga_config_export["a1a3_per_kg_override"] = _a1a3_override
             _a1a3_tag = _a1a3_override.replace(".", "p") if _a1a3_override else ""
-            _tag_suffix = f"_TDUK{_a1a3_tag}" if _a1a3_override else ""
+            # Generic experiment label (e.g. weight sweep "W0p25") appended to the tag.
+            _run_label = os.environ.get("GA_RUN_LABEL", "")
+            _label_tag = ("_" + _run_label.replace(".", "p")) if _run_label else ""
+            _tag_suffix = (f"_TDUK{_a1a3_tag}" if _a1a3_override else "") + _label_tag
             export_out = ga_ae.run_export(
                 analysis_out         = analysis_out,
                 result               = result,

@@ -276,6 +276,7 @@ def evaluate_design_candidate(
         "milp_status":         None,
         "total_cost":          float("inf"),
         "reuse_fraction":      0.0,
+        "carbon_avoided":      None,
         "gnn_feasibility":     None,
         "gnn_unsafe_members":  None,
         "preds_physical":      None,
@@ -444,6 +445,20 @@ def evaluate_design_candidate(
         # ---- fitness --------------------------------------------------------
         weight_config = _resolve_weight_config(config_dict, w_structural)
 
+        # v2 add-on (§6.4.4): carbon-avoided reward, opt-in via reuse_reward_mode.
+        # Computed here because the cost matrix is in scope; v1 (volume reuse)
+        # is the default and is reported regardless.
+        reuse_reward_mode = str(config_dict.get("reuse_reward_mode", "volume"))
+        carbon_avoided = None
+        if reuse_reward_mode == "carbon_avoided":
+            try:
+                carbon_avoided = stage_cost.carbon_avoided_by_reuse(
+                    cost_matrix, df_slots, df_results, stock_prepared
+                )
+            except Exception as exc:
+                warnings.warn(f"carbon_avoided_by_reuse failed: {exc}", stacklevel=2)
+                carbon_avoided = None
+
         fitness_out = stage_fitness.run_fitness_stage(
             df_results               = df_results,
             enriched_stock           = stock_prepared,
@@ -455,6 +470,8 @@ def evaluate_design_candidate(
             derive_normalization_constants = False,
             run_sanity_checks        = False,
             print_breakdown          = False,
+            carbon_avoided           = carbon_avoided,
+            reuse_reward_mode        = reuse_reward_mode,
         )
 
         fitness_result = fitness_out["fitness_result"]
@@ -465,6 +482,7 @@ def evaluate_design_candidate(
             "fitness_result": fitness_result,
             "total_cost":      float(fitness_result.get("cost_raw", total_cost)),
             "reuse_fraction":  float(fitness_result.get("reuse_fraction", 0.0)),
+            "carbon_avoided":  fitness_result.get("carbon_avoided"),
             "df_vertices":    df_vertices,
             "df_edges":       df_edges,
             "df_results":     df_results,
