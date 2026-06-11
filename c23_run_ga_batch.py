@@ -297,8 +297,8 @@ def run_batch_for_scenario(training_scenario: str, run_offset: int, total_runs: 
             # Record the TDUK 2026 LCA override (if any) so exports are self-documenting,
             # and tag the run folder with it so TDUK results never collide with the
             # baseline RUN{n} (which can share the same seeds). §6.4.2.
-            _a1a3_override = os.environ.get("GA_A1A3_PER_M3")
-            _ga_config_export["a1a3_per_m3_override"] = _a1a3_override
+            _a1a3_override = os.environ.get("GA_A1A3_PER_KG")
+            _ga_config_export["a1a3_per_kg_override"] = _a1a3_override
             _a1a3_tag = _a1a3_override.replace(".", "p") if _a1a3_override else ""
             _tag_suffix = f"_TDUK{_a1a3_tag}" if _a1a3_override else ""
             export_out = ga_ae.run_export(

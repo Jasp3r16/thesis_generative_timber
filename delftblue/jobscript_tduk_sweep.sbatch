@@ -3,11 +3,11 @@
 # Sweeps the new-softwood A1-A3 factor from the 2025 value to the 2026 value and
 # measures how Stock A cost / reuse respond as new timber's embodied carbon falls.
 #
-#   NS density is a constant 350 kg/m3 in this stock, so a per-VOLUME factor of
-#   X kg CO2e/m3 equals a per-MASS factor of X/350 kg/kg EXACTLY. Hence:
-#     2025 (thesis) : 87.5 kg/m3  ==  0.25 kg/kg   <- reproduces the thesis baseline
-#     2026 (TDUK)   : 47.0 kg/m3  ==  0.134 kg/kg
-#   The 87.5 point is therefore a built-in sanity check against thesis Stock A.
+#   The factor is swept in PER-MASS units (kg CO2e/kg) via GA_A1A3_PER_KG, which
+#   directly overrides IMPACT_FACTOR_A1_A3 (default 0.25). This makes the 0.250
+#   point reproduce the thesis Stock A baseline EXACTLY — no density conversion.
+#     2025 (thesis) : 0.250 kg/kg   <- = IMPACT_FACTOR_A1_A3, reproduces baseline
+#     2026 (TDUK)   : 0.112 kg/kg   <- = 47 kg/m3 / 420 (new-timber mean_density)
 #
 # Config: scenario A, cap=10 (matches thesis), 250 generations, seed-matched.
 # Array 0-14 = 5 factor points x 3 seeds (42/43/44).
@@ -16,8 +16,8 @@
 #
 #   sbatch delftblue/jobscript_tduk_sweep.sbatch
 #
-# Exports self-tag as ..._RUN{n}_TDUK{factor}_... (e.g. RUN1_TDUK87p5, RUN1_TDUK47p0)
-# and run_config.json records a1a3_per_m3_override — no collisions, fully traceable.
+# Exports self-tag as ..._RUN{n}_TDUK{factor}_... (e.g. RUN1_TDUK0p250, RUN1_TDUK0p112)
+# and run_config.json records a1a3_per_kg_override — no collisions, fully traceable.
 
 #SBATCH --job-name=ga_Asweep
 #SBATCH --partition=compute
@@ -46,19 +46,19 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 
-# 2025 -> 2026, evenly spaced (kg CO2e/m3). FACTORS[0]=87.5 reproduces thesis.
-FACTORS=(87.5 77.4 67.3 57.2 47.0)
+# 2025 -> 2026, evenly spaced (kg CO2e/kg). FACTORS[0]=0.250 reproduces thesis.
+FACTORS=(0.250 0.216 0.181 0.147 0.112)
 FIDX=$(( SLURM_ARRAY_TASK_ID / 3 ))
 SIDX=$(( SLURM_ARRAY_TASK_ID % 3 ))
 
 export GA_SCENARIO=A
 export GA_GENERATIONS=250
 export GA_RUN_INDEX="${SIDX}"
-export GA_A1A3_PER_M3="${FACTORS[$FIDX]}"
+export GA_A1A3_PER_KG="${FACTORS[$FIDX]}"
 
 echo "Job ${SLURM_ARRAY_JOB_ID} task ${SLURM_ARRAY_TASK_ID} on $(hostname) — $(date)"
-echo "SWEEP  A1A3_PER_M3=${GA_A1A3_PER_M3} kg/m3  seed=$((42 + SIDX))  (cap=10, 250 gen)"
+echo "SWEEP  A1A3_PER_KG=${GA_A1A3_PER_KG} kg/kg  seed=$((42 + SIDX))  (cap=10, 250 gen)"
 
 python -u c23_run_ga_batch.py
 
-echo "Done sweep task ${SLURM_ARRAY_TASK_ID} (factor ${GA_A1A3_PER_M3}, seed $((42+SIDX))) — $(date)"
+echo "Done sweep task ${SLURM_ARRAY_TASK_ID} (factor ${GA_A1A3_PER_KG}, seed $((42+SIDX))) — $(date)"
