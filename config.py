@@ -63,7 +63,7 @@ else:
     )
 
 # 3. FIGURES (Export paths — lives alongside other research exports in OneDrive)
-FIGURES_DIR = EXPORT_PATH / "figures"
+FIGURES_DIR = EXPORT_PATH / "07_figures"
 FIG_PDF_DIR = FIGURES_DIR / "pdf"
 FIG_PNG_DIR = FIGURES_DIR / "png"
 
@@ -86,11 +86,9 @@ PLOT_COLORS = {
     "extra_colors": 
     {
     "deep_navy": "#2F3E4F",
-    "muted_teal": "#4F8A8B",
     "soft_sage_green": "#A8B89A",
     "dusty_plum": "#7B667D"
     }
-
 }
 
 PLOT_STYLE = {
