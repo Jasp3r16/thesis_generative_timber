@@ -29,10 +29,12 @@ scp "$TMPTAR" "$REMOTE:$DEST/_code.tar.gz"
 ssh "$REMOTE" "cd '$DEST' && tar -xzf _code.tar.gz && rm -f _code.tar.gz"
 rm -f "$TMPTAR"
 
-echo "3/4  Uploading stock CSV (scenario A)..."
+echo "3/4  Uploading stock CSVs (A, B, new)..."
 ssh "$REMOTE" "mkdir -p '$DEST/30_Data_Inventory/03_timber_data'"
-scp "$ONEDRIVE/30_Data_Inventory/03_timber_data/complete_timber_A.csv" \
-    "$REMOTE:$DEST/30_Data_Inventory/03_timber_data/"
+for s in A B new; do
+    scp "$ONEDRIVE/30_Data_Inventory/03_timber_data/complete_timber_${s}.csv" \
+        "$REMOTE:$DEST/30_Data_Inventory/03_timber_data/"
+done
 
 echo "4/4  Uploading GNN bundle..."
 ssh "$REMOTE" "mkdir -p '$DEST/60_Research_Exports/01_surrogate_models'"
