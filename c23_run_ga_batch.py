@@ -36,6 +36,10 @@ GA_CONFIG = {
     "w_structural_end":   0.8,   # relaxes as search converges
     "max_structural_infeas": 0.6,  # hard floor: infeas > 0.60 → penalty regardless
     "use_gnn":            USE_GNN,
+    "evaluator":          "gnn",   # structural backend: "gnn" (default) | "fem".
+                                    # "fem" = direct FEM evaluator (fem-direct-evaluator
+                                    # branch); keep "gnn" to reproduce thesis results.
+    "fem_force_safety_factor": 1.0, # FEM uses exact per-member forces (no ×2 fudge).
 }
 
 CMAES_POPSIZE      = 30
@@ -78,6 +82,12 @@ _reuse_reward = os.environ.get("GA_REUSE_REWARD")
 if _reuse_reward:
     GA_CONFIG["reuse_reward_mode"] = _reuse_reward
 
+# Structural evaluator backend (fem-direct-evaluator branch): "gnn" | "fem".
+# No-op when unset → default "gnn" (thesis behaviour).
+_evaluator = os.environ.get("GA_EVALUATOR")
+if _evaluator:
+    GA_CONFIG["evaluator"] = _evaluator.strip().lower()
+
 
 # Repo path setup
 
@@ -99,6 +109,7 @@ from workflows import c24_stage_feasibility          as stage_feas
 from workflows import c25_stage_cost_matrix          as stage_cost
 from workflows import c26_stage_MILP                 as stage_milp
 from workflows import c27_stage_GNN                  as stage_gnn
+from workflows import c27_stage_FEM                  as stage_fem
 from workflows import c28_stage_fitness_score        as stage_fitness
 from workflows import c28_stage_normalization_bounds as stage_bounds
 from workflows import c23_ga_evaluator               as ga_eval
@@ -107,7 +118,7 @@ from workflows import c23_ga_algorithm               as ga_algo
 from c21_surrogate_io import load_surrogate_bundle
 
 for _mod in [stage_geometry, stage_feas, stage_cost, stage_milp,
-             stage_gnn, stage_fitness, stage_bounds, ga_eval, ga_ae, ga_algo]:
+             stage_gnn, stage_fem, stage_fitness, stage_bounds, ga_eval, ga_ae, ga_algo]:
     importlib.reload(_mod)
 
 json_path = config.DATA_IO_PATH / f"search_space_{c11_params.GRID}.json"

@@ -9,6 +9,7 @@ from workflows import c24_stage_feasibility          as stage_feas
 from workflows import c25_stage_cost_matrix          as stage_cost
 from workflows import c26_stage_MILP                 as stage_milp
 from workflows import c27_stage_GNN                  as stage_gnn
+from workflows import c27_stage_FEM                  as stage_fem
 from workflows import c28_stage_fitness_score        as stage_fitness
 from workflows import c28_stage_normalization_bounds as stage_bounds
 
@@ -364,8 +365,15 @@ def evaluate_design_candidate(
             print(f"    ✓ MILP        | status=Optimal, cost={total_cost:.4f}, "
                   f"{len(df_results)} assignments")
 
-        # ---- GNN feasibility (on MILP assignment built inside run_milp_stage) --
+        # ---- structural feasibility (GNN surrogate OR direct FEM) -------------
+        # On the MILP assignment built inside run_milp_stage. The `evaluator`
+        # toggle ("gnn" | "fem") selects the backend; both return the same
+        # contract (feasibility_score, unsafe_member_ids, preds_physical), so
+        # everything downstream is unchanged. Default "gnn" preserves the
+        # original behaviour byte-for-byte — the FEM branch is never entered
+        # unless explicitly requested.
         use_gnn            = config_dict.get("use_gnn", True)
+        evaluator          = str(config_dict.get("evaluator", "gnn")).strip().lower()
         gnn_feasibility    = 1.0
         gnn_unsafe_members = []
         preds_physical     = None
@@ -373,6 +381,34 @@ def evaluate_design_candidate(
         if not use_gnn:
             if verbose:
                 print(f"    - GNN         | disabled (use_gnn=False in GA_CONFIG)")
+        elif evaluator == "fem":
+            milp_assignment = milp_out.get("milp_assignment")
+            if milp_assignment is None:
+                warnings.warn(
+                    "milp_out['milp_assignment'] is None — FEM stage skipped. "
+                    "Ensure stock_df_raw is passed to run_milp_stage().",
+                    stacklevel=2,
+                )
+                if verbose:
+                    print(f"    - FEM         | skipped (milp_assignment is None)")
+            else:
+                fem_out = stage_fem.run_fem_stage(
+                    node_positions      = node_positions,
+                    milp_assignment     = milp_assignment,
+                    df_input_stock      = df_stock,
+                    edges_df            = df_edges,
+                    stock_df            = prepared_gnn_stock,
+                    support_nodes       = support_nodes,
+                    load_nodes          = load_nodes,
+                    force_safety_factor = float(config_dict.get("fem_force_safety_factor", 1.0)),
+                    print_summary       = False,
+                )
+                gnn_feasibility    = float(fem_out["feasibility_score"])
+                gnn_unsafe_members = fem_out["unsafe_member_ids"]
+                preds_physical     = fem_out["preds_physical"]
+                if verbose:
+                    print(f"    ✓ FEM         | feasibility={gnn_feasibility:.2%}, "
+                          f"unsafe={len(gnn_unsafe_members)} members")
         elif MODEL_PREFIX or bundle is not None:
             milp_assignment = milp_out.get("milp_assignment")
             if milp_assignment is None:
