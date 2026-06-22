@@ -100,3 +100,25 @@ PLOT_STYLE = {
     "line_width": 2.0,
     "marker_size": 5,
 }
+
+PLOT_FONT = ["Arial", "Helvetica Neue LT Std", "DejaVu Sans"]
+
+def _register_local_fonts():
+    """Register user-installed fonts with matplotlib.
+
+    Matplotlib only scans C:\\Windows\\Fonts by default, missing fonts installed
+    per-user to %LOCALAPPDATA%\\Microsoft\\Windows\\Fonts (e.g. Helvetica Neue LT Std).
+    Only runs when matplotlib is already imported, so GA/data scripts are unaffected.
+    """
+    import sys
+    if "matplotlib" not in sys.modules:
+        return
+    from matplotlib import font_manager as fm
+    _local = Path.home() / "AppData" / "Local" / "Microsoft" / "Windows" / "Fonts"
+    if _local.exists():
+        for _f in _local.glob("*.otf"):
+            fm.fontManager.addfont(str(_f))
+        for _f in _local.glob("*.ttf"):
+            fm.fontManager.addfont(str(_f))
+
+_register_local_fonts()
