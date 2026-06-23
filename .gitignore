@@ -25,6 +25,7 @@ checkpoint_*.ipynb
 *.csv
 !02_data_io/*.csv
 SCAN.md
+VALIDATION.md
 
 # Scratch directories
 data/
