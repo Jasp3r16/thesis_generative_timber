@@ -36,10 +36,7 @@ import numpy as np
 import pandas as pd
 
 import c24_stage_feasibility as c24
-from c24_stage_feasibility import (
-    compute_nodal_fz, LOAD_KN_PER_M2,
-    GAMMA_M, KMOD, BETA_C,
-)
+from c24_stage_feasibility import compute_nodal_fz, LOAD_KN_PER_M2, BETA_C
 
 # Default boundary conditions for the 5×3 grid topology (mirror c27_stage_GNN).
 # Pass support_nodes / load_nodes explicitly when the geometry differs.
@@ -213,19 +210,28 @@ def ec5_member_utilisation(
     f_c0k:            np.ndarray,
     E_005:            np.ndarray,
     force_safety_factor: float = 1.0,
+    kmod:    float = 1.0,
+    gamma_m: float = 1.0,
 ) -> np.ndarray:
     """
-    Per-member EC5 utilisation ratio UC (UC ≥ 1 ⇒ unsafe). Pure axial strength +
-    compression buckling — the same checks c24 uses, recast as a continuous UC for
-    the single assigned section. Mirrors the Karamba "Utilization" label semantics.
+    Per-member EC5 utilisation ratio UC (UC ≥ 1 ⇒ unsafe). Axial strength +
+    compression buckling, recast as a continuous UC for the single assigned section.
 
-    Tension      : UC = N / (A · f_td),               f_td = kmod·f_tk / γ_M
-    Compression  : UC = |N| / (A · kc · f_cd),         f_cd = kmod·f_c0k / γ_M
+    Tension      : UC = N / (A · f_t,d),    f_t,d  = kmod·f_tk  / γ_M
+    Compression  : UC = |N| / (A · kc · f_c,d),  f_c,d = kmod·f_c0k / γ_M
                    kc per EC5 §6.3.2, weak-axis radius of gyration i = min(w,d)/√12
+
+    Capacity basis (kmod, gamma_m):
+        Default (1.0, 1.0) = **characteristic** strengths. This matches the
+        Karamba "Utilization" labels the GNN was trained on (verified empirically:
+        characteristic gives a median FEM/Karamba UC ratio of ~1.1 vs ~1.8 for
+        design values). Use this for a faithful drop-in / apples-to-apples GNN
+        comparison. Pass (0.8, 1.3) for a proper EC5 *design* check (service
+        class 1, medium-term) — more conservative, but no longer matches Karamba.
     """
     A_mm2 = width_mm * depth_mm
-    f_td  = KMOD * f_tk  / GAMMA_M
-    f_cd  = KMOD * f_c0k / GAMMA_M
+    f_td  = kmod * f_tk  / gamma_m
+    f_cd  = kmod * f_c0k / gamma_m
 
     N      = member_forces_n * force_safety_factor
     L_mm   = member_lengths_m * 1000.0
@@ -271,6 +277,8 @@ def fem_feasibility(
     support_nodes:   list[int] | None = None,
     load_nodes:      list[int] | None = None,
     force_safety_factor: float = 1.0,
+    kmod:    float = 1.0,
+    gamma_m: float = 1.0,
 ) -> tuple[float, list[int], np.ndarray, dict]:
     """
     Single direct-FEM evaluation of structural feasibility for a MILP assignment.
@@ -324,6 +332,8 @@ def fem_feasibility(
         f_c0k               = f_c0k,
         E_005               = E_005,
         force_safety_factor = force_safety_factor,
+        kmod                = kmod,
+        gamma_m             = gamma_m,
     )
 
     unsafe_flags      = member_uc >= 1.0
@@ -347,6 +357,8 @@ def run_fem_stage(
     support_nodes:   list[int] | None = None,
     load_nodes:      list[int] | None = None,
     force_safety_factor: float = 1.0,
+    kmod:    float = 1.0,
+    gamma_m: float = 1.0,
     print_summary:   bool = False,
 ) -> dict[str, Any]:
     """
@@ -372,6 +384,8 @@ def run_fem_stage(
         support_nodes       = support_nodes,
         load_nodes          = load_nodes,
         force_safety_factor = force_safety_factor,
+        kmod                = kmod,
+        gamma_m             = gamma_m,
     )
 
     n_unsafe = extra["n_unsafe"]

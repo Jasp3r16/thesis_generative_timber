@@ -40,6 +40,8 @@ GA_CONFIG = {
                                     # "fem" = direct FEM evaluator (fem-direct-evaluator
                                     # branch); keep "gnn" to reproduce thesis results.
     "fem_force_safety_factor": 1.0, # FEM uses exact per-member forces (no ×2 fudge).
+    "fem_capacity_basis": "characteristic",  # "characteristic" matches Karamba/GNN
+                                    # labels (validated); "design" = EC5 kmod/γ_M.
 }
 
 CMAES_POPSIZE      = 30

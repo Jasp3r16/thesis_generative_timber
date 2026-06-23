@@ -392,6 +392,14 @@ def evaluate_design_candidate(
                 if verbose:
                     print(f"    - FEM         | skipped (milp_assignment is None)")
             else:
+                # Capacity basis: "characteristic" (kmod=γ_M=1.0) matches the
+                # Karamba labels the GNN learned (verified in validation); "design"
+                # applies EC5 kmod/γ_M for a conservative real-code check.
+                _basis = str(config_dict.get("fem_capacity_basis", "characteristic")).strip().lower()
+                _kmod, _gamma_m = (
+                    (stage_feas.KMOD, stage_feas.GAMMA_M) if _basis == "design"
+                    else (1.0, 1.0)
+                )
                 fem_out = stage_fem.run_fem_stage(
                     node_positions      = node_positions,
                     milp_assignment     = milp_assignment,
@@ -401,6 +409,8 @@ def evaluate_design_candidate(
                     support_nodes       = support_nodes,
                     load_nodes          = load_nodes,
                     force_safety_factor = float(config_dict.get("fem_force_safety_factor", 1.0)),
+                    kmod                = _kmod,
+                    gamma_m             = _gamma_m,
                     print_summary       = False,
                 )
                 gnn_feasibility    = float(fem_out["feasibility_score"])
